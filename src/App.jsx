@@ -234,8 +234,11 @@ export default function App() {
       creditsRemaining,
       notify,
       navigate,
+      onSuccess: async () => {
+        await fetchAndApplyAdminData(user?.role);
+      },
     });
-  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate]);
+  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user?.role]);
 
   const handleBuyPack = useCallback(async () => {
     await purchasePackFlow({
@@ -244,8 +247,11 @@ export default function App() {
       setCreditsRemaining,
       creditsRemaining,
       notify,
+      onSuccess: async () => {
+        await fetchAndApplyAdminData(user?.role);
+      },
     });
-  }, [canManageBilling, creditsRemaining, notify]);
+  }, [canManageBilling, creditsRemaining, notify, fetchAndApplyAdminData, user?.role]);
 
   const fetchAndApplyAdminData = useCallback(async (role) => {
     if (!role) return;

@@ -129,7 +129,12 @@ async function initSqlite() {
 async function initPostgres() {
   const conn = process.env.DATABASE_URL;
   if (!conn) throw new Error("DB_CLIENT=postgres but DATABASE_URL is not set.");
-  pgPool = new Pool({ connectionString: conn, ssl: ENV.isProduction ? { rejectUnauthorized: false } : undefined });
+  const appName = (process.env.PGAPPNAME || process.env.PG_APPLICATION_NAME || "schooltime-api").trim();
+  pgPool = new Pool({
+    connectionString: conn,
+    application_name: appName,
+    ssl: ENV.isProduction ? { rejectUnauthorized: false } : undefined,
+  });
   const schemaPath = path.resolve("server", "db", "postgres-schema.sql");
   const schemaSql = fs.readFileSync(schemaPath, "utf8");
   await pgPool.query(schemaSql);
