@@ -42,7 +42,8 @@ export function createAuthRoutes(db) {
     if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
     const emailNorm = parsed.data.email.trim().toLowerCase();
     const row = await db.get("SELECT id, org_id, full_name, email, password_hash, role, is_active FROM users WHERE email = ?", emailNorm);
-    if (!row || !comparePassword(parsed.data.password, row.password_hash)) return res.status(401).json({ error: "Invalid credentials" });
+    if (!row) return res.status(404).json({ error: "Account not found" });
+    if (!comparePassword(parsed.data.password, row.password_hash)) return res.status(401).json({ error: "Incorrect password" });
     if (!row.is_active) return res.status(403).json({ error: "User is deactivated" });
     const tokens = await issueTokenPair(db, row);
     await logAudit(db, row.org_id, row.id, "USER_LOGIN", "user", row.id);

@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { confirmPasswordReset, requestPasswordReset } from "../../api";
 
 export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
@@ -12,13 +12,26 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
   const [busy, setBusy] = useState(false);
   const isCompact = typeof window !== "undefined" ? window.innerWidth < 900 : false;
 
+  useEffect(() => {
+    // Clear stale auth errors when switching between login/register/reset views.
+    setError("");
+    setResetTokenHint("");
+  }, [mode]);
+
   const submit = async () => {
     setError("");
     setBusy(true);
     try {
       await onSubmit(form);
     } catch (err) {
-      setError(err.message || "Authentication failed");
+      const rawMessage = err?.message || "Authentication failed";
+      if (mode === "login" && rawMessage === "Incorrect password") {
+        setError("Incorrect password. Please try again.");
+      } else if (mode === "login" && rawMessage === "Account not found") {
+        setError("No account found with this email. Please register first.");
+      } else {
+        setError(rawMessage);
+      }
     } finally {
       setBusy(false);
     }
