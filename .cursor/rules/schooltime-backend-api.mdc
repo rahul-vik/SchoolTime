@@ -1,0 +1,22 @@
+---
+description: Backend and API conventions for SchoolTime server
+globs: server/**/*.js
+alwaysApply: false
+---
+
+# Backend/API Rules
+
+- Keep route handlers thin; move shared/business logic to `server/services/*` or engine helpers.
+- Preserve auth and role boundaries from `server/index.js` middleware wiring.
+- Maintain stable response shape unless change is intentional and documented in `docs/API.md`.
+- Include meaningful error messages (`error`, optional `detail`) for client display.
+- Keep DB changes additive and migration-safe in `server/db.js` (guard with `PRAGMA table_info` checks).
+- Avoid destructive schema/data operations in normal app startup.
+- Keep audit-sensitive actions logged where applicable.
+
+## API Safety
+
+- Validate inputs before processing.
+- Do not trust client payloads for role/tenant authority.
+- Ensure org/user scoping is respected in queries and writes.
+

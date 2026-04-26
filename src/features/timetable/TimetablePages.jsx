@@ -1,0 +1,521 @@
+﻿import { useState } from "react";
+import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+
+export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, ui }) {
+  const { T, css, Btn, ProgressBar, Modal } = ui;
+  const { isMobile } = useBreakpoint();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const activeRules = schedulingRules.filter((r) => r.isActive);
+  const restrictedCount = teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length;
+
+  const readiness = [
+    { label: "Classes added", ok: divisions.length > 0, count: divisions.length, nav: "standards" },
+    { label: "Subjects added", ok: subjects.length > 0, count: subjects.length, nav: "subjects" },
+    { label: "Teachers added", ok: teachers.length > 0, count: teachers.length, nav: "teachers" },
+    { label: "Subjects assigned to teachers", ok: teachers.some((t) => (t.subjectIds || []).length > 0), count: teachers.filter((t) => (t.subjectIds || []).length > 0).length, nav: "teachers" },
+  ];
+  const isReady = readiness.every((r) => r.ok);
+
+  const summaryCols = isMobile ? "1fr" : "1fr 1fr";
+
+  return (
+    <div style={{ width: "100%", maxWidth: 680, minWidth: 0, boxSizing: "border-box" }}>
+      <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Create timetable</h2>
+      <div style={{ ...css.card, marginBottom: 16, padding: isMobile ? 16 : 20 }}>
+        <h3 style={{ margin: "0 0 18px", fontSize: 15, fontWeight: 700 }}>Before You Create</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {readiness.map((r, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 14px", borderRadius: 10, background: r.ok ? T.success + "10" : T.danger + "08", border: `1px solid ${r.ok ? T.success + "30" : T.danger + "25"}`, flexWrap: "wrap" }}>
+              <UiIcon name={r.ok ? "check" : "alert"} size={18} stroke={r.ok ? T.success : T.danger} />
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: r.ok ? T.success : T.danger }}>{r.label}</div><div style={{ fontSize: 11, color: T.textSoft }}>{r.count} configured</div></div>
+              {!r.ok && <Btn onClick={() => navigate(r.nav)} variant="ghost" size="sm" style={{ flexShrink: 0 }}>Fix →</Btn>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 16, padding: isMobile ? 16 : 20 }}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Placement Preferences</h3>
+        {activeRules.length === 0
+          ? <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.warning + "10", borderRadius: 8, border: `1px solid ${T.warning + "30"}` }}><UiIcon name="alert" size={15} stroke={T.warning} /><span style={{ fontSize: 13, color: T.warning, flex: 1 }}>No placement preferences set yet.</span><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Set →</Btn></div>
+          : <div><div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{activeRules.map((r) => { const sub = subjects.find((s) => s.id === r.subjectId); return <span key={r.id} style={{ ...css.badge(sub?.colorHex || T.CORE), gap: 4 }}><UiIcon name="preferences" size={12} stroke="currentColor" />{sub?.code}</span>; })}</div><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Review Preferences →</Btn></div>}
+      </div>
+
+      <div style={{ ...css.card, padding: isMobile ? 16 : 20 }}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 700 }}>Generation Summary</h3>
+        <p style={{ fontSize: 13, color: T.textSoft, margin: "0 0 16px" }}>We will use your classes, subjects, teachers, and preferences to create the timetable.</p>
+        <div style={{ display: "grid", gridTemplateColumns: summaryCols, gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "Classes", value: divisions.length },
+            { label: "Teachers", value: teachers.length },
+            { label: "Preferences", value: `${activeRules.length} set` },
+            { label: "Teacher class limits", value: `${restrictedCount} set` },
+          ].map((item) => (
+            <div key={item.label} style={{ padding: "11px 14px", background: T.surfaceAlt, borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 3 }}>{item.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {timetableStatus === "GENERATING" ? (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 13, fontWeight: 700, color: T.brand }}>Generating…</span><span style={{ fontSize: 13, fontWeight: 800, color: T.brand }}>{generatingProgress}%</span></div>
+            <ProgressBar value={generatingProgress} max={100} color={T.brand} height={8} />
+            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {["Step 1: Place fixed periods", "Step 2: Fill schedule", "Step 3: Improve fit", "Step 4: Final checks"].map((phase, i) => (
+                <span key={i} style={{ ...css.badge(generatingProgress > i * 25 ? T.success : T.textSoft), fontSize: 11, gap: 4 }}>{generatingProgress > i * 25 ? <UiIcon name="check" size={11} stroke="currentColor" /> : null}{phase}</span>
+              ))}
+            </div>
+          </div>
+        ) : timetableStatus === "GENERATED" ? (
+          <div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, padding: 14, background: T.success + "10", borderRadius: 10, border: `1px solid ${T.success + "30"}` }}>
+              <UiIcon name="check" size={20} stroke={T.success} />
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: T.success }}>Timetable Ready!</div><div style={{ fontSize: 12, color: T.textSoft }}>Quality score: {timetable?.score}/100</div></div>
+              <Btn onClick={() => navigate("timetable")} size="sm">View →</Btn>
+            </div>
+            <Btn onClick={() => setConfirmOpen(true)} variant="ghost" fullWidth>Create Again</Btn>
+          </div>
+        ) : (
+          <Btn onClick={() => isReady ? setConfirmOpen(true) : notify("Please complete the checklist first", "warning")} disabled={!isReady} fullWidth size="lg"><UiIcon name="create" size={14} stroke="currentColor" />Create Timetable</Btn>
+        )}
+      </div>
+
+      {confirmOpen && (
+        <Modal title="Confirm Timetable Creation" onClose={() => setConfirmOpen(false)} width={420}>
+          <p style={{ fontSize: 14, color: T.textMid, margin: "0 0 8px" }}>This will create a timetable for:</p>
+          <ul style={{ fontSize: 13, color: T.textMid, margin: "0 0 12px", paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>{divisions.length} divisions across {standards.length} standards</li>
+            <li>{subjects.length} subjects · {teachers.length} teachers</li>
+            <li>{restrictedCount} teachers with class limits</li>
+            <li>{activeRules.length} placement preferences</li>
+          </ul>
+          {timetableStatus === "GENERATED" && <p style={{ fontSize: 13, color: T.warning, margin: "0 0 16px", display: "flex", alignItems: "center", gap: 6 }}><UiIcon name="alert" size={14} stroke={T.warning} />This will replace the current timetable.</p>}
+          <div style={{ display: "flex", gap: 10 }}><Btn onClick={() => { setConfirmOpen(false); onGenerate(); }}>Create Now</Btn><Btn onClick={() => setConfirmOpen(false)} variant="ghost">Cancel</Btn></div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, notify, navigate, helpers, ui }) {
+  const { T, css, Btn, EmptyState } = ui;
+  const { TimetableGrid } = helpers;
+  const { isMobile } = useBreakpoint();
+  if (timetableStatus === "DRAFT" || !timetable) {
+    return (
+      <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+        <h2 style={{ margin: "0 0 14px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Timetable</h2>
+        <EmptyState iconKey="create" title="No timetable yet" desc="Create a timetable to view it here" action={<Btn onClick={() => navigate("generate")}>Go to Create</Btn>} />
+      </div>
+    );
+  }
+  const selectedId = viewMode === "division" ? selectedDivisionId : selectedTeacherId;
+  const currentDiv = divisions.find((d) => d.id === selectedDivisionId);
+  const currentStd = currentDiv ? standards.find((s) => s.id === currentDiv.standardId) : null;
+  const selTeacher = teachers.find((t) => t.id === selectedTeacherId);
+  const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
+
+  return (
+    <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+      <h2 style={{ margin: "0 0 14px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Timetable</h2>
+      <div style={{ display: "flex", gap: 10, alignItems: "stretch", marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", background: T.surfaceAlt, borderRadius: 8, padding: 3, border: `1px solid ${T.surfaceBorder}`, flex: isMobile ? "1 1 100%" : undefined, justifyContent: isMobile ? "stretch" : undefined }}>
+          {["division", "teacher"].map((m) => (
+            <button key={m} onClick={() => setViewMode(m)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: viewMode === m ? T.brand : "transparent", color: viewMode === m ? "#fff" : T.textMid, transition: "all 0.15s", textTransform: "capitalize" }}>{m}</button>
+          ))}
+        </div>
+        {viewMode === "division" ? (
+          <select value={selectedDivisionId} onChange={(e) => setSelectedDivisionId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 150, flex: isMobile ? "1 1 100%" : 1 }}>
+            {divisions.map((d) => { const s = standards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
+          </select>
+        ) : (
+          <select value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 160, flex: isMobile ? "1 1 100%" : 1 }}>
+            {teachers.map((t) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
+          </select>
+        )}
+        <Btn onClick={() => { setIsEditMode((p) => !p); if (isEditMode) setPendingSwap(null); }} variant={isEditMode ? "primary" : "ghost"} size="sm" style={isMobile ? { alignSelf: "flex-start" } : undefined}>{isEditMode ? "Edit Mode On" : "Edit"}</Btn>
+      </div>
+
+      {isEditMode && (
+        <div style={{ padding: "10px 14px", background: T.info + "14", borderRadius: 8, marginBottom: 14, fontSize: 13, color: T.info, fontWeight: 500 }}>
+          {pendingSwap ? "Period selected — tap another period to swap." : "Tap one period, then tap another to swap."}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ ...css.card, display: "flex", alignItems: "center", gap: 14, flex: "1 1 180px", padding: "14px 16px" }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: (timetable.score > 85 ? T.success : T.warning) + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 900, color: timetable.score > 85 ? T.success : T.warning }}>{timetable.score}</div>
+          <div><div style={{ fontSize: 13, fontWeight: 700 }}>Timetable Quality</div><div style={{ fontSize: 11, color: T.textSoft }}>{timetable.report?.totalScheduled}/{timetable.report?.totalRequired} placed</div></div>
+        </div>
+        {timetable.report?.unscheduled?.length > 0 && (
+          <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><UiIcon name="alert" size={14} stroke={T.warning} />{timetable.report.unscheduled.length} subjects need more periods</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{timetable.report.unscheduled.slice(0, 6).map((u, i) => { const s = subjects.find((x) => x.id === u.subjectId); return <span key={i} style={css.badge(T.warning)}>{s?.code}: -{u.periodsShort}</span>; })}</div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...css.card, padding: isMobile ? 12 : 20, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, minWidth: 0 }}>
+            {viewMode === "division" && currentDiv ? `Std ${currentStd?.name} — Div ${currentDiv.name}` : viewMode === "teacher" && selTeacher ? `${selTeacher.firstName} ${selTeacher.lastName}` : ""}
+          </h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {["LANGUAGE", "CORE", "NON_CORE", "EXTRA_CURRICULAR"].map((cat) => (
+              <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.textSoft }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: T[cat], display: "inline-block" }} />{cat.replace(/_/g, " ")}</span>
+            ))}
+          </div>
+        </div>
+        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} />
+        {viewMode === "teacher" && hasFreeConf && (
+          <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.info, textAlign: "center" }}>
+            Teacher free periods: {selTeacher.freeMorningPeriods || 0} morning · {selTeacher.freeEveningPeriods || 0} evening per day
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function ReportsPage({ timetable, divisions, subjects, teachers, standards, workingDays, periodSlots, navigate, ui }) {
+  const { T, css, Btn, EmptyState, ProgressBar } = ui;
+  const { isMobile } = useBreakpoint();
+  const [activeReport, setActiveReport] = useState("subject-hours");
+  if (!timetable) {
+    return (
+      <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+        <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Reports</h2>
+        <EmptyState iconKey="reports" title="No timetable yet" desc="Create a timetable to view reports" action={<Btn onClick={() => navigate("generate")}>Create Now</Btn>} />
+      </div>
+    );
+  }
+
+  const subjectHours = subjects.map((sub) => {
+    const byStd = {};
+    standards.forEach((std) => {
+      const divs = divisions.filter((d) => d.standardId === std.id);
+      const total = divs.reduce((acc, div) => acc + timetable.entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length, 0);
+      if (total > 0) byStd[std.name] = Math.round(total / Math.max(divs.length, 1));
+    });
+    return { subject: sub, byStandard: byStd };
+  });
+
+  const teacherWorkload = teachers.map((t) => {
+    const assigned = timetable.entries.filter((e) => e.teacherId === t.id).length;
+    const pct = Math.round((assigned / (t.maxPerWeek || 30)) * 100);
+    return { teacher: t, assigned, max: t.maxPerWeek || 30, pct };
+  });
+
+  const divReportCols = isMobile ? "1fr" : "repeat(auto-fill,minmax(250px,1fr))";
+
+  return (
+    <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+      <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Reports</h2>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {[["subject-hours", "Subject Hours"], ["teacher-workload", "Teacher Workload"], ["division-completion", "Division Completion"]].map(([id, label]) => (
+          <button key={id} onClick={() => setActiveReport(id)} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${activeReport === id ? T.brand : T.surfaceBorder}`, background: activeReport === id ? T.brand : "transparent", color: activeReport === id ? "#fff" : T.textMid, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{label}</button>
+        ))}
+      </div>
+
+      {activeReport === "subject-hours" && (
+        <div style={{ ...css.card, overflowX: "auto" }}>
+          <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700 }}>Weekly Subject Hours (Average per Division)</h3>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 500 }}>
+            <thead><tr style={{ background: T.surfaceAlt }}>{["Subject", "Category", "Required", ...standards.map((s) => `Std ${s.name}`)].map((h) => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: T.textSoft, textTransform: "uppercase", borderBottom: `1px solid ${T.surfaceBorder}` }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {subjectHours.filter((sh) => Object.keys(sh.byStandard).length > 0).map((sh, i) => (
+                <tr key={sh.subject.id} style={{ borderBottom: `1px solid ${T.surfaceBorder}`, background: i % 2 === 0 ? T.surface : T.surfaceAlt + "50" }}>
+                  <td style={{ padding: "10px 14px" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: sh.subject.colorHex }} /><span style={{ fontWeight: 700 }}>{sh.subject.name}</span></div></td>
+                  <td style={{ padding: "10px 14px" }}><span style={css.badge(T[sh.subject.category] || T.CORE)}>{sh.subject.category.replace(/_/g, " ")}</span></td>
+                  <td style={{ padding: "10px 14px", fontWeight: 800, color: T.brand }}>{sh.subject.weeklyPeriods}</td>
+                  {standards.map((s) => <td key={s.id} style={{ padding: "10px 14px", textAlign: "center" }}>{sh.byStandard[s.name] != null ? <span style={{ fontWeight: 700, color: sh.byStandard[s.name] >= sh.subject.weeklyPeriods ? T.success : T.warning }}>{sh.byStandard[s.name]}</span> : <span style={{ color: T.textSoft }}>—</span>}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {activeReport === "teacher-workload" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {teacherWorkload.map((tw) => (
+            <div key={tw.teacher.id} style={css.card}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 14, flexShrink: 0 }}>{tw.teacher.firstName[0]}{tw.teacher.lastName[0]}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>{tw.teacher.firstName} {tw.teacher.lastName}</div>
+                  <div style={{ fontSize: 11, color: T.textSoft }}>{tw.teacher.employeeCode}</div>
+                  {(tw.teacher.assignedDivisionIds || []).length > 0 && (
+                    <div style={{ fontSize: 11, color: T.brand, display: "flex", alignItems: "center", gap: 4 }}><UiIcon name="pin" size={12} stroke={T.brand} />{tw.teacher.assignedDivisionIds.length} division{tw.teacher.assignedDivisionIds.length !== 1 ? "s" : ""} assigned</div>
+                  )}
+                  {((tw.teacher.freeMorningPeriods || 0) > 0 || (tw.teacher.freeEveningPeriods || 0) > 0) && (
+                    <div style={{ fontSize: 11, color: T.info }}>{tw.teacher.freeMorningPeriods || 0}m · {tw.teacher.freeEveningPeriods || 0}e free/day</div>
+                  )}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success }}>{tw.assigned}/{tw.max}</div>
+                  <div style={{ fontSize: 11, color: T.textSoft }}>periods/week</div>
+                </div>
+              </div>
+              <ProgressBar value={tw.assigned} max={tw.max} color={tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success} />
+              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 6 }}>{tw.pct}% workload</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeReport === "division-completion" && (
+        <div style={{ display: "grid", gridTemplateColumns: divReportCols, gap: 14 }}>
+          {divisions.map((div) => {
+            const std = standards.find((s) => s.id === div.standardId);
+            const divSubjects = subjects.filter((s) => (s.standardIds || []).includes(div.standardId));
+            const scheduled = divSubjects.map((sub) => ({ sub, required: sub.weeklyPeriods, got: timetable.entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length }));
+            const pct = Math.round(scheduled.reduce((a, s) => a + s.got, 0) / Math.max(scheduled.reduce((a, s) => a + s.required, 0), 1) * 100);
+            return (
+              <div key={div.id} style={css.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>Std {std?.name} — Div {div.name}</div><div style={{ fontSize: 11, color: T.textSoft }}>{divSubjects.length} subjects</div></div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: pct > 90 ? T.success : T.warning }}>{pct}%</div>
+                </div>
+                <ProgressBar value={pct} max={100} color={pct > 90 ? T.success : T.warning} />
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 5 }}>
+                  {scheduled.map((s) => (
+                    <div key={s.sub.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.sub.colorHex || T.CORE, flexShrink: 0 }} />
+                      <span style={{ flex: 1, color: T.textMid }}>{s.sub.name}</span>
+                      <span style={{ fontWeight: 700, color: s.got >= s.required ? T.success : T.danger }}>{s.got}/{s.required}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Segmented control aligned with app cards (soft track + raised active pill). */
+function ExportFormatToggle({ value, onChange, T }) {
+  const opts = [
+    { id: "PDF", label: "PDF" },
+    { id: "EXCEL", label: "Excel" },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="File format"
+      style={{
+        display: "flex",
+        gap: 3,
+        padding: 3,
+        borderRadius: 10,
+        background: T.surfaceAlt,
+        border: `1px solid ${T.surfaceBorder}`,
+      }}
+    >
+      {opts.map((opt) => {
+        const on = value === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(opt.id)}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: on ? `1px solid ${T.surfaceBorder}` : "1px solid transparent",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 12,
+              fontWeight: on ? 700 : 600,
+              letterSpacing: "0.03em",
+              color: on ? T.brand : T.textSoft,
+              background: on ? T.surface : "transparent",
+              boxShadow: on ? "0 1px 4px rgba(26, 26, 46, 0.07)" : "none",
+              transition: "background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ExportsPage({ exportJobs, onExport, onDownload, onRemoveExportJob, timetable, notify, navigate, helpers, ui }) {
+  const { T, css, Btn, EmptyState } = ui;
+  const { StatusBadge } = helpers;
+  const { isMobile } = useBreakpoint();
+  const [classFormat, setClassFormat] = useState("PDF");
+  const [teacherFormat, setTeacherFormat] = useState("PDF");
+  if (!timetable) {
+    return (
+      <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+        <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Downloads</h2>
+        <EmptyState iconKey="downloads" title="No timetable to download" desc="Create a timetable first" action={<Btn onClick={() => navigate("generate")}>Create Now</Btn>} />
+      </div>
+    );
+  }
+  const exportCols = isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))";
+
+  const bundles = [
+    {
+      key: "classes",
+      scope: "ALL_DIVISIONS",
+      label: "All class timetables",
+      desc: "Every class in one file.",
+      icon: "downloads",
+      format: classFormat,
+      setFormat: setClassFormat,
+      formats: ["PDF", "EXCEL"],
+    },
+    {
+      key: "teachers",
+      scope: "ALL_TEACHERS",
+      label: "All teacher timetables",
+      desc: "One sheet per teacher.",
+      icon: "teacher",
+      format: teacherFormat,
+      setFormat: setTeacherFormat,
+      formats: ["PDF", "EXCEL"],
+    },
+    {
+      key: "reports",
+      scope: "REPORTS_BUNDLE",
+      label: "Summary reports",
+      desc: "Subject hours & workload.",
+      icon: "reports",
+      format: "EXCEL",
+      setFormat: null,
+      formats: ["EXCEL"],
+    },
+  ];
+
+  return (
+    <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+      <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Downloads</h2>
+      <div style={{ display: "grid", gridTemplateColumns: exportCols, gap: 12, marginBottom: 20, alignItems: "stretch" }}>
+        {bundles.map((b) => (
+          <div
+            key={b.key}
+            style={{
+              ...css.card,
+              padding: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              minHeight: 0,
+            }}
+          >
+            <div style={{ display: "flex", gap: 10, flex: 1, minHeight: 0 }}>
+              <UiIcon name={b.icon} size={20} stroke={T.textMid} style={{ flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{b.label}</div>
+                <div style={{ fontSize: 11, color: T.textSoft, marginTop: 2, lineHeight: 1.35 }}>{b.desc}</div>
+              </div>
+            </div>
+            {b.formats.length > 1 ? (
+              <ExportFormatToggle value={b.format} onChange={b.setFormat} T={T} />
+            ) : (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "6px 11px",
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: T.success,
+                  background: `${T.success}14`,
+                  border: `1px solid ${T.success}33`,
+                  width: "fit-content",
+                }}
+              >
+                Excel workbook
+              </div>
+            )}
+            <Btn
+              onClick={() => onExport(b.format, b.scope)}
+              variant="ghost"
+              size="sm"
+              fullWidth
+              style={{ marginTop: "auto" }}
+            >
+              Download →
+            </Btn>
+          </div>
+        ))}
+      </div>
+      <div style={css.card}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 700 }}>Download History</h3>
+        {exportJobs.length === 0
+          ? <div style={{ textAlign: "center", padding: "28px 0", color: T.textSoft, fontSize: 13 }}>No downloads yet</div>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {exportJobs.map((job) => (
+              <div key={job.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", background: T.surfaceAlt, borderRadius: 8 }}>
+                <UiIcon name={job.type === "PDF" ? "downloads" : "reports"} size={16} stroke={T.textMid} style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{job.type} — {job.scope.replace(/_/g, " ")}</div><div style={{ fontSize: 11, color: T.textSoft }}>{new Date(job.queuedAt).toLocaleTimeString()}</div></div>
+                <StatusBadge status={job.status} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 96, justifyContent: "flex-end" }}>
+                  <div style={{ width: 44, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {job.status === "COMPLETED" && (
+                      <Btn
+                        type="button"
+                        onClick={() => onDownload(job.type, job.scope)}
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Download ${job.type} file again`}
+                        style={{
+                          color: T.info,
+                          minWidth: 40,
+                          width: 40,
+                          height: 36,
+                          padding: 0,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRadius: 8,
+                          borderColor: `${T.info}40`,
+                        }}
+                      >
+                        <UiIcon name="downloads" size={20} stroke="currentColor" />
+                      </Btn>
+                    )}
+                    {job.status === "PROCESSING" && <span style={{ width: 16, height: 16, border: `2px solid ${T.info}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />}
+                  </div>
+                  <Btn
+                    type="button"
+                    onClick={() => onRemoveExportJob(job.id)}
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Remove this item from download history"
+                    style={{
+                      color: T.textSoft,
+                      width: 40,
+                      height: 36,
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 8,
+                      borderColor: T.surfaceBorder,
+                    }}
+                  >
+                    <UiIcon name="trash" size={18} stroke="currentColor" />
+                  </Btn>
+                </div>
+              </div>
+            ))}
+          </div>}
+      </div>
+    </div>
+  );
+}

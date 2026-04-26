@@ -1,0 +1,33 @@
+---
+description: Branching, PR, and release policy for SchoolTime
+alwaysApply: true
+---
+
+# Branch And Release Policy
+
+- Branch model:
+  - `main` = production/live
+  - `develop` = integration/staging
+  - `feature/*`, `fix/*` from `develop`
+  - `hotfix/*` from `main`
+  - `release/*` from `develop`
+- Never push directly to `main` or `develop`; always use PRs.
+- Merge requirements: approvals + passing checks + resolved conversations.
+- Hotfixes merged to `main` must also be back-merged to `develop`.
+
+## PR Minimum Checklist
+
+- Clear summary and reason.
+- Build/runtime impact verified.
+- Timetable generation flow validated.
+- PDF/Excel export impact validated (if touched).
+- Docs updated for behavior/config/API changes.
+
+## Release Checklist (Condensed)
+
+1. Cut `release/x.y.z` from `develop`.
+2. Stabilize and fix only blockers.
+3. Merge to `main`, tag release, deploy.
+4. Smoke test health, login, generate, export.
+5. Back-merge release to `develop`.
+

@@ -1,0 +1,26 @@
+---
+description: Core project standards for SchoolTime
+alwaysApply: true
+---
+
+# SchoolTime Core Standards
+
+- Preserve app architecture: frontend in `src/`, backend in `server/`, SQLite in `server/data/app.db`.
+- Keep changes minimal, focused, and backward-compatible unless explicitly requested.
+- Never commit secrets; use `.env` locally and keep `.env.example` updated when config changes.
+- Follow project naming style: clear, domain-driven names (`timetable`, `division`, `subject`, `teacher`).
+- Prefer small pure helper functions for reusable logic; avoid deeply nested inline logic.
+- Any behavior change must include docs updates in `README.md` or `docs/*`.
+- For user-facing changes, keep wording simple and practical.
+- Keep exports and scheduling behavior deterministic and reproducible from persisted state.
+- Do not break `npm run dev:all`, `npm run build`, or API compatibility without explicit approval.
+
+## Quality Gate
+
+Before finalizing:
+
+1. Verify changed files are formatted and readable.
+2. Run or reason-check impacted flows.
+3. Confirm no linter errors in edited files.
+4. Summarize what changed, why, and how to verify.
+

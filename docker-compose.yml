@@ -1,0 +1,9 @@
+﻿services:
+  timetable-saas:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    volumes:
+      - ./server/data:/app/server/data

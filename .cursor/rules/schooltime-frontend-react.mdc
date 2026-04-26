@@ -1,0 +1,23 @@
+---
+description: React and UI conventions for SchoolTime frontend
+globs: src/**/*.jsx
+alwaysApply: false
+---
+
+# Frontend Rules (React)
+
+- Keep page-level state orchestration in `src/App.jsx`; avoid duplicating global state elsewhere.
+- Put feature-specific logic inside `src/features/<feature>/`.
+- Reuse shared components from `src/features/shared/` before creating new primitives.
+- Maintain current visual language: compact cards, clear labels, practical actions.
+- Keep text concise and school-admin friendly (non-technical phrasing).
+- For dashboard/report insights, show action-oriented guidance (what to do next).
+- Avoid large monolithic components; extract helpers for transformations/insights.
+- Preserve existing navigation and page IDs used by `navigate(...)`.
+
+## UI Change Checklist
+
+- Works on mobile and desktop breakpoints.
+- No overflow/regression in cards, tables, or action bars.
+- Existing flows still work: generate timetable, view timetable, exports, settings.
+

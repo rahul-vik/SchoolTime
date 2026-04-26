@@ -1,0 +1,21 @@
+---
+description: Export fidelity rules for PDF and Excel timetable outputs
+globs: server/services/exportService.js
+alwaysApply: false
+---
+
+# Export Rules (PDF/Excel)
+
+- Keep PDF and Excel visual semantics aligned with in-app timetable intent.
+- Use the same scheduling context source (`buildScheduleContext`) for both formats when possible.
+- Preserve category colors, break/lunch/free styles, and lesson accent behavior.
+- Ensure exported files are valid (PDF header / XLSX zip integrity) and download-ready.
+- Avoid pagination/footer techniques that can introduce blank/black pages in viewers.
+- Do not regress teacher/division labeling in lesson cells.
+- Keep worksheet and filename generation deterministic and collision-safe.
+
+## Export Verification
+
+- Smoke-test one division and one teacher export for both PDF and Excel.
+- Confirm files open in common viewers and data matches generated timetable.
+
