@@ -59,6 +59,7 @@ export async function authenticateUser({
     // Authentication already succeeded; treat state hydration as best-effort.
   }
   onHydrated(true);
+  return resp;
 }
 
 export async function fetchAdminData({
@@ -68,7 +69,9 @@ export async function fetchAdminData({
   getAuditLogs,
   getApiKeys,
 }) {
-  const [usersResp, usageResp] = await Promise.all([getUsers(), getUsage()]);
+  const [usersSettled, usageSettled] = await Promise.allSettled([getUsers(), getUsage()]);
+  const usersResp = usersSettled.status === "fulfilled" ? usersSettled.value : { users: [] };
+  const usageResp = usageSettled.status === "fulfilled" ? usageSettled.value : null;
   const result = {
     users: usersResp.users || [],
     usage: usageResp,
@@ -76,7 +79,9 @@ export async function fetchAdminData({
     apiKeys: [],
   };
   if (role === "owner" || role === "admin") {
-    const [auditResp, keyResp] = await Promise.all([getAuditLogs(), getApiKeys()]);
+    const [auditSettled, keySettled] = await Promise.allSettled([getAuditLogs(), getApiKeys()]);
+    const auditResp = auditSettled.status === "fulfilled" ? auditSettled.value : { logs: [] };
+    const keyResp = keySettled.status === "fulfilled" ? keySettled.value : { apiKeys: [] };
     result.logs = auditResp.logs || [];
     result.apiKeys = keyResp.apiKeys || [];
   }

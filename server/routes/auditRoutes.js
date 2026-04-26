@@ -1,6 +1,17 @@
 ﻿import { Router } from "express";
 import { buildAuditWhere, csvEscape } from "../services/common.js";
 
+function auditExportFilename() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  return `audit-logs-${yyyy}${mm}${dd}-${hh}${min}${ss}.csv`;
+}
+
 export function createAuditRoutes(db) {
   const router = Router();
 
@@ -25,7 +36,7 @@ export function createAuditRoutes(db) {
     const header = "created_at,actor,action,entity_type,entity_id,metadata_json";
     const lines = rows.map((r) => [r.created_at, r.actor, r.action, r.entity_type, r.entity_id, r.metadata_json].map(csvEscape).join(","));
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=\"audit-logs.csv\"");
+    res.setHeader("Content-Disposition", `attachment; filename="${auditExportFilename()}"`);
     res.send([header, ...lines].join("\n"));
   });
 

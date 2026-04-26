@@ -131,46 +131,13 @@ export function Modal({ title, children, onClose, width = 560 }) {
   );
 }
 
-const toastActionBtn = {
-  border: "1px solid rgba(255,255,255,0.45)",
-  background: "rgba(255,255,255,0.12)",
-  color: "#fff",
-  borderRadius: 8,
-  padding: "7px 14px",
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: "pointer",
-  fontFamily: "inherit",
-};
-
 export function Toast({ msg, type, onDismiss }) {
   const bg = type === "success" ? T.success : type === "danger" ? T.danger : type === "info" ? T.info : T.warning;
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(msg);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = msg;
-      ta.setAttribute("readonly", "");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } finally {
-        document.body.removeChild(ta);
-      }
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <div
       role="alert"
+      aria-live="polite"
       style={{
         position: "fixed",
         bottom: 24,
@@ -191,24 +158,39 @@ export function Toast({ msg, type, onDismiss }) {
         boxSizing: "border-box",
       }}
     >
-      <div
-        style={{
-          userSelect: "text",
-          cursor: "text",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          lineHeight: 1.45,
-          fontWeight: 600,
-        }}
-      >
-        {msg}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, justifyContent: "flex-end", alignItems: "center" }}>
-        <button type="button" onClick={copy} style={toastActionBtn}>
-          {copied ? "Copied" : "Copy"}
-        </button>
-        <button type="button" onClick={onDismiss} style={{ ...toastActionBtn, background: "rgba(255,255,255,0.22)" }}>
-          Dismiss
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            lineHeight: 1.45,
+            fontWeight: 600,
+          }}
+        >
+          {msg}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Close notification"
+          style={{
+            width: 28,
+            height: 28,
+            border: "1px solid rgba(255,255,255,0.45)",
+            background: "rgba(255,255,255,0.16)",
+            color: "#fff",
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            flexShrink: 0,
+            padding: 0,
+          }}
+        >
+          <UiIcon name="close" size={14} stroke="#fff" />
         </button>
       </div>
     </div>
