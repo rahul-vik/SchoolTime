@@ -109,14 +109,26 @@ Based on `.env.example`:
 - `npm run smoke:prod` - smoke test engine + PDF/Excel export pipeline
 - `npm run audit:security` - security audit for prod dependencies (high+)
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
+- `npm run docs:auto` - auto-generate changelog + rules intelligence docs
+- `npm run health:daily` - run build + smoke + security audit health suite
 
 ## One-Click Dev Launcher (Windows)
 
 - Run `open-dev.bat` from the project root.
 - It will:
   - switch to `develop`
+  - check local vs remote `develop` and ask before applying remote updates
   - try to open the folder in Cursor (if Cursor CLI is installed)
   - run `npm start` (development servers)
+
+## One-Click Prod Launcher (Windows)
+
+- Run `open-prod.bat` from the project root.
+- It will:
+  - switch to `main`
+  - check local vs remote `main` and ask before applying remote updates
+  - try to open the folder in Cursor (if Cursor CLI is installed)
+  - run `npm run start:prod`
 
 ## Data And Persistence
 
@@ -152,6 +164,9 @@ Based on `.env.example`:
 - `docs/PRODUCTION_READINESS.md`
 - `docs/PROJECT_STANDARDS.md` (master handbook)
 - `docs/POSTGRES_MIGRATION.md`
+- `docs/AUTO_CHANGELOG.md` (generated)
+- `docs/AUTO_RULES_INTELLIGENCE.md` (generated)
+- `docs/AUTONOMOUS_AUTOFIX_POLICY.md`
 
 ## Governance Templates
 
@@ -178,6 +193,7 @@ Based on `.env.example`:
 - Use PM2 (`ecosystem.config.cjs`) or systemd for process supervision.
 - Use `.github/workflows/ci.yml` checks before merging to `main`.
 - CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`).
+- Daily automated checks: `.github/workflows/daily-health-autofix.yml` (scheduled health scan + safe dependency autofix PR + issue on failure).
 - Run periodic DB backups with `scripts/backup-db.ps1`.
 - Linux/macOS backup helpers:
   - `scripts/backup-db.sh`

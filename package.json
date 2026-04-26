@@ -18,7 +18,10 @@
     "preview": "vite preview",
     "smoke:prod": "node scripts/smoke-check.mjs",
     "audit:security": "npm audit --omit=dev --audit-level=high",
-    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
+    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs",
+    "docs:auto": "node scripts/auto-docs-rules.mjs",
+    "health:daily": "npm run build && npm run smoke:prod && npm run audit:security",
+    "autofix:risk-gate": "node scripts/autofix-risk-gate.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

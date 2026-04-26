@@ -11,30 +11,30 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [SchoolTime] Switching to develop branch...
-git checkout develop
+echo [SchoolTime] Switching to main branch...
+git checkout main
 if errorlevel 1 (
-  echo [SchoolTime] ERROR: Could not switch to 'develop'. Resolve git conflicts or create the branch first.
+  echo [SchoolTime] ERROR: Could not switch to 'main'. Resolve git conflicts first.
   pause
   exit /b 1
 )
 
-echo [SchoolTime] Checking remote sync status for develop...
-git fetch origin develop >nul 2>&1
+echo [SchoolTime] Checking remote sync status for main...
+git fetch origin main >nul 2>&1
 
-for /f %%i in ('git rev-list --count develop..origin/develop 2^>nul') do set BEHIND=%%i
-for /f %%i in ('git rev-list --count origin/develop..develop 2^>nul') do set AHEAD=%%i
+for /f %%i in ('git rev-list --count main..origin/main 2^>nul') do set BEHIND=%%i
+for /f %%i in ('git rev-list --count origin/main..main 2^>nul') do set AHEAD=%%i
 if "%BEHIND%"=="" set BEHIND=0
 if "%AHEAD%"=="" set AHEAD=0
 
-echo [SchoolTime] Local develop: ahead=%AHEAD% behind=%BEHIND%
+echo [SchoolTime] Local main: ahead=%AHEAD% behind=%BEHIND%
 if not "%BEHIND%"=="0" (
   echo [SchoolTime] Remote has newer commits.
-  choice /C YN /N /M "Apply remote updates to local develop now? [Y/N]: "
+  choice /C YN /N /M "Apply remote updates to local main now? [Y/N]: "
   if errorlevel 2 (
-    echo [SchoolTime] Keeping local branch as-is. You can sync later using: git pull --ff-only
+    echo [SchoolTime] Keeping local main as-is. You can sync later using: git pull --ff-only
   ) else (
-    echo [SchoolTime] Pulling latest develop...
+    echo [SchoolTime] Pulling latest main...
     git pull --ff-only
     if errorlevel 1 (
       echo [SchoolTime] WARNING: Fast-forward pull failed. Please resolve manually before running.
@@ -52,8 +52,8 @@ if not errorlevel 1 (
   echo [SchoolTime] Cursor CLI not found. Skipping auto-open.
 )
 
-echo [SchoolTime] Starting development servers...
-call npm start
+echo [SchoolTime] Starting production mode...
+call npm run start:prod
 
 endlocal
 

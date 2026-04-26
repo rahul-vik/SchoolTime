@@ -1,0 +1,37 @@
+name: auto-docs-rules
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-docs-and-rules-intelligence:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate automatic docs
+        run: npm run docs:auto -- --base "${{ github.event.before }}" --head "${{ github.sha }}"
+
+      - name: Commit auto-generated updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md
+          git diff --staged --quiet || git commit -m "chore: auto-update changelog and rules intelligence [skip ci]"
+
+      - name: Push changes
+        run: git push

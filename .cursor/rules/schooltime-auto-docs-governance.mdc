@@ -1,0 +1,11 @@
+---
+description: Keep documentation and rule intelligence automatically current
+alwaysApply: true
+---
+# Auto Docs And Rule Governance
+
+- Treat `docs/AUTO_CHANGELOG.md` and `docs/AUTO_RULES_INTELLIGENCE.md` as generated artifacts.
+- When adding features or architecture changes, ensure `npm run docs:auto` still runs successfully.
+- Keep `.github/workflows/auto-docs-rules.yml` healthy so push events update docs automatically.
+- Use `docs/AUTO_RULES_INTELLIGENCE.md` suggestions to decide whether `.cursor/rules/*.mdc` needs manual updates.
+- Never hand-edit generated auto docs; regenerate instead.
