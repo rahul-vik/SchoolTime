@@ -7,25 +7,39 @@ import { generateExportFile } from "../services/exportService.js";
 export function createTimetableRoutes(db) {
   const router = Router();
 
-  router.post("/timetable/generate", (req, res) => {
+  router.post("/timetable/generate", async (req, res) => {
     const parsed = schemas.tenantStateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid generation payload", details: parsed.error.issues });
     const runId = randomUUID();
     try {
-      const output = db.transaction(() => {
-        const credits = getOrgCredits(db, req.auth.orgId);
+      const output = await db.transaction(async (tx) => {
+        const credits = await getOrgCredits(tx, req.auth.orgId);
         if (credits <= 0) throw new Error("NO_CREDITS");
-        db.prepare("UPDATE licenses SET credits_remaining = ?, updated_at = ? WHERE org_id = ?").run(credits - 1, nowIso(), req.auth.orgId);
-        writeCreditLedger(db, req.auth.orgId, -1, "TIMETABLE_GENERATION", { runId });
+        await tx.run("UPDATE licenses SET credits_remaining = ?, updated_at = ? WHERE org_id = ?", credits - 1, nowIso(), req.auth.orgId);
+        await writeCreditLedger(tx, req.auth.orgId, -1, "TIMETABLE_GENERATION", { runId });
         const result = runTimetableEngine(parsed.data);
-        db.prepare("INSERT INTO timetable_runs (id, org_id, status, score, created_by_user_id, created_at, report_json, entries_json, state_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .run(runId, req.auth.orgId, result.status, result.score, req.auth.userId, nowIso(), JSON.stringify(result.report), JSON.stringify(result.entries), JSON.stringify(parsed.data));
+        await tx.run(
+          "INSERT INTO timetable_runs (id, org_id, status, score, created_by_user_id, created_at, report_json, entries_json, state_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          runId,
+          req.auth.orgId,
+          result.status,
+          result.score,
+          req.auth.userId,
+          nowIso(),
+          JSON.stringify(result.report),
+          JSON.stringify(result.entries),
+          JSON.stringify(parsed.data),
+        );
         // Persist the same snapshot the engine used so PDF/Excel export always has tenant_state (client save is debounced and may not have run yet).
-        db.prepare("INSERT INTO tenant_state (org_id, state_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(org_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at")
-          .run(req.auth.orgId, JSON.stringify(parsed.data), nowIso());
-        logAudit(db, req.auth.orgId, req.auth.userId, "TIMETABLE_GENERATED", "timetable_run", runId, { score: result.score, status: result.status });
+        await tx.run(
+          "INSERT INTO tenant_state (org_id, state_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(org_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at",
+          req.auth.orgId,
+          JSON.stringify(parsed.data),
+          nowIso(),
+        );
+        await logAudit(tx, req.auth.orgId, req.auth.userId, "TIMETABLE_GENERATED", "timetable_run", runId, { score: result.score, status: result.status });
         return { result, creditsRemaining: credits - 1 };
-      })();
+      });
       res.json({ timetable: output.result, license: { creditsRemaining: output.creditsRemaining }, runId });
     } catch (error) {
       if (error.message === "NO_CREDITS") return res.status(402).json({ error: "No credits remaining. Purchase a 10-pack to continue." });
@@ -33,8 +47,8 @@ export function createTimetableRoutes(db) {
     }
   });
 
-  router.get("/timetable/runs", (req, res) => {
-    const rows = db.prepare("SELECT id, status, score, created_at FROM timetable_runs WHERE org_id = ? ORDER BY created_at DESC LIMIT 25").all(req.auth.orgId);
+  router.get("/timetable/runs", async (req, res) => {
+    const rows = await db.all("SELECT id, status, score, created_at FROM timetable_runs WHERE org_id = ? ORDER BY created_at DESC LIMIT 25", req.auth.orgId);
     res.json({ runs: rows });
   });
 
@@ -44,10 +58,10 @@ export function createTimetableRoutes(db) {
     if (!["PDF", "EXCEL"].includes(type)) return res.status(400).json({ error: "Invalid export type" });
     if (!["ALL_DIVISIONS", "ALL_TEACHERS", "REPORTS_BUNDLE"].includes(scope)) return res.status(400).json({ error: "Invalid export scope" });
 
-    const run = db.prepare("SELECT id, entries_json, state_json FROM timetable_runs WHERE org_id = ? AND entries_json IS NOT NULL ORDER BY created_at DESC LIMIT 1").get(req.auth.orgId);
+    const run = await db.get("SELECT id, entries_json, state_json FROM timetable_runs WHERE org_id = ? AND entries_json IS NOT NULL ORDER BY created_at DESC LIMIT 1", req.auth.orgId);
     if (!run) return res.status(404).json({ error: "No generated timetable available for export" });
 
-    const stateRow = db.prepare("SELECT state_json FROM tenant_state WHERE org_id = ?").get(req.auth.orgId);
+    const stateRow = await db.get("SELECT state_json FROM tenant_state WHERE org_id = ?", req.auth.orgId);
 
     let entries = [];
     let state = null;
@@ -73,7 +87,7 @@ export function createTimetableRoutes(db) {
       res.setHeader("Content-Disposition", `attachment; filename=\"${file.filename}\"`);
       res.send(file.buffer);
       try {
-        logAudit(db, req.auth.orgId, req.auth.userId, "TIMETABLE_EXPORTED", "timetable_run", run.id, { type, scope, filename: file.filename });
+        await logAudit(db, req.auth.orgId, req.auth.userId, "TIMETABLE_EXPORTED", "timetable_run", run.id, { type, scope, filename: file.filename });
       } catch (auditErr) {
         console.error("[timetable/export] audit log failed:", auditErr);
       }

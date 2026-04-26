@@ -44,17 +44,33 @@ export function buildAuditWhere(query, orgId) {
   return { whereSql: where.join(" AND "), args };
 }
 
-export function writeCreditLedger(db, orgId, delta, reason, metadata = null) {
-  db.prepare("INSERT INTO credit_ledger (id, org_id, delta, reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(randomUUID(), orgId, delta, reason, nowIso(), metadata ? JSON.stringify(metadata) : null);
+export async function writeCreditLedger(db, orgId, delta, reason, metadata = null) {
+  await db.run(
+    "INSERT INTO credit_ledger (id, org_id, delta, reason, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+    randomUUID(),
+    orgId,
+    delta,
+    reason,
+    nowIso(),
+    metadata ? JSON.stringify(metadata) : null,
+  );
 }
 
-export function logAudit(db, orgId, userId, action, entityType, entityId = null, metadata = null) {
-  db.prepare("INSERT INTO audit_logs (id, org_id, user_id, action, entity_type, entity_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(randomUUID(), orgId, userId || null, action, entityType, entityId, metadata ? JSON.stringify(metadata) : null, nowIso());
+export async function logAudit(db, orgId, userId, action, entityType, entityId = null, metadata = null) {
+  await db.run(
+    "INSERT INTO audit_logs (id, org_id, user_id, action, entity_type, entity_id, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    randomUUID(),
+    orgId,
+    userId || null,
+    action,
+    entityType,
+    entityId,
+    metadata ? JSON.stringify(metadata) : null,
+    nowIso(),
+  );
 }
 
-export function getOrgCredits(db, orgId) {
-  const row = db.prepare("SELECT credits_remaining FROM licenses WHERE org_id = ?").get(orgId);
+export async function getOrgCredits(db, orgId) {
+  const row = await db.get("SELECT credits_remaining FROM licenses WHERE org_id = ?", orgId);
   return row?.credits_remaining ?? 0;
 }

@@ -8,6 +8,13 @@
 - `hotfix/*`: from `main`
 - `release/*`: from `develop`
 
+## Default Working Mode
+
+- Keep local workspace on `develop` as the default branch.
+- Default run command is development mode: `npm start` (mapped to `npm run dev:all`).
+- Switch to production branch only when explicitly required.
+- After production work, return to `develop`.
+
 ## Merge Rules
 
 - No direct push to `main`/`develop`
@@ -15,6 +22,10 @@
 - Required checks must pass
 - Resolve all review conversations
 - Hotfix merges to `main` must be back-merged to `develop`
+- Use PR templates:
+  - default: `.github/pull_request_template.md`
+  - release: `.github/PULL_REQUEST_TEMPLATE/release.md`
+  - hotfix: `.github/PULL_REQUEST_TEMPLATE/hotfix.md`
 
 ## PR Checklist
 

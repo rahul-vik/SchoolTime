@@ -22,5 +22,7 @@ Before finalizing:
 1. Verify changed files are formatted and readable.
 2. Run or reason-check impacted flows.
 3. Confirm no linter errors in edited files.
-4. Summarize what changed, why, and how to verify.
+4. For release-impacting changes, ensure build and smoke checks pass (`npm run build`, `npm run smoke:prod`).
+5. For dependency/security-sensitive changes, review `npm run audit:security` output.
+6. Summarize what changed, why, and how to verify.
 

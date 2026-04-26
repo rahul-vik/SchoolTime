@@ -1,0 +1,14 @@
+---
+description: Default to develop branch and dev run mode unless explicitly told production
+alwaysApply: true
+---
+
+# Default Branch And Run Mode
+
+- Default working branch is `develop`.
+- On "run project" requests, use development mode by default (`npm run dev:all` or `npm start`).
+- Do not switch to `main`/production unless user explicitly asks for production/live.
+- If currently on a non-dev branch and user did not request otherwise, switch back to `develop` before continuing.
+- Production actions must be explicit: "switch to production", "deploy live", or similar.
+- After production/hotfix tasks, return to `develop` unless user asks to stay.
+

@@ -5,7 +5,7 @@ const SHORT_DAY = {
   MONDAY: "Mon", TUESDAY: "Tue", WEDNESDAY: "Wed", THURSDAY: "Thu", FRIDAY: "Fri", SATURDAY: "Sat", SUNDAY: "Sun",
 };
 
-/** Uppercase 3-letter day labels to match in-app / reference timetable.png */
+/** Uppercase 3-letter day labels to match in-app visual timetable style. */
 function excelDayHeader(day) {
   const s = SHORT_DAY[day] || (typeof day === "string" ? day.slice(0, 3) : String(day));
   return String(s).toUpperCase();

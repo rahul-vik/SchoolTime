@@ -13,6 +13,7 @@ alwaysApply: false
 - Keep DB changes additive and migration-safe in `server/db.js` (guard with `PRAGMA table_info` checks).
 - Avoid destructive schema/data operations in normal app startup.
 - Keep audit-sensitive actions logged where applicable.
+- If database strategy changes (SQLite -> Postgres), update `docs/POSTGRES_MIGRATION.md` and deployment docs in the same change.
 
 ## API Safety
 

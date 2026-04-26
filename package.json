@@ -6,11 +6,19 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "start": "npm run dev:all",
     "dev": "vite",
     "dev:server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
+    "branch:dev": "git checkout develop",
+    "branch:prod": "git checkout main",
+    "start:dev": "npm run branch:dev && npm run dev:all",
+    "start:prod": "npm run branch:prod && npm run build && concurrently \"npm run preview\" \"npm run dev:server\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke:prod": "node scripts/smoke-check.mjs",
+    "audit:security": "npm audit --omit=dev --audit-level=high",
+    "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -20,8 +28,10 @@
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.18.0",
+    "pg": "^8.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^4.1.12"

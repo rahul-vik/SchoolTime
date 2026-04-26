@@ -14,7 +14,7 @@ See `LICENSE` for full text.
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Database: SQLite (`better-sqlite3`)
+- Database: SQLite (`better-sqlite3`) and Postgres (`pg`)
 - Exports: PDFKit (PDF), ExcelJS (XLSX)
 - Validation/Auth: Zod, JWT, refresh tokens
 
@@ -62,7 +62,13 @@ See `LICENSE` for full text.
    - Copy `.env.example` to `.env`
    - Update secrets and host values as needed
 
-3. Start frontend + backend together:
+3. Start frontend + backend together (default dev mode):
+
+   ```bash
+   npm start
+   ```
+
+   Alternative:
 
    ```bash
    npm run dev:all
@@ -84,19 +90,38 @@ Based on `.env.example`:
 - `REFRESH_TOKEN_DAYS` - refresh token validity
 - `RATE_LIMIT_MAX` - requests/minute/IP
 - `CORS_ORIGIN` - allowed frontend origin(s)
+- `DB_CLIENT` - current runtime DB engine (`sqlite` default)
+- `DATABASE_URL` - required for Postgres migration / Postgres runtime
 - `VITE_API_BASE_URL` - frontend API base URL
 
 ## Available Scripts
 
+- `npm start` - default run mode (development, same as `dev:all`)
 - `npm run dev` - Vite frontend only
 - `npm run dev:server` - API server only
 - `npm run dev:all` - run both frontend and backend
+- `npm run start:dev` - switch to `develop` then run dev servers
+- `npm run start:prod` - switch to `main`, build, then run preview + API server
+- `npm run branch:dev` - switch git branch to `develop`
+- `npm run branch:prod` - switch git branch to `main`
 - `npm run build` - production frontend build
 - `npm run preview` - preview built frontend
+- `npm run smoke:prod` - smoke test engine + PDF/Excel export pipeline
+- `npm run audit:security` - security audit for prod dependencies (high+)
+- `npm run migrate:postgres` - migrate SQLite data into Postgres schema
+
+## One-Click Dev Launcher (Windows)
+
+- Run `open-dev.bat` from the project root.
+- It will:
+  - switch to `develop`
+  - try to open the folder in Cursor (if Cursor CLI is installed)
+  - run `npm start` (development servers)
 
 ## Data And Persistence
 
-- SQLite DB file: `server/data/app.db`
+- Default local DB file (SQLite): `server/data/app.db`
+- Production-ready DB option: Postgres via `DB_CLIENT=postgres` + `DATABASE_URL`
 - Tenant configuration state saved in `tenant_state`
 - Timetable run snapshots also persist `state_json` in `timetable_runs` so exports can reproduce the generated run accurately
 
@@ -123,6 +148,19 @@ Based on `.env.example`:
 - `docs/ARCHITECTURE.md`
 - `docs/API.md`
 - `docs/DEPLOYMENT.md`
+- `docs/BRANCH_POLICY.md`
+- `docs/PRODUCTION_READINESS.md`
+- `docs/PROJECT_STANDARDS.md` (master handbook)
+- `docs/POSTGRES_MIGRATION.md`
+
+## Governance Templates
+
+- PR template: `.github/pull_request_template.md`
+- Release PR template: `.github/PULL_REQUEST_TEMPLATE/release.md`
+- Hotfix PR template: `.github/PULL_REQUEST_TEMPLATE/hotfix.md`
+- Issue templates:
+  - `.github/ISSUE_TEMPLATE/bug_report.md`
+  - `.github/ISSUE_TEMPLATE/feature_request.md`
 
 ## Troubleshooting
 
@@ -133,4 +171,15 @@ Based on `.env.example`:
 - Low completion score:
   - Use dashboard tips and Timetable reports to identify missing subject periods
   - Review teacher eligibility, rules, and available slots/days
+
+## Production Hardening Quick Notes
+
+- Backend sets secure headers using Helmet.
+- Use PM2 (`ecosystem.config.cjs`) or systemd for process supervision.
+- Use `.github/workflows/ci.yml` checks before merging to `main`.
+- CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`).
+- Run periodic DB backups with `scripts/backup-db.ps1`.
+- Linux/macOS backup helpers:
+  - `scripts/backup-db.sh`
+  - `scripts/restore-db.sh`
 

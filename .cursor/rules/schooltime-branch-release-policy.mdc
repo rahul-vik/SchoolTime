@@ -14,6 +14,11 @@ alwaysApply: true
 - Never push directly to `main` or `develop`; always use PRs.
 - Merge requirements: approvals + passing checks + resolved conversations.
 - Hotfixes merged to `main` must also be back-merged to `develop`.
+- CI expectations before merge: build + smoke + security audit should pass.
+- PR templates to follow:
+  - `.github/pull_request_template.md`
+  - `.github/PULL_REQUEST_TEMPLATE/release.md`
+  - `.github/PULL_REQUEST_TEMPLATE/hotfix.md`
 
 ## PR Minimum Checklist
 
