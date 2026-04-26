@@ -37,6 +37,26 @@ function uniqueWorksheetName(workbook, base) {
   return candidate;
 }
 
+function buildTimestampSlug() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}-${hh}${min}${ss}`;
+}
+
+function buildExportFilename(scope, ext) {
+  const scopeLabel = scope === "ALL_TEACHERS"
+    ? "teacher-timetables"
+    : scope === "ALL_DIVISIONS"
+      ? "division-timetables"
+      : "reports-bundle";
+  return `${scopeLabel}-${buildTimestampSlug()}.${ext}`;
+}
+
 function pdfToBuffer(doc) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -347,7 +367,7 @@ async function createPdfExport(scope, state, entries) {
   }
 
   const buffer = await pdfToBuffer(doc);
-  const filename = scope === "ALL_TEACHERS" ? "teacher-timetables.pdf" : "division-timetables.pdf";
+  const filename = buildExportFilename(scope, "pdf");
   return { buffer, filename, contentType: "application/pdf" };
 }
 
@@ -645,7 +665,7 @@ async function createExcelExport(scope, state, entries) {
     }
     return {
       buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
-      filename: "division-timetables.xlsx",
+      filename: buildExportFilename(scope, "xlsx"),
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
   }
@@ -668,7 +688,7 @@ async function createExcelExport(scope, state, entries) {
     }
     return {
       buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
-      filename: "teacher-timetables.xlsx",
+      filename: buildExportFilename(scope, "xlsx"),
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
   }
@@ -692,7 +712,7 @@ async function createExcelExport(scope, state, entries) {
     teacherSheet.columns.forEach((col) => { col.width = 18; });
     return {
       buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
-      filename: "reports-bundle.xlsx",
+      filename: buildExportFilename(scope, "xlsx"),
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
   }

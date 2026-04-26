@@ -48,11 +48,27 @@ export function UsageDashboardPage({ usageData, navigate, ui }) {
   );
 }
 
+function normalizeTeamUserRow(u) {
+  const full_name = u.full_name ?? u.fullName ?? "";
+  const email = u.email ?? "";
+  return { ...u, full_name, email };
+}
+
+/** Ensures the signed-in account appears in School team even if the users API failed or returned an empty list (e.g. partial fetch after register). */
+function mergeMeIntoTeamUsers(users, me) {
+  const rows = (users || []).map(normalizeTeamUserRow);
+  if (!me?.id) return rows;
+  const ids = new Set(rows.map((r) => r.id));
+  if (ids.has(me.id)) return rows;
+  return [normalizeTeamUserRow({ id: me.id, full_name: me.fullName ?? me.full_name, email: me.email, role: me.role, is_active: 1 }), ...rows];
+}
+
 export function UsersPage({ users, me, onRefresh, notify, ui }) {
   const { css, Input, Select, Btn, T } = ui;
   const { isMobile } = useBreakpoint();
   const [form, setForm] = useState({ fullName: "", email: "", password: "", role: "staff" });
   const [busy, setBusy] = useState(false);
+  const displayUsers = mergeMeIntoTeamUsers(users, me);
 
   const addUser = async () => {
     setBusy(true);
@@ -91,7 +107,7 @@ export function UsersPage({ users, me, onRefresh, notify, ui }) {
       <div style={css.card}>
         <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>School team</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {(users || []).map((u) => (
+          {displayUsers.map((u) => (
             <div key={u.id} style={{ background: T.surfaceAlt, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{u.full_name}</div>

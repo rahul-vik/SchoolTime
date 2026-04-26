@@ -247,29 +247,11 @@ export default function App() {
     });
   }, [canManageBilling, creditsRemaining, notify]);
 
-  const handleAuth = useCallback(async (form) => {
-    await authenticateUser({
-      mode: authMode,
-      form,
-      login: apiLogin,
-      register: apiRegister,
-      loadState: apiLoadState,
-      applyTenantState,
-      onUser: setUser,
-      onCredits: setCreditsRemaining,
-      onHydrated: setStateHydrated,
-    });
-  }, [authMode, applyTenantState]);
-
-  const logout = useCallback(async () => {
-    await apiLogout();
-    window.location.reload();
-  }, []);
-
-  const refreshAdminData = useCallback(async () => {
+  const fetchAndApplyAdminData = useCallback(async (role) => {
+    if (!role) return;
     try {
       const data = await fetchAdminData({
-        role: user?.role,
+        role,
         getUsers,
         getUsage,
         getAuditLogs,
@@ -280,7 +262,31 @@ export default function App() {
       setAuditLogs(data.logs);
       setApiKeys(data.apiKeys);
     } catch {}
-  }, [user?.role]);
+  }, []);
+
+  const handleAuth = useCallback(async (form) => {
+    const resp = await authenticateUser({
+      mode: authMode,
+      form,
+      login: apiLogin,
+      register: apiRegister,
+      loadState: apiLoadState,
+      applyTenantState,
+      onUser: setUser,
+      onCredits: setCreditsRemaining,
+      onHydrated: setStateHydrated,
+    });
+    await fetchAndApplyAdminData(resp?.user?.role);
+  }, [authMode, applyTenantState, fetchAndApplyAdminData]);
+
+  const logout = useCallback(async () => {
+    await apiLogout();
+    window.location.reload();
+  }, []);
+
+  const refreshAdminData = useCallback(async () => {
+    await fetchAndApplyAdminData(user?.role);
+  }, [user?.role, fetchAndApplyAdminData]);
 
   useEffect(() => {
     if (!user) return;
