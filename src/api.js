@@ -1,4 +1,24 @@
-﻿const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8787/api";
+﻿function resolveApiBase(value) {
+  const fallback = "http://localhost:8787/api";
+  const raw = String(value || fallback).trim();
+  if (!raw) return fallback;
+
+  // Relative API bases (e.g. "/api") are valid in local/proxy setups.
+  if (raw.startsWith("/")) return raw.replace(/\/+$/, "") || "/api";
+
+  try {
+    const parsed = new URL(raw);
+    const cleanPath = parsed.pathname.replace(/\/+$/, "");
+    // Render/GitHub Pages setup often provides only origin; backend routes live under /api.
+    if (!cleanPath || cleanPath === "/") parsed.pathname = "/api";
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    // Leave custom non-URL values untouched; request errors will surface clearly.
+    return raw.replace(/\/+$/, "");
+  }
+}
+
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL);
 
 function getToken() {
   return localStorage.getItem("tt_token");
@@ -26,7 +46,12 @@ async function rawRequest(path, options = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new Error("Cannot reach the API server. Check VITE_API_BASE_URL, backend status, and CORS settings.");
+  }
   const data = await res.json().catch(() => ({}));
   return { res, data };
 }
