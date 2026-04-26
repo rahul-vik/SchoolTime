@@ -112,6 +112,7 @@ Based on `.env.example`:
 - `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
 - `npm run health:daily` - run build + smoke + security audit health suite
+- `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 
 ## One-Click Dev Launcher (Windows)
 
@@ -169,6 +170,7 @@ Based on `.env.example`:
 - `docs/AUTO_RULES_INTELLIGENCE.md` (generated)
 - `docs/AUTONOMOUS_AUTOFIX_POLICY.md`
 - `docs/IMPLEMENTATION_BACKLOG.md`
+- `CHANGELOG.md`
 
 ## Governance Templates
 
@@ -196,6 +198,7 @@ Based on `.env.example`:
 - Use `.github/workflows/ci.yml` checks before merging to `main`.
 - CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`).
 - Daily automated checks: `.github/workflows/daily-health-autofix.yml` (scheduled health scan + safe dependency autofix PR + issue on failure).
+- Manual release automation: `.github/workflows/release.yml` (version bump + changelog + tag + GitHub release).
 - Run periodic DB backups with `scripts/backup-db.ps1`.
 - Linux/macOS backup helpers:
   - `scripts/backup-db.sh`

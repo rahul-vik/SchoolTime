@@ -1,0 +1,63 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  cut-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump package version
+        run: npm version ${{ inputs.bump }} --no-git-tag-version
+
+      - name: Read new version
+        id: version
+        run: |
+          node -e "const p=require('./package.json'); console.log('version='+p.version)" >> $GITHUB_OUTPUT
+
+      - name: Update changelog
+        run: node scripts/update-changelog-release.mjs --version "${{ steps.version.outputs.version }}"
+
+      - name: Commit release metadata
+        run: |
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.version.outputs.version }}"
+
+      - name: Create and push git tag
+        run: |
+          git tag v${{ steps.version.outputs.version }}
+          git push origin main --follow-tags
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          generate_release_notes: true
