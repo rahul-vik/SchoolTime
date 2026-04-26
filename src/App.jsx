@@ -219,6 +219,23 @@ export default function App() {
     })));
   }, [divisions]);
 
+  const fetchAndApplyAdminData = useCallback(async (role) => {
+    if (!role) return;
+    try {
+      const data = await fetchAdminData({
+        role,
+        getUsers,
+        getUsage,
+        getAuditLogs,
+        getApiKeys,
+      });
+      setOrgUsers(data.users);
+      setUsageData(data.usage);
+      setAuditLogs(data.logs);
+      setApiKeys(data.apiKeys);
+    } catch {}
+  }, []);
+
   const generateTimetable = useCallback(() => {
     const payload = {
       school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules,
@@ -252,23 +269,6 @@ export default function App() {
       },
     });
   }, [canManageBilling, creditsRemaining, notify, fetchAndApplyAdminData, user?.role]);
-
-  const fetchAndApplyAdminData = useCallback(async (role) => {
-    if (!role) return;
-    try {
-      const data = await fetchAdminData({
-        role,
-        getUsers,
-        getUsage,
-        getAuditLogs,
-        getApiKeys,
-      });
-      setOrgUsers(data.users);
-      setUsageData(data.usage);
-      setAuditLogs(data.logs);
-      setApiKeys(data.apiKeys);
-    } catch {}
-  }, []);
 
   const handleAuth = useCallback(async (form) => {
     const resp = await authenticateUser({
