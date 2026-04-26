@@ -52,8 +52,12 @@ export async function authenticateUser({
   const resp = await action(form);
   onUser(resp.user);
   onCredits(resp.license?.creditsRemaining ?? 0);
-  const stateResp = await loadState();
-  if (stateResp.state) applyTenantState(stateResp.state);
+  try {
+    const stateResp = await loadState();
+    if (stateResp.state) applyTenantState(stateResp.state);
+  } catch {
+    // Authentication already succeeded; treat state hydration as best-effort.
+  }
   onHydrated(true);
 }
 

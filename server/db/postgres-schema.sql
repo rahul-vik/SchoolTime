@@ -90,3 +90,15 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS schema_metadata (
+  id INTEGER PRIMARY KEY,
+  schema_version INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+INSERT INTO schema_metadata (id, schema_version, updated_at)
+VALUES (1, 1, NOW()::text)
+ON CONFLICT (id) DO UPDATE
+SET schema_version = EXCLUDED.schema_version,
+    updated_at = EXCLUDED.updated_at;
+

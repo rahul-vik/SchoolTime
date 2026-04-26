@@ -71,7 +71,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [apiKeys, setApiKeys] = useState([]);
   const [page, setPage] = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const notifyTimerRef = useRef(null);

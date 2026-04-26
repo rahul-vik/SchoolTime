@@ -30,7 +30,7 @@ export function createAuthRoutes(db) {
       await tx.run("INSERT INTO licenses (org_id, credits_remaining, updated_at) VALUES (?, ?, ?)", orgId, 10, nowIso());
       await writeCreditLedger(tx, orgId, 10, "TRIAL_SIGNUP", { notes: "Initial 10 timetable credits" });
       await logAudit(tx, orgId, userId, "ORG_REGISTERED", "organization", orgId, { ownerEmail: emailNorm });
-    })();
+    });
 
     const user = { id: userId, org_id: orgId, email: emailNorm, role: "owner" };
     const tokens = await issueTokenPair(db, user);
@@ -98,7 +98,7 @@ export function createAuthRoutes(db) {
       await tx.run("UPDATE password_reset_tokens SET used_at = ? WHERE id = ?", nowIso(), row.id);
       await tx.run("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", nowIso(), row.user_id);
       await logAudit(tx, row.org_id, row.user_id, "PASSWORD_RESET_CONFIRMED", "user", row.user_id);
-    })();
+    });
     res.json({ ok: true });
   });
 

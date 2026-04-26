@@ -109,6 +109,7 @@ Based on `.env.example`:
 - `npm run smoke:prod` - smoke test engine + PDF/Excel export pipeline
 - `npm run audit:security` - security audit for prod dependencies (high+)
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
+- `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
 - `npm run health:daily` - run build + smoke + security audit health suite
 
@@ -167,6 +168,7 @@ Based on `.env.example`:
 - `docs/AUTO_CHANGELOG.md` (generated)
 - `docs/AUTO_RULES_INTELLIGENCE.md` (generated)
 - `docs/AUTONOMOUS_AUTOFIX_POLICY.md`
+- `docs/IMPLEMENTATION_BACKLOG.md`
 
 ## Governance Templates
 
