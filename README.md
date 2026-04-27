@@ -107,6 +107,9 @@ Based on `.env.example`:
 - `CREATOR_PORTAL_PASSWORD` - optional; enables `/creator` portal login (use a long random value; for production prefer `CREATOR_PORTAL_PASSWORD_HASH`)
 - `CREATOR_PORTAL_PASSWORD_HASH` - optional bcrypt hash for portal login (overrides plain password when set)
 - `CREATOR_JWT_EXPIRES_IN` - portal session JWT lifetime (default `8h`)
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` - SMTP server config for password reset emails
+- `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` - SMTP credentials and sender address
+- `APP_BASE_URL` - app URL used to build password-reset links (e.g. `http://localhost:5173` in dev)
 
 ## Available Scripts
 

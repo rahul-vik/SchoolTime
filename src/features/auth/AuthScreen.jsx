@@ -19,6 +19,20 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
     setResetTokenHint("");
   }, [mode]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search || "");
+    const token = params.get("token");
+    const modeQuery = params.get("mode");
+    if (token) {
+      setReset((prev) => ({ ...prev, token: token.trim() }));
+      setMode("reset");
+      setResetTokenHint("Reset token pre-filled from link.");
+    } else if (modeQuery === "reset") {
+      setMode("reset");
+    }
+  }, [setMode]);
+
   const submit = async () => {
     setError("");
     setBusy(true);
@@ -48,11 +62,16 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
   };
 
   const handleRequestReset = async () => {
+    if (!String(form.email || "").trim()) {
+      setError("Enter your email first to request a reset token.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await requestPasswordReset(form.email);
       setResetTokenHint("If this email exists, reset instructions have been sent.");
+      setMode("reset");
     } catch (err) {
       setError(err.message || "Could not request reset");
     } finally {
@@ -166,9 +185,9 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
             <>
               <Input label="Reset Token" value={reset.token} onChange={(v) => setReset((p) => ({ ...p, token: v }))} />
               <Input label="New Password" type="password" value={reset.newPassword} onChange={(v) => setReset((p) => ({ ...p, newPassword: v }))} />
-              {resetTokenHint && <p style={{ fontSize: 11, color: T.warning }}>{resetTokenHint}</p>}
             </>
           )}
+          {resetTokenHint && <p style={{ fontSize: 11, color: T.info, marginBottom: 10 }}>{resetTokenHint}</p>}
           {error && <p style={{ color: T.danger, fontSize: 12, marginBottom: 10 }}>{error}</p>}
           {mode === "reset"
             ? <Btn onClick={handleConfirmReset} fullWidth disabled={busy} style={{ height: 42 }}>{busy ? "Please wait..." : "Reset Password"}</Btn>
@@ -179,11 +198,11 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
               {mode === "login" ? "Need an account? Register" : "Already have an account? Login"}
             </button>
             {mode === "login" && (
-              <button onClick={handleRequestReset} disabled={!form.email || busy} style={{ background: "none", border: "none", color: T.textSoft, cursor: "pointer", fontSize: 12, padding: 0 }}>
+              <button type="button" onClick={handleRequestReset} disabled={!form.email || busy} style={{ background: "none", border: "none", color: T.textSoft, cursor: "pointer", fontSize: 12, padding: 0 }}>
                 Send password reset token
               </button>
             )}
-            <button onClick={() => setMode((m) => (m === "reset" ? "login" : "reset"))} style={{ background: "none", border: "none", color: T.textSoft, cursor: "pointer", fontSize: 11, padding: 0 }}>
+            <button type="button" onClick={() => setMode((m) => (m === "reset" ? "login" : "reset"))} style={{ background: "none", border: "none", color: T.textSoft, cursor: "pointer", fontSize: 11, padding: 0 }}>
               {mode === "reset" ? "Back to login" : "Have reset token?"}
             </button>
           </div>

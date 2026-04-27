@@ -7,6 +7,7 @@ All notable changes to SchoolTime are documented in this file.
 - Added a dedicated Role Access section in the platform portal to manage permissions per role and add custom roles.
 - Enforced role permissions end-to-end across tenant APIs and school app UI using policy-driven runtime checks.
 - Improved platform portal session handling so stale creator tokens auto-clear and return users to sign in cleanly.
+- Implemented SMTP-based password reset email delivery and reset-link token prefill in the user app.
 
 ## [1.0.1] - 2026-04-27
 

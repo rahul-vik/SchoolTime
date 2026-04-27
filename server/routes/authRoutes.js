@@ -6,6 +6,7 @@ import { issueTokenPair } from "../services/tokens.js";
 import { getSignupInitialCredits } from "../services/platformSettings.js";
 import { createOrgWithOwnerUser } from "../services/registrationService.js";
 import { getRolePermissionContext } from "../services/roleAccess.js";
+import { sendPasswordResetEmail } from "../services/emailService.js";
 
 export function createAuthRoutes(db) {
   const router = Router();
@@ -114,6 +115,10 @@ export function createAuthRoutes(db) {
       new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       nowIso(),
     );
+    const emailOut = await sendPasswordResetEmail(emailNorm, rawToken);
+    if (!emailOut.sent && process.env.NODE_ENV !== "production") {
+      console.warn("[password-reset] SMTP not configured. Reset email skipped for:", emailNorm);
+    }
     await logAudit(db, user.org_id, user.id, "PASSWORD_RESET_REQUESTED", "user", user.id);
     res.json({ ok: true });
   });

@@ -29,6 +29,13 @@ function buildEnv() {
   const CREATOR_PORTAL_PASSWORD = String(process.env.CREATOR_PORTAL_PASSWORD || "").trim();
   const CREATOR_PORTAL_PASSWORD_HASH = String(process.env.CREATOR_PORTAL_PASSWORD_HASH || "").trim();
   const CREATOR_JWT_EXPIRES_IN = process.env.CREATOR_JWT_EXPIRES_IN || "8h";
+  const SMTP_HOST = String(process.env.SMTP_HOST || "").trim();
+  const SMTP_PORT = toPositiveInt(process.env.SMTP_PORT, 587);
+  const SMTP_SECURE = String(process.env.SMTP_SECURE || "false").trim().toLowerCase() === "true";
+  const SMTP_USER = String(process.env.SMTP_USER || "").trim();
+  const SMTP_PASS = String(process.env.SMTP_PASS || "").trim();
+  const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
+  const APP_BASE_URL = String(process.env.APP_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
 
   return {
     NODE_ENV,
@@ -46,6 +53,13 @@ function buildEnv() {
     CREATOR_PORTAL_PASSWORD,
     CREATOR_PORTAL_PASSWORD_HASH,
     CREATOR_JWT_EXPIRES_IN,
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_SECURE,
+    SMTP_USER,
+    SMTP_PASS,
+    SMTP_FROM,
+    APP_BASE_URL,
   };
 }
 
@@ -69,6 +83,15 @@ function validateEnv(env) {
         throw new Error(
           "For production, set CREATOR_PORTAL_PASSWORD_HASH (bcrypt) for the platform portal, or use CREATOR_PORTAL_PASSWORD with at least 20 characters.",
         );
+      }
+    }
+    const smtpConfigured = Boolean(env.SMTP_HOST || env.SMTP_USER || env.SMTP_PASS || env.SMTP_FROM);
+    if (smtpConfigured) {
+      if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
+        throw new Error("SMTP is partially configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS, and SMTP_FROM together.");
+      }
+      if (!/^https?:\/\//i.test(env.APP_BASE_URL)) {
+        throw new Error("APP_BASE_URL must be an absolute http/https URL when SMTP is configured.");
       }
     }
   }
