@@ -108,7 +108,8 @@ export function createUserRoutes(db) {
   });
 
   router.patch("/users/:id", async (req, res) => {
-    const access = await getRolePermissionContext(db, await getCurrentRole(req));
+    const currentRole = await getCurrentRole(req);
+    const access = await getRolePermissionContext(db, currentRole);
     if (!access.permissions.canManageUsers) return res.status(403).json({ error: "Forbidden" });
     const parsed = schemas.roleUpdateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
@@ -117,7 +118,7 @@ export function createUserRoutes(db) {
     if (!access.availableRoles.includes(String(parsed.data.role || "").trim().toLowerCase())) {
       return res.status(400).json({ error: "Role is not allowed by role access policy" });
     }
-    if (req.auth.role !== "owner" && parsed.data.role === "owner") return res.status(403).json({ error: "Only owner can assign owner role" });
+    if (currentRole !== "owner" && parsed.data.role === "owner") return res.status(403).json({ error: "Only owner can assign owner role" });
 
     await db.run(
       "UPDATE users SET role = ?, is_active = COALESCE(?, is_active) WHERE id = ? AND org_id = ?",

@@ -45,8 +45,11 @@ async function creatorRequest(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401) {
-      clearCreatorToken();
-      throw new Error("Session expired. Please sign in to the platform portal again.");
+      // Keep explicit login errors user-friendly; only auto-clear stale tokens on authenticated calls.
+      if (path !== "/login") {
+        clearCreatorToken();
+        throw new Error("Session expired. Please sign in to the platform portal again.");
+      }
     }
     throw new Error(data.error || `Request failed (${res.status})`);
   }
