@@ -22,6 +22,7 @@
 - Required checks must pass
 - Resolve all review conversations
 - Hotfix merges to `main` must be back-merged to `develop`
+- Keep `package.json` version bumps and release `CHANGELOG.md` entries on `release/*` or `hotfix/*` branches only (not normal `feature/*` or `fix/*` PRs into `develop`)
 - Use PR templates:
   - default: `.github/pull_request_template.md`
   - release: `.github/PULL_REQUEST_TEMPLATE/release.md`
