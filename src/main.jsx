@@ -37,7 +37,7 @@ class AppErrorBoundary extends React.Component {
 }
 
 const path = typeof window !== "undefined" ? (window.location.pathname.replace(/\/+$/, "") || "/") : "/";
-const isCreatorPortal = path === "/creator" || path.startsWith("/creator/");
+const isCreatorPortal = /(?:^|\/)creator(?:\/|$)/.test(path);
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
