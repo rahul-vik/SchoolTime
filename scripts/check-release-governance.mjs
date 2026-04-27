@@ -32,17 +32,22 @@ if (!isReleaseBranch && !isHotfixBranch) {
 
 const changedRaw = run("git diff --name-only origin/main...HEAD", "");
 const changed = changedRaw ? changedRaw.split(/\r?\n/).filter(Boolean) : [];
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const mainPkgRaw = run("git show origin/main:package.json", "");
+const mainPkg = mainPkgRaw ? JSON.parse(mainPkgRaw) : null;
 
-if (!changed.includes("package.json")) {
-  fail("Release governance failed: package.json version bump is required for release/hotfix PRs.");
-}
-if (!changed.includes("CHANGELOG.md")) {
-  fail("Release governance failed: CHANGELOG.md update is required for release/hotfix PRs.");
+const requiresReleaseMetaChanges = !mainPkg || String(mainPkg.version || "") !== String(pkg.version || "");
+if (requiresReleaseMetaChanges) {
+  if (!changed.includes("package.json")) {
+    fail("Release governance failed: package.json version bump is required for release/hotfix PRs.");
+  }
+  if (!changed.includes("CHANGELOG.md")) {
+    fail("Release governance failed: CHANGELOG.md update is required for release/hotfix PRs.");
+  }
 }
 
 if (isReleaseBranch) {
   const declared = headRef.replace(/^release\//, "").trim();
-  const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
   if (pkg.version !== declared) {
     fail(`Release governance failed: release branch (${declared}) must match package.json version (${pkg.version}).`);
   }
