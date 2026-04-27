@@ -203,13 +203,16 @@ export function CreatorApp() {
   };
 
   const addRole = () => {
-    const key = newRoleKey.trim().toLowerCase();
-    if (!key) return;
+    const key = newRoleKey.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!key) {
+      notify("Enter a role name before adding", "warning");
+      return;
+    }
     if (!/^[a-z][a-z0-9_ -]*$/i.test(key)) {
       notify("Role key can use letters, numbers, space, underscore, hyphen", "warning");
       return;
     }
-    if ((roleAccessPolicy.roles || []).some((r) => r.key === key)) {
+    if ((roleAccessPolicy.roles || []).some((r) => String(r.key || "").trim().toLowerCase() === key)) {
       notify("Role already exists", "warning");
       return;
     }
@@ -221,6 +224,7 @@ export function CreatorApp() {
       ],
     }));
     setNewRoleKey("");
+    notify("Role added. Click save to apply.", "info");
   };
 
   const removeRole = (key) => {
@@ -1034,8 +1038,9 @@ export function CreatorApp() {
                 <label style={pt.inlineLabel}>Add new role</label>
                 <input value={newRoleKey} onChange={(e) => setNewRoleKey(e.target.value)} placeholder="e.g. coordinator" style={pt.inlineInput} />
               </div>
-              <Btn type="button" iconOnly ariaLabel="Add role" onClick={addRole} disabled={busy}>
-                <UiIcon name="create" size={18} stroke="currentColor" />
+              <Btn type="button" ariaLabel="Add role" onClick={addRole}>
+                <UiIcon name="create" size={16} stroke="currentColor" />
+                Add role
               </Btn>
             </div>
             <div style={{ overflow: "auto", border: `1px solid ${T.surfaceBorder}`, borderRadius: 10 }}>
