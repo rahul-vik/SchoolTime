@@ -67,13 +67,17 @@ export async function authenticateUser({
 }
 
 export async function fetchAdminData({
-  role,
+  permissions,
   getUsers,
   getUsage,
   getAuditLogs,
   getApiKeys,
 }) {
-  const [usersSettled, usageSettled] = await Promise.allSettled([getUsers(), getUsage()]);
+  const canManageUsers = Boolean(permissions?.canManageUsers);
+  const canViewAudit = Boolean(permissions?.canViewAudit);
+  const canManageApiKeys = Boolean(permissions?.canManageApiKeys);
+  const userPromise = canManageUsers ? getUsers() : Promise.resolve({ users: [] });
+  const [usersSettled, usageSettled] = await Promise.allSettled([userPromise, getUsage()]);
   const usersResp = usersSettled.status === "fulfilled" ? usersSettled.value : { users: [] };
   const usageResp = usageSettled.status === "fulfilled" ? usageSettled.value : null;
   const result = {
@@ -82,8 +86,11 @@ export async function fetchAdminData({
     logs: [],
     apiKeys: [],
   };
-  if (role === "owner" || role === "admin") {
-    const [auditSettled, keySettled] = await Promise.allSettled([getAuditLogs(), getApiKeys()]);
+  if (canViewAudit || canManageApiKeys) {
+    const [auditSettled, keySettled] = await Promise.allSettled([
+      canViewAudit ? getAuditLogs() : Promise.resolve({ logs: [] }),
+      canManageApiKeys ? getApiKeys() : Promise.resolve({ apiKeys: [] }),
+    ]);
     const auditResp = auditSettled.status === "fulfilled" ? auditSettled.value : { logs: [] };
     const keyResp = keySettled.status === "fulfilled" ? keySettled.value : { apiKeys: [] };
     result.logs = auditResp.logs || [];

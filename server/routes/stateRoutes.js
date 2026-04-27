@@ -1,5 +1,6 @@
 ﻿import { Router } from "express";
 import { logAudit, nowIso, schemas } from "../services/common.js";
+import { getRolePermissionContext } from "../services/roleAccess.js";
 
 export function createStateRoutes(db) {
   const router = Router();
@@ -18,6 +19,9 @@ export function createStateRoutes(db) {
   });
 
   router.put("/state", async (req, res) => {
+    const roleRow = await db.get("SELECT role FROM users WHERE id = ? AND org_id = ?", req.auth.userId, req.auth.orgId);
+    const access = await getRolePermissionContext(db, roleRow?.role || req.auth.role);
+    if (!access.permissions.canConfigureTimetable) return res.status(403).json({ error: "Forbidden" });
     const parsed = schemas.tenantStateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid state payload", details: parsed.error.issues });
     const sectionKey = String(req.query.section || "").trim().toLowerCase();

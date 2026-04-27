@@ -125,9 +125,9 @@ export default function App() {
   const [generatingProgress, setGeneratingProgress] = useState(0);
   const [stateHydrated, setStateHydrated] = useState(false);
   const [settingsTab, setSettingsTab] = useState("usage");
-  const isManager = user?.role === "owner" || user?.role === "admin";
-  const canManageConfig = isManager;
-  const canManageBilling = isManager;
+  const permissions = user?.permissions || {};
+  const canManageConfig = Boolean(permissions.canConfigureTimetable);
+  const canManageBilling = Boolean(permissions.canManageCredits);
 
   const dismissNotification = useCallback(() => {
     if (notifyTimerRef.current != null) {
@@ -264,11 +264,11 @@ export default function App() {
     })));
   }, [divisions]);
 
-  const fetchAndApplyAdminData = useCallback(async (role) => {
-    if (!role) return;
+  const fetchAndApplyAdminData = useCallback(async (userInput) => {
+    if (!userInput) return;
     try {
       const data = await fetchAdminData({
-        role,
+        permissions: userInput.permissions,
         getUsers,
         getUsage,
         getAuditLogs,
@@ -297,10 +297,10 @@ export default function App() {
       notify,
       navigate,
       onSuccess: async () => {
-        await fetchAndApplyAdminData(user?.role);
+        await fetchAndApplyAdminData(user);
       },
     });
-  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user?.role]);
+  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user]);
 
   const refreshCreditsFromServer = useCallback(async () => {
     try {
@@ -313,7 +313,7 @@ export default function App() {
 
   const handleBuyPack = useCallback(() => {
     if (!canManageBilling) {
-      notify("Only owner/admin can request credit purchases", "warning");
+      notify("Your role cannot request credit purchases", "warning");
       return;
     }
     setSettingsTab("purchase-credits");
@@ -333,7 +333,7 @@ export default function App() {
       onHydrated: setStateHydrated,
       onNoState: applyOrgDefaultsToSchool,
     });
-    await fetchAndApplyAdminData(resp?.user?.role);
+    await fetchAndApplyAdminData(resp?.user);
   }, [authMode, applyTenantState, fetchAndApplyAdminData, applyOrgDefaultsToSchool]);
 
   const logout = useCallback(async () => {
@@ -342,8 +342,8 @@ export default function App() {
   }, []);
 
   const refreshAdminData = useCallback(async () => {
-    await fetchAndApplyAdminData(user?.role);
-  }, [user?.role, fetchAndApplyAdminData]);
+    await fetchAndApplyAdminData(user);
+  }, [user, fetchAndApplyAdminData]);
 
   useEffect(() => {
     if (!user) return;
@@ -351,7 +351,7 @@ export default function App() {
   }, [user, refreshAdminData]);
 
   useEffect(() => {
-    const restricted = new Set(["setup", "standards", "subjects", "teachers", "periods", "rules"]);
+    const restricted = new Set(["setup", "standards", "subjects", "teachers", "periods", "rules", "generate", "exports"]);
     if (!canManageConfig && restricted.has(page)) {
       setPage("dashboard");
     }
@@ -418,10 +418,10 @@ export default function App() {
       { id: "periods",   label: "Periods",     iconKey: "periods" },
       { id: "rules",     label: "Preferences", iconKey: "preferences", badge: activeRulesCount },
     ] : []),
-    { id: "generate",  label: "Create",      iconKey: "create" },
+    ...(canManageConfig ? [{ id: "generate", label: "Create", iconKey: "create" }] : []),
     { id: "timetable", label: "Timetable",   iconKey: "timetable" },
     { id: "reports",   label: "Reports",     iconKey: "reports" },
-    { id: "exports",   label: "Downloads",   iconKey: "downloads" },
+    ...(canManageConfig ? [{ id: "exports", label: "Downloads", iconKey: "downloads" }] : []),
     { id: "settings",  label: "Settings",    iconKey: "settings" },
   ];
   const renderPage = () => {
@@ -434,6 +434,8 @@ export default function App() {
         navigate={navigate}
         users={orgUsers}
         me={user}
+        availableRoles={user?.availableRoles || ["owner", "admin", "staff"]}
+        permissions={permissions}
         onRefresh={refreshAdminData}
         onUserUpdated={setUser}
         notify={notify}
@@ -548,7 +550,7 @@ export default function App() {
               onClick={handleBuyPack}
               disabled={!canManageBilling}
               aria-label="Open credit purchase"
-              title={canManageBilling ? "Open credit purchase" : "Only owner/admin can request credit"}
+              title={canManageBilling ? "Open credit purchase" : "Your role cannot request credits"}
               style={{
                 ...css.badge(T.brand),
                 display: "inline-flex",

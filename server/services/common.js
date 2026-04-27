@@ -5,8 +5,16 @@ import { z } from "zod";
 export const schemas = {
   registerSchema: z.object({ orgName: z.string().min(2), fullName: z.string().min(2), email: z.string().email(), password: z.string().min(6) }),
   loginSchema: z.object({ email: z.string().email(), password: z.string().min(1) }),
-  createUserSchema: z.object({ fullName: z.string().min(2), email: z.string().email(), password: z.string().min(6), role: z.enum(["admin", "staff"]) }),
-  roleUpdateSchema: z.object({ role: z.enum(["owner", "admin", "staff"]), isActive: z.boolean().optional() }),
+  createUserSchema: z.object({
+    fullName: z.string().min(2),
+    email: z.string().email(),
+    password: z.string().min(6),
+    role: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i),
+  }),
+  roleUpdateSchema: z.object({
+    role: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i),
+    isActive: z.boolean().optional(),
+  }),
   updateMeSchema: z.object({ fullName: z.string().min(2).max(120).optional(), password: z.string().min(6).max(120).optional() }).strict(),
   refreshSchema: z.object({ refreshToken: z.string().min(20) }),
   resetRequestSchema: z.object({ email: z.string().email() }),
@@ -36,6 +44,25 @@ export const schemas = {
     credit_pack_price_cents: z.number().int().min(0).max(100_000_000).optional(),
   }),
   creatorUserActiveSchema: z.object({ isActive: z.boolean() }),
+  creatorUserPatchSchema: z
+    .object({
+      fullName: z.string().min(2).max(120).optional(),
+      email: z.string().email().optional(),
+      role: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i).optional(),
+    })
+    .refine((d) => d.fullName !== undefined || d.email !== undefined || d.role !== undefined, {
+      message: "Provide at least one field to update",
+    }),
+  creatorRoleAccessPolicySchema: z.object({
+    roles: z.array(z.object({
+      key: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i),
+      canManageUsers: z.boolean(),
+      canManageCredits: z.boolean(),
+      canViewAudit: z.boolean(),
+      canManageApiKeys: z.boolean(),
+      canConfigureTimetable: z.boolean(),
+    })).min(1).max(30),
+  }),
   creatorOrgDeleteSchema: z.object({
     confirmationName: z.string().min(1).max(200),
     notes: z.string().max(500).optional(),
