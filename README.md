@@ -42,7 +42,8 @@ See `LICENSE` for full text.
 - Export bundle:
   - Visual PDF timetable pages
   - Visual Excel timetable sheets
-- Usage, licensing credits, API key management, audit logs
+- Usage, licensing credits (schools **request** extra credits from the app; a platform operator **approves** them in `/creator`), API key management, audit logs
+- Optional platform operator portal (`/creator`) for cross-tenant credits, purchase approvals, enrollment, settings, and error logs when server env is configured
 
 ## Prerequisites
 
@@ -79,6 +80,16 @@ See `LICENSE` for full text.
 - Frontend: `http://localhost:5173`
 - API health: `http://localhost:8787/api/health`
 
+### Platform portal (operator / creator)
+
+Separate from the school tenant app: cross-tenant visibility, credit controls, and server diagnostics.
+
+- **Open:** `http://localhost:5173/creator` (same Vite app; portal session uses `localStorage` key `st_creator_token`, the school app uses `tt_token` — do not copy one into the other). If the school app shows *“This token is for the platform portal only”*, the school session slot held a portal JWT; sign in again with your school email and password (the client clears that mismatch when it detects it).
+- **Configure server:** set `CREATOR_PORTAL_PASSWORD` (local dev) or `CREATOR_PORTAL_PASSWORD_HASH` (bcrypt hash; recommended for production) in `.env`. Optional `CREATOR_JWT_EXPIRES_IN` (default `8h`).
+- **What you can do:** list organizations and users, **approve or reject pending school credit purchase requests** (from the Organizations tab), browse credit ledger and audit logs across all tenants, **add org credits in multiples of 10** manually when needed (Organizations / Credit ledger), **remove an organization** (destructive; a **purge record** is retained), register a new organization, edit platform defaults (`signup_initial_credits`, `credit_pack_size`, `credit_pack_price_cents`), and review **platform error logs**.
+
+See `docs/API.md` for route names. After pulling changes that add platform routes (for example org purge history), **restart the Node API process** so it loads the new handlers; an old process can otherwise mis-route `/api/creator/*` requests.
+
 ## Environment Variables
 
 Based on `.env.example`:
@@ -93,6 +104,9 @@ Based on `.env.example`:
 - `DB_CLIENT` - current runtime DB engine (`sqlite` default)
 - `DATABASE_URL` - required for Postgres migration / Postgres runtime
 - `VITE_API_BASE_URL` - frontend API base URL
+- `CREATOR_PORTAL_PASSWORD` - optional; enables `/creator` portal login (use a long random value; for production prefer `CREATOR_PORTAL_PASSWORD_HASH`)
+- `CREATOR_PORTAL_PASSWORD_HASH` - optional bcrypt hash for portal login (overrides plain password when set)
+- `CREATOR_JWT_EXPIRES_IN` - portal session JWT lifetime (default `8h`)
 
 ## Available Scripts
 
@@ -109,14 +123,28 @@ Based on `.env.example`:
 - `npm run smoke:prod` - smoke test engine + PDF/Excel export pipeline
 - `npm run audit:security` - security audit for prod dependencies (high+)
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
+- `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
+- `npm run docs:auto` - auto-generate changelog + rules intelligence docs
+- `npm run health:daily` - run build + smoke + security audit health suite
+- `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 
 ## One-Click Dev Launcher (Windows)
 
 - Run `open-dev.bat` from the project root.
 - It will:
   - switch to `develop`
+  - check local vs remote `develop` and ask before applying remote updates
   - try to open the folder in Cursor (if Cursor CLI is installed)
   - run `npm start` (development servers)
+
+## One-Click Prod Launcher (Windows)
+
+- Run `open-prod.bat` from the project root.
+- It will:
+  - switch to `main`
+  - check local vs remote `main` and ask before applying remote updates
+  - try to open the folder in Cursor (if Cursor CLI is installed)
+  - run `npm run start:prod`
 
 ## Data And Persistence
 
@@ -152,6 +180,11 @@ Based on `.env.example`:
 - `docs/PRODUCTION_READINESS.md`
 - `docs/PROJECT_STANDARDS.md` (master handbook)
 - `docs/POSTGRES_MIGRATION.md`
+- `docs/AUTO_CHANGELOG.md` (generated)
+- `docs/AUTO_RULES_INTELLIGENCE.md` (generated)
+- `docs/AUTONOMOUS_AUTOFIX_POLICY.md`
+- `docs/IMPLEMENTATION_BACKLOG.md`
+- `CHANGELOG.md`
 
 ## Governance Templates
 
@@ -178,6 +211,8 @@ Based on `.env.example`:
 - Use PM2 (`ecosystem.config.cjs`) or systemd for process supervision.
 - Use `.github/workflows/ci.yml` checks before merging to `main`.
 - CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`).
+- Daily automated checks: `.github/workflows/daily-health-autofix.yml` (scheduled health scan + safe dependency autofix PR + issue on failure).
+- Manual release automation: `.github/workflows/release.yml` (version bump + changelog + tag + GitHub release).
 - Run periodic DB backups with `scripts/backup-db.ps1`.
 - Linux/macOS backup helpers:
   - `scripts/backup-db.sh`

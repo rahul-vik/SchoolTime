@@ -1,0 +1,11 @@
+---
+description: Guardrails for autonomous bug detection and fixing
+alwaysApply: true
+---
+# Autonomous Ops Policy
+
+- Use autonomous fixing only for low-risk, bounded changes.
+- Never auto-apply high-risk fixes in auth, billing, DB, migration, or deploy-critical files.
+- Require PR-based delivery for all autonomous fixes; never direct-push risky logic.
+- If risk is medium/high, auto-open an issue with context and request human review.
+- Keep `docs/AUTONOMOUS_AUTOFIX_POLICY.md` aligned with workflow guardrails and risk logic.

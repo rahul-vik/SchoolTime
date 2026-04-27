@@ -8,6 +8,7 @@ export async function bootstrapSession({
   onCredits,
   onHydrated,
   onLoading,
+  onNoState,
   isCancelled,
 }) {
   if (!hasStoredSession()) {
@@ -22,6 +23,7 @@ export async function bootstrapSession({
     const stateResp = await loadState();
     if (isCancelled()) return;
     if (stateResp.state) applyTenantState(stateResp.state);
+    else onNoState?.(me.user);
   } catch {
     clearToken();
     // If getMe succeeded but loadState failed, tokens were cleared — must drop user too or the UI stays "logged in" with no Authorization header.
@@ -47,14 +49,21 @@ export async function authenticateUser({
   onUser,
   onCredits,
   onHydrated,
+  onNoState,
 }) {
   const action = mode === "login" ? login : register;
   const resp = await action(form);
   onUser(resp.user);
   onCredits(resp.license?.creditsRemaining ?? 0);
-  const stateResp = await loadState();
-  if (stateResp.state) applyTenantState(stateResp.state);
+  try {
+    const stateResp = await loadState();
+    if (stateResp.state) applyTenantState(stateResp.state);
+    else onNoState?.(resp.user);
+  } catch {
+    // Authentication already succeeded; treat state hydration as best-effort.
+  }
   onHydrated(true);
+  return resp;
 }
 
 export async function fetchAdminData({
@@ -64,7 +73,9 @@ export async function fetchAdminData({
   getAuditLogs,
   getApiKeys,
 }) {
-  const [usersResp, usageResp] = await Promise.all([getUsers(), getUsage()]);
+  const [usersSettled, usageSettled] = await Promise.allSettled([getUsers(), getUsage()]);
+  const usersResp = usersSettled.status === "fulfilled" ? usersSettled.value : { users: [] };
+  const usageResp = usageSettled.status === "fulfilled" ? usageSettled.value : null;
   const result = {
     users: usersResp.users || [],
     usage: usageResp,
@@ -72,7 +83,9 @@ export async function fetchAdminData({
     apiKeys: [],
   };
   if (role === "owner" || role === "admin") {
-    const [auditResp, keyResp] = await Promise.all([getAuditLogs(), getApiKeys()]);
+    const [auditSettled, keySettled] = await Promise.allSettled([getAuditLogs(), getApiKeys()]);
+    const auditResp = auditSettled.status === "fulfilled" ? auditSettled.value : { logs: [] };
+    const keyResp = keySettled.status === "fulfilled" ? keySettled.value : { apiKeys: [] };
     result.logs = auditResp.logs || [];
     result.apiKeys = keyResp.apiKeys || [];
   }

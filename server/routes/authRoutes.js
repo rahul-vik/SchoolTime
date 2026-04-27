@@ -1,8 +1,10 @@
 ﻿import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { comparePassword, hashOpaqueToken, hashPassword, makeOpaqueToken } from "../auth.js";
-import { getOrgCredits, isAfter, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
+import { getOrgCredits, isAfter, logAudit, nowIso, schemas } from "../services/common.js";
 import { issueTokenPair } from "../services/tokens.js";
+import { getSignupInitialCredits } from "../services/platformSettings.js";
+import { createOrgWithOwnerUser } from "../services/registrationService.js";
 
 export function createAuthRoutes(db) {
   const router = Router();
@@ -14,40 +16,52 @@ export function createAuthRoutes(db) {
     const emailNorm = email.trim().toLowerCase();
     if (await db.get("SELECT id FROM users WHERE email = ?", emailNorm)) return res.status(409).json({ error: "Email already registered" });
 
-    const orgId = randomUUID();
-    const userId = randomUUID();
-    await db.transaction(async (tx) => {
-      await tx.run("INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)", orgId, orgName.trim(), nowIso());
-      await tx.run(
-        "INSERT INTO users (id, org_id, full_name, email, password_hash, role, created_at, is_active) VALUES (?, ?, ?, ?, ?, 'owner', ?, 1)",
-        userId,
-        orgId,
-        fullName.trim(),
+    const initialCredits = await getSignupInitialCredits(db);
+    const { orgId, userId } = await db.transaction(async (tx) =>
+      createOrgWithOwnerUser(tx, {
+        orgName,
+        fullName,
         emailNorm,
-        hashPassword(password),
-        nowIso(),
-      );
-      await tx.run("INSERT INTO licenses (org_id, credits_remaining, updated_at) VALUES (?, ?, ?)", orgId, 10, nowIso());
-      await writeCreditLedger(tx, orgId, 10, "TRIAL_SIGNUP", { notes: "Initial 10 timetable credits" });
-      await logAudit(tx, orgId, userId, "ORG_REGISTERED", "organization", orgId, { ownerEmail: emailNorm });
-    })();
+        plainPassword: password,
+        initialCredits,
+        creditLedgerReason: "TRIAL_SIGNUP",
+        creditLedgerMeta: { notes: `Initial ${initialCredits} timetable credits` },
+      }),
+    );
 
     const user = { id: userId, org_id: orgId, email: emailNorm, role: "owner" };
     const tokens = await issueTokenPair(db, user);
-    res.status(201).json({ token: tokens.accessToken, refreshToken: tokens.refreshToken, user: { id: userId, orgId, fullName, email: emailNorm, role: "owner" }, license: { creditsRemaining: 10 } });
+    res.status(201).json({
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: { id: userId, orgId, orgName: orgName.trim(), fullName, email: emailNorm, role: "owner" },
+      license: { creditsRemaining: initialCredits },
+    });
   });
 
   router.post("/login", async (req, res) => {
     const parsed = schemas.loginSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
     const emailNorm = parsed.data.email.trim().toLowerCase();
-    const row = await db.get("SELECT id, org_id, full_name, email, password_hash, role, is_active FROM users WHERE email = ?", emailNorm);
-    if (!row || !comparePassword(parsed.data.password, row.password_hash)) return res.status(401).json({ error: "Invalid credentials" });
+    const row = await db.get(
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.password_hash, u.role, u.is_active, o.name AS org_name
+       FROM users u
+       JOIN organizations o ON o.id = u.org_id
+       WHERE u.email = ?`,
+      emailNorm,
+    );
+    if (!row) return res.status(404).json({ error: "Account not found" });
+    if (!comparePassword(parsed.data.password, row.password_hash)) return res.status(401).json({ error: "Incorrect password" });
     if (!row.is_active) return res.status(403).json({ error: "User is deactivated" });
     const tokens = await issueTokenPair(db, row);
     await logAudit(db, row.org_id, row.id, "USER_LOGIN", "user", row.id);
     const credits = await getOrgCredits(db, row.org_id);
-    res.json({ token: tokens.accessToken, refreshToken: tokens.refreshToken, user: { id: row.id, orgId: row.org_id, fullName: row.full_name, email: row.email, role: row.role }, license: { creditsRemaining: credits } });
+    res.json({
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: { id: row.id, orgId: row.org_id, orgName: row.org_name, fullName: row.full_name, email: row.email, role: row.role },
+      license: { creditsRemaining: credits },
+    });
   });
 
   router.post("/refresh", async (req, res) => {
@@ -97,7 +111,7 @@ export function createAuthRoutes(db) {
       await tx.run("UPDATE password_reset_tokens SET used_at = ? WHERE id = ?", nowIso(), row.id);
       await tx.run("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", nowIso(), row.user_id);
       await logAudit(tx, row.org_id, row.user_id, "PASSWORD_RESET_CONFIRMED", "user", row.user_id);
-    })();
+    });
     res.json({ ok: true });
   });
 

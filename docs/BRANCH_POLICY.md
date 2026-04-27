@@ -39,12 +39,13 @@
 ## Release Checklist
 
 1. Create `release/x.y.z` from `develop`
-2. Stabilize with bug fixes only
-3. Merge to `main`, tag, deploy
-4. Smoke test:
+2. Set `package.json` version to `x.y.z` and update `CHANGELOG.md`
+3. Stabilize with bug fixes only
+4. Merge to `main`, tag, deploy (or run `.github/workflows/release.yml`)
+5. Smoke test:
    - `/api/health`
    - login
    - timetable generation
    - PDF and Excel export
-5. Merge release branch back into `develop`
+6. Merge release branch back into `develop`
 

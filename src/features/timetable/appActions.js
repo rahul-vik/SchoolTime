@@ -8,6 +8,7 @@ export function generateTimetableFlow({
   creditsRemaining,
   notify,
   navigate,
+  onSuccess,
 }) {
   setTimetableStatus("GENERATING");
   setGeneratingProgress(0);
@@ -23,6 +24,7 @@ export function generateTimetableFlow({
       setTimetable(resp.timetable);
       setCreditsRemaining(resp.license?.creditsRemaining ?? creditsRemaining);
       setTimetableStatus("GENERATED");
+      await onSuccess?.(resp);
       notify(`Timetable generated — Score: ${resp.timetable.score}/100`, "success");
       navigate("timetable");
     } catch (err) {
@@ -30,26 +32,6 @@ export function generateTimetableFlow({
       notify(err.message || "Generation failed", "danger");
     }
   }, 1200);
-}
-
-export async function purchasePackFlow({
-  canManageBilling,
-  apiPurchasePack,
-  setCreditsRemaining,
-  creditsRemaining,
-  notify,
-}) {
-  if (!canManageBilling) {
-    notify("Only owner/admin can purchase credit packs", "warning");
-    return;
-  }
-  try {
-    const resp = await apiPurchasePack();
-    setCreditsRemaining(resp.license?.creditsRemaining ?? creditsRemaining);
-    notify("Added 10 timetable credits", "success");
-  } catch (err) {
-    notify(err.message || "Could not add credits", "danger");
-  }
 }
 
 export function swapTimetableCells({

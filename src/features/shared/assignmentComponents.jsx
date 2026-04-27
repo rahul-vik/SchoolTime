@@ -39,7 +39,7 @@ export function DivisionPill({ div, mediums, onRemove, onMediumChange }) {
 
 export function TeacherDivisionMapper({ assignedDivisionIds, onChange, standards, divisions }) {
   const { isMobile } = useBreakpoint();
-  const isUnrestricted = assignedDivisionIds.length === 0;
+  const [isUnrestricted, setIsUnrestricted] = useState(assignedDivisionIds.length === 0);
 
   const stdsWithDivs = useMemo(
     () => [...standards].sort((a, b) => a.sortOrder - b.sortOrder).map((std) => ({ std, divs: divisions.filter((d) => d.standardId === std.id) })).filter((x) => x.divs.length > 0),
@@ -75,7 +75,14 @@ export function TeacherDivisionMapper({ assignedDivisionIds, onChange, standards
 
   const selectAll = () => onChange(divisions.map((d) => d.id));
   const clearAll = () => onChange([]);
-  const setUnrestricted = () => onChange([]);
+  const setUnrestricted = () => {
+    setIsUnrestricted(true);
+    onChange([]);
+  };
+  const enableRestrictedSelection = () => {
+    setIsUnrestricted(false);
+    onChange([]);
+  };
 
   const summaryText = isUnrestricted ? "All divisions (unrestricted)" : `${assignedDivisionIds.length} division${assignedDivisionIds.length !== 1 ? "s" : ""} assigned`;
 
@@ -90,7 +97,13 @@ export function TeacherDivisionMapper({ assignedDivisionIds, onChange, standards
           <button onClick={setUnrestricted} style={{ ...css.btn("ghost", "sm"), fontSize: 11, padding: "4px 10px", color: isUnrestricted ? T.success : T.textSoft, borderColor: isUnrestricted ? T.success + "60" : T.surfaceBorder, background: isUnrestricted ? T.success + "10" : "transparent" }}>
             {isUnrestricted ? <UiIcon name="check" size={11} stroke="currentColor" style={{ marginRight: 2 }} /> : null}All (unrestricted)
           </button>
-          {!isUnrestricted && <button onClick={clearAll} style={{ ...css.btn("ghost", "sm"), fontSize: 11, padding: "4px 10px", color: T.danger }}>Clear</button>}
+          {isUnrestricted ? (
+            <button onClick={enableRestrictedSelection} style={{ ...css.btn("ghost", "sm"), fontSize: 11, padding: "4px 10px", color: T.brand }}>
+              Set selected divisions
+            </button>
+          ) : (
+            <button onClick={clearAll} style={{ ...css.btn("ghost", "sm"), fontSize: 11, padding: "4px 10px", color: T.danger }}>Clear</button>
+          )}
         </div>
       </div>
 

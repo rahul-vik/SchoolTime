@@ -17,6 +17,36 @@ export const schemas = {
     teachers: z.array(z.any()), periodSlots: z.array(z.any()), workingDays: z.array(z.any()), schedulingRules: z.array(z.any()),
     teacherSubjects: z.array(z.any()).optional(), freePeriodRules: z.array(z.any()).optional(), subjectAllocations: z.array(z.any()).optional(),
   }),
+  creatorRegisterOrgSchema: z.object({
+    orgName: z.string().min(2),
+    fullName: z.string().min(2),
+    email: z.string().email(),
+    password: z.string().min(6),
+    initialCredits: z.number().int().min(0).max(1_000_000).optional(),
+  }),
+  creatorCreditsAdjustSchema: z
+    .object({
+      delta: z.number().int(),
+      reason: z.string().min(2).max(120),
+    })
+    .refine((d) => d.delta !== 0 && d.delta % 10 === 0, { message: "Delta must be a non-zero multiple of 10", path: ["delta"] }),
+  creatorSettingsPatchSchema: z.object({
+    signup_initial_credits: z.number().int().min(0).max(1_000_000).optional(),
+    credit_pack_size: z.number().int().min(1).max(10_000).optional(),
+    credit_pack_price_cents: z.number().int().min(0).max(100_000_000).optional(),
+  }),
+  creatorUserActiveSchema: z.object({ isActive: z.boolean() }),
+  creatorOrgDeleteSchema: z.object({
+    confirmationName: z.string().min(1).max(200),
+    notes: z.string().max(500).optional(),
+  }),
+  creditPurchaseRequestSchema: z.object({
+    packCount: z.number().int().min(1).max(500),
+    note: z.string().max(500).optional(),
+  }),
+  creatorCreditPurchaseRejectSchema: z.object({
+    note: z.string().max(500).optional(),
+  }),
 };
 
 export function nowIso() { return new Date().toISOString(); }

@@ -15,6 +15,8 @@ alwaysApply: true
 - Merge requirements: approvals + passing checks + resolved conversations.
 - Hotfixes merged to `main` must also be back-merged to `develop`.
 - CI expectations before merge: build + smoke + security audit should pass.
+- Release/hotfix PRs into `main` must update `package.json` version and `CHANGELOG.md`.
+- `release/x.y.z` branches must match `package.json` version `x.y.z`.
 - PR templates to follow:
   - `.github/pull_request_template.md`
   - `.github/PULL_REQUEST_TEMPLATE/release.md`
@@ -31,8 +33,9 @@ alwaysApply: true
 ## Release Checklist (Condensed)
 
 1. Cut `release/x.y.z` from `develop`.
-2. Stabilize and fix only blockers.
-3. Merge to `main`, tag release, deploy.
-4. Smoke test health, login, generate, export.
-5. Back-merge release to `develop`.
+2. Set `package.json` version and update `CHANGELOG.md`.
+3. Stabilize and fix only blockers.
+4. Merge to `main`, tag release, deploy (or run release workflow).
+5. Smoke test health, login, generate, export.
+6. Back-merge release to `develop`.
 

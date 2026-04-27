@@ -177,6 +177,7 @@ Persistent project rules are stored in `.cursor/rules/`:
 - `schooltime-backend-api.mdc`
 - `schooltime-frontend-react.mdc`
 - `schooltime-exports.mdc`
+- `schooltime-autonomous-ops-policy.mdc`
 
 Cross-editor AI guidance:
 
@@ -189,6 +190,7 @@ When standards evolve, update:
    and migration docs (`docs/POSTGRES_MIGRATION.md`) when DB strategy changes.
 3. Rule files under `.cursor/rules/`
 4. Templates under `.github/`
+5. Autonomous guardrail policy in `docs/AUTONOMOUS_AUTOFIX_POLICY.md`
 
 ## 10) Daily Developer Quick Start
 
