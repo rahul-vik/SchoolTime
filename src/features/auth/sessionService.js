@@ -8,6 +8,7 @@ export async function bootstrapSession({
   onCredits,
   onHydrated,
   onLoading,
+  onNoState,
   isCancelled,
 }) {
   if (!hasStoredSession()) {
@@ -22,6 +23,7 @@ export async function bootstrapSession({
     const stateResp = await loadState();
     if (isCancelled()) return;
     if (stateResp.state) applyTenantState(stateResp.state);
+    else onNoState?.(me.user);
   } catch {
     clearToken();
     // If getMe succeeded but loadState failed, tokens were cleared — must drop user too or the UI stays "logged in" with no Authorization header.
@@ -47,6 +49,7 @@ export async function authenticateUser({
   onUser,
   onCredits,
   onHydrated,
+  onNoState,
 }) {
   const action = mode === "login" ? login : register;
   const resp = await action(form);
@@ -55,6 +58,7 @@ export async function authenticateUser({
   try {
     const stateResp = await loadState();
     if (stateResp.state) applyTenantState(stateResp.state);
+    else onNoState?.(resp.user);
   } catch {
     // Authentication already succeeded; treat state hydration as best-effort.
   }

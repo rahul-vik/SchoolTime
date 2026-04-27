@@ -42,7 +42,7 @@ export function createTimetableRoutes(db) {
       });
       res.json({ timetable: output.result, license: { creditsRemaining: output.creditsRemaining }, runId });
     } catch (error) {
-      if (error.message === "NO_CREDITS") return res.status(402).json({ error: "No credits remaining. Purchase a 10-pack to continue." });
+      if (error.message === "NO_CREDITS") return res.status(402).json({ error: "No credits remaining. Purchase a credit pack from Settings to continue." });
       return res.status(500).json({ error: "Generation failed" });
     }
   });

@@ -8,10 +8,19 @@ export function createUserRoutes(db) {
   const router = Router();
 
   router.get("/me", async (req, res) => {
-    const row = await db.get("SELECT id, org_id, full_name, email, role FROM users WHERE id = ?", req.auth.userId);
+    const row = await db.get(
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, o.name AS org_name
+       FROM users u
+       JOIN organizations o ON o.id = u.org_id
+       WHERE u.id = ?`,
+      req.auth.userId,
+    );
     if (!row) return res.status(404).json({ error: "User not found" });
     const credits = await getOrgCredits(db, row.org_id);
-    res.json({ user: { id: row.id, orgId: row.org_id, fullName: row.full_name, email: row.email, role: row.role }, license: { creditsRemaining: credits } });
+    res.json({
+      user: { id: row.id, orgId: row.org_id, orgName: row.org_name, fullName: row.full_name, email: row.email, role: row.role },
+      license: { creditsRemaining: credits },
+    });
   });
 
   router.patch("/me", async (req, res) => {

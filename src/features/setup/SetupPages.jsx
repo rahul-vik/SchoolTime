@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
 
-export function SetupPage({ school, setSchool, mediums, setMediums, workingDays, setWorkingDays, notify, ui }) {
+export function SetupPage({ school, setSchool, mediums, setMediums, workingDays, setWorkingDays, notify, onConfirmSave, ui }) {
   const { T, css, Btn, Input, Select } = ui;
   const { isMobile } = useBreakpoint();
   const [form, setForm] = useState(school);
@@ -14,7 +14,13 @@ export function SetupPage({ school, setSchool, mediums, setMediums, workingDays,
     setForm(school);
   }, [school]);
 
-  const save = () => { setSchool(form); setSaved(true); setTimeout(() => setSaved(false), 2000); notify("School settings saved"); };
+  const save = () => {
+    setSchool(form);
+    onConfirmSave?.(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    notify("School settings saved");
+  };
   const toggleDay = (d) => {
     if (workingDays.includes(d) && workingDays.length === 1) { notify("At least one working day is required", "warning"); return; }
     setWorkingDays((p) => p.includes(d) ? p.filter((x) => x !== d) : [...p, d]);
@@ -71,7 +77,7 @@ export function SetupPage({ school, setSchool, mediums, setMediums, workingDays,
           <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>School Logo</label>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
             <div style={{ width: 52, height: 52, borderRadius: 10, border: `1px solid ${T.surfaceBorder}`, background: T.surfaceAlt, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
-              {previewLogo ? <img src={previewLogo} alt="School logo preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <UiIcon name="school" size={18} stroke={T.textSoft} />}
+              {previewLogo ? <img src={previewLogo} alt="School logo preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <UiIcon name="hat" size={18} stroke={T.textSoft} />}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               <label style={{ ...css.btn("ghost", "sm"), margin: 0, flex: isMobile ? 1 : undefined, justifyContent: "center" }}>

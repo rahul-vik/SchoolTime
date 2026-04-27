@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { updateMe } from "../../api";
 import { ApiKeysPage, AuditLogsPage, UsageDashboardPage, UsersPage } from "../admin/AdminPages";
+import { PurchaseCreditsPage } from "../billing/PurchaseCreditsPage";
 import { useBreakpoint } from "../shared/uiPrimitives";
 
 function ProfilePanel({ me, onUserUpdated, notify, ui }) {
@@ -53,18 +54,19 @@ function ProfilePanel({ me, onUserUpdated, notify, ui }) {
   );
 }
 
-export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate, users, me, onRefresh, onUserUpdated, notify, apiKeys, logs, setLogs, ui }) {
+export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate, users, me, onRefresh, onUserUpdated, notify, apiKeys, logs, setLogs, onCreditsUpdated, ui }) {
   const { isMobile } = useBreakpoint();
   const tabs = [
     { id: "profile", label: "Profile" },
-    { id: "usage", label: "Usage" },
     ...(me?.role === "owner" || me?.role === "admin"
       ? [
           { id: "users", label: "Users" },
+          { id: "purchase-credits", label: "Purchase credits" },
+          { id: "usage", label: "Usage" },
           { id: "api-keys", label: "API Keys" },
           { id: "audit", label: "Audit Logs" },
         ]
-      : []),
+      : [{ id: "usage", label: "Usage" }]),
   ];
 
   return (
@@ -92,6 +94,16 @@ export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate,
       </div>
       {settingsTab === "profile" && <ProfilePanel me={me} onUserUpdated={onUserUpdated} notify={notify} ui={ui} />}
       {settingsTab === "usage" && <UsageDashboardPage usageData={usageData} navigate={navigate} ui={ui} />}
+      {settingsTab === "purchase-credits" && (
+        <PurchaseCreditsPage
+          navigate={navigate}
+          notify={notify}
+          onCreditsUpdated={onCreditsUpdated}
+          onBack={() => setSettingsTab("usage")}
+          onSubmitted={() => setSettingsTab("purchase-credits")}
+          ui={ui}
+        />
+      )}
       {settingsTab === "users" && <UsersPage users={users} me={me} onRefresh={onRefresh} notify={notify} ui={ui} />}
       {settingsTab === "api-keys" && <ApiKeysPage apiKeys={apiKeys} onRefresh={onRefresh} notify={notify} ui={ui} />}
       {settingsTab === "audit" && <AuditLogsPage logs={logs} setLogs={setLogs} notify={notify} ui={ui} />}

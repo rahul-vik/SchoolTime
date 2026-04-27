@@ -9,19 +9,54 @@
   try {
     const parsed = new URL(raw);
     const cleanPath = parsed.pathname.replace(/\/+$/, "");
+    // School app APIs are tenant-auth routes under /api. If env accidentally points to /api/b2b,
+    // user-auth calls (like purchase requests) can hit API-key middleware and fail.
+    if (cleanPath === "/api/b2b") parsed.pathname = "/api";
     // Render/GitHub Pages setup often provides only origin; backend routes live under /api.
     if (!cleanPath || cleanPath === "/") parsed.pathname = "/api";
     return `${parsed.origin}${parsed.pathname}`;
   } catch {
     // Leave custom non-URL values untouched; request errors will surface clearly.
-    return raw.replace(/\/+$/, "");
+    const cleaned = raw.replace(/\/+$/, "");
+    if (cleaned === "/api/b2b") return "/api";
+    return cleaned;
   }
 }
 
 const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL);
 
+/** Decode JWT payload (no signature verify) — used only to reject platform tokens stored as school session. */
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "===".slice((b64.length + 3) % 4);
+    const json = atob(padded);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredSession() {
+  localStorage.removeItem("tt_token");
+  localStorage.removeItem("tt_refresh_token");
+}
+
+function normalizeSchoolAccessToken(token) {
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  if (payload?.scope === "platform_creator") {
+    clearStoredSession();
+    return null;
+  }
+  return token;
+}
+
 function getToken() {
-  return localStorage.getItem("tt_token");
+  return normalizeSchoolAccessToken(localStorage.getItem("tt_token"));
 }
 
 function getRefreshToken() {
@@ -34,8 +69,14 @@ function setTokens(accessToken, refreshToken) {
 }
 
 export function clearToken() {
-  localStorage.removeItem("tt_token");
-  localStorage.removeItem("tt_refresh_token");
+  clearStoredSession();
+}
+
+function forceLogoutToAuth() {
+  clearStoredSession();
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }
 
 async function rawRequest(path, options = {}) {
@@ -74,12 +115,31 @@ async function refreshSession() {
 }
 
 async function request(path, options = {}) {
-  let { res, data } = await rawRequest(path, options);
+  const { suppressAutoLogout = false, ...requestOptions } = options;
+  // Recover if access token was cleared but refresh token still exists.
+  if (!getToken() && getRefreshToken() && !path.startsWith("/auth/")) {
+    await refreshSession().catch(() => false);
+  }
+  let { res, data } = await rawRequest(path, requestOptions);
   if (res.status === 401 && !path.startsWith("/auth/")) {
     const refreshed = await refreshSession();
-    if (refreshed) ({ res, data } = await rawRequest(path, options));
+    if (refreshed) {
+      ({ res, data } = await rawRequest(path, requestOptions));
+    } else {
+      if (!suppressAutoLogout) forceLogoutToAuth();
+      throw new Error("Session expired. Please sign in again.");
+    }
   }
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      if (!suppressAutoLogout) forceLogoutToAuth();
+      throw new Error("Session expired. Please sign in again.");
+    }
+    if (res.status === 403 && typeof data.error === "string" && data.error.includes("platform portal only")) {
+      clearToken();
+    }
+    throw new Error(data.error || "Request failed");
+  }
   return data;
 }
 
@@ -130,12 +190,29 @@ export function hasStoredSession() {
 export function getMe() { return request("/me"); }
 export function updateMe(payload) { return request("/me", { method: "PATCH", body: JSON.stringify(payload) }); }
 export function loadState() { return request("/state"); }
-export function saveState(state) { return request("/state", { method: "PUT", body: JSON.stringify(state) }); }
+export function saveState(state, section) {
+  const q = section ? `?section=${encodeURIComponent(section)}` : "";
+  return request(`/state${q}`, { method: "PUT", body: JSON.stringify(state) });
+}
 export function generateTimetable(state) {
   if (!getToken()) throw new Error("Your session is not available. Please sign in again.");
   return request("/timetable/generate", { method: "POST", body: JSON.stringify(state) });
 }
-export function purchasePack() { return request("/license/purchase-pack", { method: "POST", body: JSON.stringify({}) }); }
+export function getPurchasePackInfo() {
+  return request("/license/purchase-pack-info", { suppressAutoLogout: true });
+}
+
+export function createCreditPurchaseRequest(body) {
+  return request("/license/purchase-request", {
+    method: "POST",
+    body: JSON.stringify(body),
+    suppressAutoLogout: true,
+  });
+}
+
+export function getMyCreditPurchaseRequests() {
+  return request("/license/my-credit-purchase-requests", { suppressAutoLogout: true });
+}
 export function getUsers() { return request("/users"); }
 export function createUser(payload) { return request("/users", { method: "POST", body: JSON.stringify(payload) }); }
 export function updateUser(id, payload) { return request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); }

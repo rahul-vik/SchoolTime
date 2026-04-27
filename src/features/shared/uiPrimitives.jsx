@@ -25,12 +25,20 @@ export function UiIcon({ name, size = 18, stroke = "currentColor", style }) {
     preferences: (<><path d="M12 3.8l1.7 1.9 2.5-.2.6 2.4 2.3 1.1-1.1 2.3 1.1 2.3-2.3 1.1-.6 2.4-2.5-.2-1.7 1.9-1.7-1.9-2.5.2-.6-2.4-2.3-1.1 1.1-2.3-1.1-2.3 2.3-1.1.6-2.4 2.5.2L12 3.8z" {...common} /><circle cx="12" cy="12" r="2.5" {...common} /></>),
     period: (<><circle cx="12" cy="12" r="8.2" {...common} /><path d="M12 7.5V12l3.5 2" {...common} /></>),
     school: (<><path d="M12 5L3 9l9 4 9-4-9-4z" {...common} /><path d="M6 10.5V16a6.5 3.5 0 0 0 12 0v-5.5" {...common} /></>),
+    hat: (<><path d="M3 10.2L12 6l9 4.2-9 4.2-9-4.2z" {...common} /><path d="M7.5 12.2V15c0 1.6 2.3 3 4.5 3s4.5-1.4 4.5-3v-2.8" {...common} /><path d="M21 10.2v4.2" {...common} /></>),
     building: (<><path d="M4.5 20V6.5L12 3l7.5 3.5V20" {...common} /><path d="M9 20v-4h6v4M8 9h.01M12 9h.01M16 9h.01M8 13h.01M12 13h.01M16 13h.01" {...common} /></>),
     pin: (<><path d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10z" {...common} /><circle cx="12" cy="11" r="2" {...common} /></>),
     check: (<><path d="M5 12.5l4.2 4.2L19 7.8" {...common} /></>),
     close: (<><path d="M6 6l12 12M18 6L6 18" {...common} /></>),
     star: (<><path d="M12 4.5l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 9.7l5-.7L12 4.5z" {...common} /></>),
     trash: (<><path d="M3 6h18" {...common} /><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6" {...common} /><path d="M19 6v12.5A2.5 2.5 0 0 1 16.5 21h-9A2.5 2.5 0 0 1 5 18.5V6" {...common} /><path d="M10 11v5M14 11v5" {...common} /></>),
+    search: (<><circle cx="10.5" cy="10.5" r="6.5" {...common} /><path d="M20 20l-4.2-4.2" {...common} /></>),
+    refresh: (<><path d="M23 4v6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10M1 20v-6h6M3.51 15a9 9 0 0 0 14.85 3.36L23 14" {...common} /></>),
+    filter: (<><path d="M4 6h16M7 12h10M10 18h4" {...common} /></>),
+    logout: (<><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M15 17l5-5-5-5M20 12H9" {...common} /></>),
+    pause: (<><rect x="8" y="5" width="3.2" height="14" rx="1" {...common} /><rect x="12.8" y="5" width="3.2" height="14" rx="1" {...common} /></>),
+    play: (<><path d="M9.5 7.2v9.6l7.8-4.8-7.8-4.8z" {...common} /></>),
+    login: (<><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" {...common} /></>),
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ flexShrink: 0, ...style }}>
@@ -62,16 +70,28 @@ export const css = {
   },
 };
 
-export function Btn({ children, onClick, variant = "primary", size = "md", disabled, style, type = "button", fullWidth }) {
+export function Btn({ children, onClick, variant = "primary", size = "md", disabled, style, type = "button", fullWidth, ariaLabel, title, iconOnly }) {
   const [hov, setHov] = useState(false);
+  const iconPad = size === "sm" ? "7px" : size === "lg" ? "11px" : "9px";
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={title ?? ariaLabel}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{ ...css.btn(variant, size), opacity: disabled ? 0.5 : 1, width: fullWidth ? "100%" : undefined, justifyContent: fullWidth ? "center" : undefined, transform: hov && !disabled ? "translateY(-1px)" : "none", boxShadow: hov && !disabled && variant === "primary" ? `0 4px 14px ${T.brand}40` : "none", ...style }}
+      style={{
+        ...css.btn(variant, size),
+        ...(iconOnly ? { padding: iconPad, gap: 0, justifyContent: "center" } : {}),
+        opacity: disabled ? 0.5 : 1,
+        width: fullWidth ? "100%" : undefined,
+        justifyContent: fullWidth ? "center" : iconOnly ? "center" : undefined,
+        transform: hov && !disabled ? "translateY(-1px)" : "none",
+        boxShadow: hov && !disabled && variant === "primary" ? `0 4px 14px ${T.brand}40` : "none",
+        ...style,
+      }}
     >
       {children}
     </button>

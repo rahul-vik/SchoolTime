@@ -1,6 +1,7 @@
 ﻿import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { CreatorApp } from "./features/creator/CreatorApp";
 import "./styles.css";
 
 class AppErrorBoundary extends React.Component {
@@ -35,10 +36,13 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+const path = typeof window !== "undefined" ? (window.location.pathname.replace(/\/+$/, "") || "/") : "/";
+const isCreatorPortal = path === "/creator" || path.startsWith("/creator/");
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      <App />
+      {isCreatorPortal ? <CreatorApp /> : <App />}
     </AppErrorBoundary>
   </React.StrictMode>
 );

@@ -10,6 +10,7 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
   const [resetTokenHint, setResetTokenHint] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [operatorIconHover, setOperatorIconHover] = useState(false);
   const isCompact = typeof window !== "undefined" ? window.innerWidth < 900 : false;
 
   useEffect(() => {
@@ -25,10 +26,19 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
       await onSubmit(form);
     } catch (err) {
       const rawMessage = err?.message || "Authentication failed";
-      if (mode === "login" && rawMessage === "Incorrect password") {
-        setError("Incorrect password. Please try again.");
-      } else if (mode === "login" && rawMessage === "Account not found") {
-        setError("No account found with this email. Please register first.");
+      const lower = String(rawMessage).toLowerCase();
+      if (mode === "login") {
+        setError("Incorrect username or password.");
+      } else if (mode === "register") {
+        if (lower.includes("exists") || lower.includes("already")) {
+          setError("This email is already registered. Please sign in instead.");
+        } else if (lower.includes("invalid") || lower.includes("email")) {
+          setError("Please enter a valid email address.");
+        } else if (lower.includes("password")) {
+          setError("Please use a stronger password (at least 6 characters).");
+        } else {
+          setError("Could not create your account. Please check your details and try again.");
+        }
       } else {
         setError(rawMessage);
       }
@@ -98,8 +108,42 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
           </div>
         </div>
 
-        <div style={{ background: "#fff", padding: isCompact ? "24px 18px 20px" : "34px 30px 24px", minWidth: 0, boxSizing: "border-box" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+        <div style={{ position: "relative", background: "#fff", padding: isCompact ? "24px 18px 20px" : "34px 30px 24px", minWidth: 0, boxSizing: "border-box" }}>
+          <button
+            type="button"
+            aria-label="Platform operator sign-in"
+            onClick={() => {
+              window.location.assign("/creator");
+            }}
+            onMouseEnter={() => setOperatorIconHover(true)}
+            onMouseLeave={() => setOperatorIconHover(false)}
+            style={{
+              position: "absolute",
+              top: isCompact ? 8 : 12,
+              left: isCompact ? 8 : 12,
+              width: 34,
+              height: 34,
+              padding: 0,
+              margin: 0,
+              border: "none",
+              borderRadius: 9,
+              background: operatorIconHover ? "rgba(26,26,46,0.05)" : "transparent",
+              color: T.textSoft,
+              opacity: operatorIconHover ? 0.55 : 0.28,
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+              transition: "opacity 0.18s ease, background 0.18s ease",
+            }}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="3" width="7.5" height="7.5" rx="1.2" />
+              <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.2" />
+              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.2" />
+              <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.2" />
+            </svg>
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, paddingLeft: isCompact ? 36 : 40 }}>
             <img src={schoolTimeLogo} alt="SchoolTime logo" style={{ width: 52, height: 52, borderRadius: 14, objectFit: "cover", boxShadow: "0 8px 24px rgba(15,52,96,0.24)" }} />
             <div>
               <h2 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: "0.02em", fontFamily: BRAND_FONT }}>SchoolTime</h2>

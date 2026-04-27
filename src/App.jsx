@@ -11,7 +11,6 @@ import {
   loadState as apiLoadState,
   login as apiLogin,
   logout as apiLogout,
-  purchasePack as apiPurchasePack,
   register as apiRegister,
   saveState as apiSaveState,
   downloadTimetableExport,
@@ -25,7 +24,7 @@ import { SetupPage, StandardsPage } from "./features/setup/SetupPages";
 import { SubjectsPage, TeachersPage } from "./features/academics/AcademicPages";
 import { PeriodsPage, RulesPage } from "./features/scheduling/SchedulingPages";
 import { ExportsPage, GeneratePage, ReportsPage, TimetablePage } from "./features/timetable/TimetablePages";
-import { generateTimetableFlow, purchasePackFlow, queueExportFlow, swapTimetableCells } from "./features/timetable/appActions";
+import { generateTimetableFlow, queueExportFlow, swapTimetableCells } from "./features/timetable/appActions";
 import { BRAND_FONT, Btn, EmptyState, Field, Input, Modal, ProgressBar, Select, StatusBadge, T, Toast, UiIcon, css, useBreakpoint } from "./features/shared/uiPrimitives";
 import { DivisionPill, TeacherDivisionMapper } from "./features/shared/assignmentComponents";
 import { TimetableGrid } from "./features/shared/TimetableGrid";
@@ -35,6 +34,30 @@ import { applyTenantStateWithFallback, buildTenantState } from "./features/timet
 
 /** Sidebar app-title row and main top bar use the same height so they align edge-to-edge. */
 const APP_HEADER_STRIP_HEIGHT = 76;
+
+function buildSchoolCodeFromOrgName(name, fallback = "SCH") {
+  const text = String(name || "").trim().toUpperCase();
+  const words = text.replace(/[^A-Z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+  let code = words.slice(0, 3).map((w) => w[0]).join("");
+  if (code.length < 4) {
+    const compact = words.join("").replace(/[^A-Z0-9]/g, "");
+    code = (code + compact).slice(0, 6);
+  }
+  return (code || fallback).slice(0, 8);
+}
+
+function getLiveAcademicDefaults(now = new Date()) {
+  // School year follows June -> March pattern by default.
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-indexed
+  const startYear = month >= 5 ? year : year - 1;
+  const endYear = startYear + 1;
+  return {
+    academicYear: `${startYear}-${String(endYear).slice(-2)}`,
+    yearStart: `${startYear}-06-01`,
+    yearEnd: `${endYear}-03-31`,
+  };
+}
 
 function NavIcon({ name, size = 18, stroke = "currentColor" }) {
   const common = { fill: "none", stroke, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
@@ -151,6 +174,19 @@ export default function App() {
   }, [userMenuOpen]);
 
   const navigate = useCallback((p) => { setPage(p); setMobileMenuOpen(false); setUserMenuOpen(false); }, []);
+  const applyOrgDefaultsToSchool = useCallback((u) => {
+    const orgName = String(u?.orgName || "").trim();
+    if (!orgName) return;
+    const liveAcademic = getLiveAcademicDefaults();
+    setSchool((prev) => ({
+      ...prev,
+      name: orgName,
+      code: buildSchoolCodeFromOrgName(orgName, prev?.code || "SCH"),
+      academicYear: liveAcademic.academicYear,
+      yearStart: liveAcademic.yearStart,
+      yearEnd: liveAcademic.yearEnd,
+    }));
+  }, []);
 
   const applyTenantState = useCallback((state) => {
     applyTenantStateWithFallback(state, SEED, {
@@ -183,6 +219,14 @@ export default function App() {
     }),
   }), [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations]);
 
+  const saveTenantStateNow = useCallback(async ({ schoolOverride, section } = {}) => {
+    const payload = {
+      ...getTenantState(),
+      ...(schoolOverride ? { school: schoolOverride } : {}),
+    };
+    await apiSaveState(payload, section);
+  }, [getTenantState]);
+
   useEffect(() => {
     let cancelled = false;
     bootstrapSession({
@@ -195,12 +239,13 @@ export default function App() {
       onCredits: setCreditsRemaining,
       onHydrated: setStateHydrated,
       onLoading: setAuthLoading,
+      onNoState: applyOrgDefaultsToSchool,
       isCancelled: () => cancelled,
     });
     return () => {
       cancelled = true;
     };
-  }, [applyTenantState]);
+  }, [applyTenantState, applyOrgDefaultsToSchool]);
 
   useEffect(() => {
     if (!user || !stateHydrated) return;
@@ -257,18 +302,23 @@ export default function App() {
     });
   }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user?.role]);
 
-  const handleBuyPack = useCallback(async () => {
-    await purchasePackFlow({
-      canManageBilling,
-      apiPurchasePack,
-      setCreditsRemaining,
-      creditsRemaining,
-      notify,
-      onSuccess: async () => {
-        await fetchAndApplyAdminData(user?.role);
-      },
-    });
-  }, [canManageBilling, creditsRemaining, notify, fetchAndApplyAdminData, user?.role]);
+  const refreshCreditsFromServer = useCallback(async () => {
+    try {
+      const m = await getMe();
+      setCreditsRemaining(m.license?.creditsRemaining ?? 0);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleBuyPack = useCallback(() => {
+    if (!canManageBilling) {
+      notify("Only owner/admin can request credit purchases", "warning");
+      return;
+    }
+    setSettingsTab("purchase-credits");
+    navigate("settings");
+  }, [canManageBilling, navigate, notify]);
 
   const handleAuth = useCallback(async (form) => {
     const resp = await authenticateUser({
@@ -281,9 +331,10 @@ export default function App() {
       onUser: setUser,
       onCredits: setCreditsRemaining,
       onHydrated: setStateHydrated,
+      onNoState: applyOrgDefaultsToSchool,
     });
     await fetchAndApplyAdminData(resp?.user?.role);
-  }, [authMode, applyTenantState, fetchAndApplyAdminData]);
+  }, [authMode, applyTenantState, fetchAndApplyAdminData, applyOrgDefaultsToSchool]);
 
   const logout = useCallback(async () => {
     await apiLogout();
@@ -355,7 +406,7 @@ export default function App() {
   }
 
   const activeRulesCount = schedulingRules.filter(r => r.isActive).length;
-  const schoolDisplayLogo = school?.logoDataUrl || schoolTimeLogo;
+  const schoolDisplayLogo = school?.logoDataUrl || "";
 
   const navItems = [
     { id: "dashboard", label: "Dashboard", iconKey: "dashboard" },
@@ -389,9 +440,10 @@ export default function App() {
         apiKeys={apiKeys}
         logs={auditLogs}
         setLogs={setAuditLogs}
+        onCreditsUpdated={refreshCreditsFromServer}
         ui={{ T, css, Btn, Input, Select, Field }}
       />;
-      case "setup":      return <SetupPage school={school} setSchool={setSchool} mediums={mediums} setMediums={setMediums} workingDays={workingDays} setWorkingDays={setWorkingDays} notify={notify} ui={{ T, css, Btn, Input, Select }} />;
+      case "setup":      return <SetupPage school={school} setSchool={setSchool} mediums={mediums} setMediums={setMediums} workingDays={workingDays} setWorkingDays={setWorkingDays} notify={notify} onConfirmSave={(nextSchool) => saveTenantStateNow({ schoolOverride: nextSchool, section: "setup" }).catch(() => null)} ui={{ T, css, Btn, Input, Select }} />;
       case "standards":  return <StandardsPage standards={standards} setStandards={setStandards} divisions={divisions} setDivisions={setDivisions} mediums={mediums} notify={notify} helpers={{ parseDivisionInput, DivisionPill }} ui={{ T, css, Btn, Input, Select, Modal, EmptyState }} />;
       case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
       case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
@@ -448,7 +500,13 @@ export default function App() {
             </div>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <img src={schoolDisplayLogo} alt={`${school.name} logo`} style={{ width: 18, height: 18, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} />
+                {schoolDisplayLogo ? (
+                  <img src={schoolDisplayLogo} alt={`${school.name} logo`} style={{ width: 18, height: 18, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} />
+                ) : (
+                  <span style={{ width: 18, height: 18, borderRadius: 5, background: T.surfaceAlt, border: `1px solid ${T.surfaceBorder}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <UiIcon name="hat" size={12} stroke={T.textSoft} />
+                  </span>
+                )}
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{school.name}</div>
               </div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{school.academicYear}</div>
@@ -467,7 +525,13 @@ export default function App() {
             {!bp.isMobile && (
               <div style={{ minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
                 <p style={{ margin: 0, fontSize: 12, color: T.textMid, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, lineHeight: 1.25 }}>
-                  <img src={schoolDisplayLogo} alt="" style={{ width: 18, height: 18, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} />
+                  {schoolDisplayLogo ? (
+                    <img src={schoolDisplayLogo} alt="" style={{ width: 18, height: 18, borderRadius: 5, objectFit: "cover", flexShrink: 0 }} />
+                  ) : (
+                    <span style={{ width: 18, height: 18, borderRadius: 5, background: T.surfaceAlt, border: `1px solid ${T.surfaceBorder}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <UiIcon name="hat" size={12} stroke={T.textSoft} />
+                    </span>
+                  )}
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{school.name} · {school.academicYear}</span>
                 </p>
                 {timetableStatus === "GENERATED" && (
@@ -479,8 +543,66 @@ export default function App() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: bp.isMobile ? 4 : 8, flexShrink: 0 }}>
-            <span style={{ ...css.badge(T.brand), maxWidth: bp.isMobile ? 84 : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bp.isMobile ? creditsRemaining : `Balance: ${creditsRemaining}`}</span>
-            <Btn variant="ghost" size="sm" onClick={handleBuyPack} disabled={!canManageBilling} style={bp.isMobile ? { padding: "5px 8px", minWidth: 34 } : undefined}>+10</Btn>
+            <button
+              type="button"
+              onClick={handleBuyPack}
+              disabled={!canManageBilling}
+              aria-label="Open credit purchase"
+              title={canManageBilling ? "Open credit purchase" : "Only owner/admin can request credit"}
+              style={{
+                ...css.badge(T.brand),
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontWeight: 600,
+                fontSize: bp.isMobile ? 11 : 12,
+                whiteSpace: "nowrap",
+                background: T.surface,
+                border: `1px solid ${T.surfaceBorder}`,
+                height: bp.isMobile ? 31 : 36,
+                padding: bp.isMobile ? "0 8px" : "0 10px",
+                cursor: canManageBilling ? "pointer" : "not-allowed",
+                opacity: canManageBilling ? 1 : 0.68,
+                color: T.text,
+                transition: "border-color 0.16s ease, opacity 0.16s ease",
+                borderRadius: 999,
+              }}
+            >
+              <span style={{ color: T.textMid, fontWeight: 600 }}>
+                Credit
+              </span>
+              <span style={{ fontWeight: 700 }}>{creditsRemaining}</span>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <circle cx="12" cy="12" r="8.5" fill="#22C55E" />
+                <circle cx="12" cy="12" r="5.8" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" />
+              </svg>
+              <span
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: canManageBilling ? T.textSoft : "rgba(26,26,46,0.4)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: bp.isMobile ? 12 : 13,
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  cursor: canManageBilling ? "pointer" : "not-allowed",
+                  opacity: canManageBilling ? 0.85 : 0.55,
+                  padding: 0,
+                  textShadow: "none",
+                  transition: "color 0.18s ease",
+                }}
+              >
+                +
+              </span>
+            </button>
             {timetableStatus === "GENERATED" && bp.isMobile && <StatusBadge status="GENERATED" />}
             <div ref={userMenuRef} style={{ position: "relative" }}>
               <button
@@ -490,17 +612,18 @@ export default function App() {
                 aria-expanded={userMenuOpen}
                 aria-label="Account menu"
                 style={{
-                  width: bp.isMobile ? 28 : 32,
-                  height: bp.isMobile ? 28 : 32,
+                  width: bp.isMobile ? 31 : 36,
+                  height: bp.isMobile ? 31 : 36,
                   borderRadius: "50%",
-                  background: T.brand,
+                  background: "#0E3E5F",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   color: "#fff",
                   fontSize: 12,
                   fontWeight: 800,
-                  border: userMenuOpen ? `2px solid ${T.gold}` : "2px solid transparent",
+                  border: userMenuOpen ? "2px solid rgba(255,255,255,0.45)" : "1px solid rgba(255,255,255,0.22)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.16)",
                   cursor: "pointer",
                   padding: 0,
                 }}
@@ -595,6 +718,10 @@ export default function App() {
         @keyframes slideRight { from { transform:translateX(-100%) } to { transform:translateX(0) } }
         @keyframes toastIn { from { transform:translateX(-50%) translateY(16px);opacity:0 } to { transform:translateX(-50%) translateY(0);opacity:1 } }
         @keyframes spin { to { transform:rotate(360deg) } }
+        @keyframes coinPulse {
+          0%, 100% { transform: scale(1); opacity: 0.95; }
+          50% { transform: scale(1.08); opacity: 1; }
+        }
         * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
         input,select,textarea,button { font-family:inherit }
         ::-webkit-scrollbar { width:5px;height:5px }
