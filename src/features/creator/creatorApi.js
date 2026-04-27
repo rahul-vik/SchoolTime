@@ -66,6 +66,8 @@ export function creatorListOrgs(params = {}) {
   const q = new URLSearchParams();
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
+  if (params.sortBy) q.set("sortBy", String(params.sortBy));
+  if (params.sortDir) q.set("sortDir", String(params.sortDir));
   const s = q.toString();
   return creatorRequest(s ? `/orgs?${s}` : "/orgs");
 }

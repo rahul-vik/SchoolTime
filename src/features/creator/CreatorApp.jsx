@@ -35,6 +35,13 @@ const tabs = [
   { id: "register", label: "Register org" },
 ];
 
+function formatDateTime(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+}
+
 export function CreatorApp() {
   const [token, setTokenState] = useState(() => getCreatorToken());
   const [loginPassword, setLoginPassword] = useState("");
@@ -52,6 +59,8 @@ export function CreatorApp() {
   const [settings, setSettings] = useState(null);
 
   const [userQ, setUserQ] = useState("");
+  const [orgSortBy, setOrgSortBy] = useState("created");
+  const [orgSortDir, setOrgSortDir] = useState("desc");
   const [creditOrgId, setCreditOrgId] = useState("");
   const [creditPacksTen, setCreditPacksTen] = useState("");
   const [creditReason, setCreditReason] = useState("Support adjustment");
@@ -77,7 +86,7 @@ export function CreatorApp() {
     try {
       if (tab === "overview") setOverview(await creatorGetOverview());
       if (tab === "orgs") {
-        const o = await creatorListOrgs({ limit: 80 });
+        const o = await creatorListOrgs({ limit: 80, sortBy: orgSortBy, sortDir: orgSortDir });
         setOrgs(o);
         try {
           setOrgPurges(await creatorListOrgPurges({ limit: 25 }));
@@ -115,7 +124,7 @@ export function CreatorApp() {
     } finally {
       setBusy(false);
     }
-  }, [token, tab, userQ, creditOrgId, notify]);
+  }, [token, tab, userQ, creditOrgId, orgSortBy, orgSortDir, notify]);
 
   useEffect(() => {
     refreshTab();
@@ -432,7 +441,7 @@ export function CreatorApp() {
         </Btn>
       </div>
 
-      <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
+      <main style={{ padding: 20, maxWidth: 1280, margin: "0", width: "100%" }}>
         {tab === "overview" && overview && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
             {[
@@ -454,6 +463,32 @@ export function CreatorApp() {
             <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
               Credits belong to the <strong>organization</strong> (school). Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. You can still use <strong>Add credits</strong> for manual adjustments. <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
             </p>
+            <div style={{ ...pt.toolRow, marginBottom: 12 }}>
+              <div style={{ ...pt.inlineField, minWidth: 180 }}>
+                <label style={pt.inlineLabel} htmlFor="org-sort-by">Sort organizations by</label>
+                <select
+                  id="org-sort-by"
+                  value={orgSortBy}
+                  onChange={(e) => setOrgSortBy(e.target.value)}
+                  style={pt.inlineInput}
+                >
+                  <option value="created">Created date</option>
+                  <option value="lastActive">Last activity date</option>
+                </select>
+              </div>
+              <div style={{ ...pt.inlineField, minWidth: 140 }}>
+                <label style={pt.inlineLabel} htmlFor="org-sort-dir">Order</label>
+                <select
+                  id="org-sort-dir"
+                  value={orgSortDir}
+                  onChange={(e) => setOrgSortDir(e.target.value)}
+                  style={pt.inlineInput}
+                >
+                  <option value="desc">Newest first</option>
+                  <option value="asc">Oldest first</option>
+                </select>
+              </div>
+            </div>
             {creditPurchasePending?.requests?.length > 0 && (
               <div style={{ ...css.card, marginBottom: 16, padding: 0, overflow: "auto" }}>
                 <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.surfaceBorder}` }}>
@@ -557,6 +592,8 @@ export function CreatorApp() {
                     <th style={pt.th}>School / org</th>
                     <th style={pt.th}>Current credits</th>
                     <th style={pt.th}>Users</th>
+                    <th style={pt.th}>Created</th>
+                    <th style={pt.th}>Last activity</th>
                     <th style={pt.th}>Org ID</th>
                     <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
                   </tr>
@@ -567,6 +604,8 @@ export function CreatorApp() {
                       <td style={{ ...pt.td, fontWeight: 600 }}>{o.name}</td>
                       <td style={{ ...pt.td, fontWeight: 700, fontSize: 15 }}>{o.credits_remaining}</td>
                       <td style={pt.td}>{o.user_count}</td>
+                      <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(o.created_at)}</td>
+                      <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(o.last_activity_at)}</td>
                       <td style={pt.tdMono}>{o.id}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
@@ -639,6 +678,7 @@ export function CreatorApp() {
                     <th style={pt.th}>Role</th>
                     <th style={pt.th}>Org</th>
                     <th style={pt.th}>Active</th>
+                    <th style={pt.th}>Created</th>
                     <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
                   </tr>
                 </thead>
@@ -650,6 +690,7 @@ export function CreatorApp() {
                       <td style={pt.td}>{u.role}</td>
                       <td style={pt.td}>{u.org_name}</td>
                       <td style={pt.td}>{u.is_active ? "Yes" : "No"}</td>
+                      <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.created_at)}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
                           <Btn

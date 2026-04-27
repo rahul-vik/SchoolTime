@@ -34,19 +34,28 @@ export function createCreatorRoutes(db) {
 
   router.get("/orgs", async (req, res) => {
     const { limit, offset } = parseLimitOffset(req);
+    const sortByRaw = String(req.query.sortBy || "created").toLowerCase();
+    const sortDirRaw = String(req.query.sortDir || "desc").toLowerCase();
+    const sortByMap = {
+      created: "o.created_at",
+      lastActive: "last_activity_at",
+    };
+    const orderColumn = sortByMap[sortByRaw] || sortByMap.created;
+    const orderDir = sortDirRaw === "asc" ? "ASC" : "DESC";
     const totalRow = await db.get("SELECT COUNT(*) AS c FROM organizations");
     const rows = await db.all(
       `SELECT o.id, o.name, o.created_at,
         COALESCE(l.credits_remaining, 0) AS credits_remaining,
-        (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id) AS user_count
+        (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id) AS user_count,
+        (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.org_id = o.id) AS last_activity_at
        FROM organizations o
        LEFT JOIN licenses l ON l.org_id = o.id
-       ORDER BY o.created_at DESC
+       ORDER BY ${orderColumn} ${orderDir}, o.created_at DESC
        LIMIT ? OFFSET ?`,
       limit,
       offset,
     );
-    res.json({ orgs: rows, total: Number(totalRow?.c || 0), limit, offset });
+    res.json({ orgs: rows, total: Number(totalRow?.c || 0), limit, offset, sortBy: sortByRaw, sortDir: orderDir.toLowerCase() });
   });
 
   router.get("/org-purges", async (req, res) => {
