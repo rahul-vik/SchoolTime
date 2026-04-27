@@ -43,7 +43,13 @@ async function creatorRequest(path, options = {}) {
     throw new Error("Cannot reach the API server. Check VITE_API_BASE_URL and that the backend is running.");
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 401) {
+      clearCreatorToken();
+      throw new Error("Session expired. Please sign in to the platform portal again.");
+    }
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
   return data;
 }
 
@@ -86,6 +92,10 @@ export function creatorSetUserActive(userId, isActive) {
 
 export function creatorDeleteUser(userId) {
   return creatorRequest(`/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export function creatorUpdateUser(userId, body) {
+  return creatorRequest(`/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export function creatorListCreditLedger(params = {}) {
@@ -140,6 +150,14 @@ export function creatorGetPlatformSettings() {
 
 export function creatorPatchPlatformSettings(body) {
   return creatorRequest("/platform-settings", { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function creatorGetRoleAccessPolicy() {
+  return creatorRequest("/role-access");
+}
+
+export function creatorPutRoleAccessPolicy(body) {
+  return creatorRequest("/role-access", { method: "PUT", body: JSON.stringify(body) });
 }
 
 export function creatorListErrorLogs(params = {}) {

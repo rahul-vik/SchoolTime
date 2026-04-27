@@ -24,33 +24,33 @@ Auth:
 
 ## Session/User
 
-- `GET /me`
+- `GET /me` — includes `user.permissions` and `user.availableRoles` derived from platform role-access policy
 - `PATCH /me`
-- `GET /users`
-- `POST /users`
-- `PATCH /users/:id`
+- `GET /users` — requires `canManageUsers`
+- `POST /users` — requires `canManageUsers`; role must exist in `availableRoles`
+- `PATCH /users/:id` — requires `canManageUsers`; role must exist in `availableRoles`
 
 ## Tenant State
 
 - `GET /state`
-- `PUT /state`
+- `PUT /state` — requires `canConfigureTimetable`
 
 ## Timetable
 
-- `POST /timetable/generate`
-- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE`
+- `POST /timetable/generate` — requires `canConfigureTimetable`
+- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`
 
 ## Settings/Admin
 
-- `GET /license/purchase-pack-info` — `{ packSize, priceCents }` from platform settings (for purchase UI)
-- `POST /license/purchase-request` — body `{ "packCount": number, "note"?: string }`; **`packCount`** 1–500 whole packs; each pack is **`credit_pack_size`** credits. Creates a **pending** row; credits are **not** added until a creator approves (`POST /creator/credit-purchase-requests/:id/approve`)
-- `GET /license/my-credit-purchase-requests` — last 50 requests for the signed-in org
+- `GET /license/purchase-pack-info` — requires `canManageCredits`; returns `{ packSize, priceCents }` from platform settings
+- `POST /license/purchase-request` — requires `canManageCredits`; body `{ "packCount": number, "note"?: string }`; **`packCount`** 1–500 whole packs; each pack is **`credit_pack_size`** credits. Creates a **pending** row; credits are **not** added until a creator approves (`POST /creator/credit-purchase-requests/:id/approve`)
+- `GET /license/my-credit-purchase-requests` — requires `canManageCredits`; last 50 requests for the signed-in org
 - `GET /usage`
-- `GET /audit-logs`
-- `GET /audit-logs/export.csv`
-- `GET /api-keys`
-- `POST /api-keys`
-- `DELETE /api-keys/:id`
+- `GET /audit-logs` — requires `canViewAudit`
+- `GET /audit-logs/export.csv` — requires `canViewAudit`
+- `GET /api-keys` — requires `canManageApiKeys`
+- `POST /api-keys` — requires `canManageApiKeys`
+- `DELETE /api-keys/:id` — requires `canManageApiKeys`
 
 ## B2B (API Key Protected)
 
@@ -86,6 +86,8 @@ Paths below are under the normal API base (e.g. `http://localhost:8787/api`) wit
 - `POST /creator/register-org` — same fields as public register plus optional `initialCredits` (defaults to current `signup_initial_credits` setting)
 - `GET /creator/platform-settings` — keyed settings (`signup_initial_credits`, `credit_pack_size`, `credit_pack_price_cents`)
 - `PATCH /creator/platform-settings` — partial body with any of those keys (numbers)
+- `GET /creator/role-access` — role access policy with permissions matrix
+- `PUT /creator/role-access` — body `{ "roles": [{ "key": string, "canManageUsers": boolean, "canManageCredits": boolean, "canViewAudit": boolean, "canManageApiKeys": boolean, "canConfigureTimetable": boolean }] }`
 - `GET /creator/error-logs` — query: `limit`
 - `GET /creator/audit-logs` — cross-tenant audit; query: `limit`, `orgId`, `q`
 

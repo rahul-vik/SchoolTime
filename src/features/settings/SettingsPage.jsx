@@ -54,20 +54,40 @@ function ProfilePanel({ me, onUserUpdated, notify, ui }) {
   );
 }
 
-export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate, users, me, onRefresh, onUserUpdated, notify, apiKeys, logs, setLogs, onCreditsUpdated, ui }) {
+export function SettingsPage({
+  settingsTab,
+  setSettingsTab,
+  usageData,
+  navigate,
+  users,
+  me,
+  availableRoles,
+  permissions,
+  onRefresh,
+  onUserUpdated,
+  notify,
+  apiKeys,
+  logs,
+  setLogs,
+  onCreditsUpdated,
+  ui,
+}) {
   const { isMobile } = useBreakpoint();
+  const canManageUsers = Boolean(permissions?.canManageUsers);
+  const canManageCredits = Boolean(permissions?.canManageCredits);
+  const canManageApiKeys = Boolean(permissions?.canManageApiKeys);
+  const canViewAudit = Boolean(permissions?.canViewAudit);
   const tabs = [
     { id: "profile", label: "Profile" },
-    ...(me?.role === "owner" || me?.role === "admin"
-      ? [
-          { id: "users", label: "Users" },
-          { id: "purchase-credits", label: "Purchase credits" },
-          { id: "usage", label: "Usage" },
-          { id: "api-keys", label: "API Keys" },
-          { id: "audit", label: "Audit Logs" },
-        ]
-      : [{ id: "usage", label: "Usage" }]),
+    ...(canManageUsers ? [{ id: "users", label: "Users" }] : []),
+    ...(canManageCredits ? [{ id: "purchase-credits", label: "Purchase credits" }] : []),
+    { id: "usage", label: "Usage" },
+    ...(canManageApiKeys ? [{ id: "api-keys", label: "API Keys" }] : []),
+    ...(canViewAudit ? [{ id: "audit", label: "Audit Logs" }] : []),
   ];
+  useEffect(() => {
+    if (!tabs.some((t) => t.id === settingsTab)) setSettingsTab("profile");
+  }, [settingsTab, setSettingsTab, tabs]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%", minWidth: 0, boxSizing: "border-box" }}>
@@ -94,7 +114,7 @@ export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate,
       </div>
       {settingsTab === "profile" && <ProfilePanel me={me} onUserUpdated={onUserUpdated} notify={notify} ui={ui} />}
       {settingsTab === "usage" && <UsageDashboardPage usageData={usageData} navigate={navigate} ui={ui} />}
-      {settingsTab === "purchase-credits" && (
+      {settingsTab === "purchase-credits" && canManageCredits && (
         <PurchaseCreditsPage
           navigate={navigate}
           notify={notify}
@@ -104,9 +124,11 @@ export function SettingsPage({ settingsTab, setSettingsTab, usageData, navigate,
           ui={ui}
         />
       )}
-      {settingsTab === "users" && <UsersPage users={users} me={me} onRefresh={onRefresh} notify={notify} ui={ui} />}
-      {settingsTab === "api-keys" && <ApiKeysPage apiKeys={apiKeys} onRefresh={onRefresh} notify={notify} ui={ui} />}
-      {settingsTab === "audit" && <AuditLogsPage logs={logs} setLogs={setLogs} notify={notify} ui={ui} />}
+      {settingsTab === "users" && canManageUsers && (
+        <UsersPage users={users} me={me} availableRoles={availableRoles} onRefresh={onRefresh} notify={notify} ui={ui} />
+      )}
+      {settingsTab === "api-keys" && canManageApiKeys && <ApiKeysPage apiKeys={apiKeys} onRefresh={onRefresh} notify={notify} ui={ui} />}
+      {settingsTab === "audit" && canViewAudit && <AuditLogsPage logs={logs} setLogs={setLogs} notify={notify} ui={ui} />}
     </div>
   );
 }

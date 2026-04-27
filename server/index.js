@@ -6,7 +6,7 @@ import helmet from "helmet";
 import { db, initDb } from "./db.js";
 import { authMiddleware } from "./auth.js";
 import { creatorAuthMiddleware } from "./middleware/creatorAuth.js";
-import { requireRole } from "./middleware/requireRole.js";
+import { requirePermission } from "./middleware/requirePermission.js";
 import { apiKeyAuthMiddleware } from "./middleware/apiKeyAuth.js";
 import { createAuthRoutes } from "./routes/authRoutes.js";
 import { createSessionRoutes } from "./routes/sessionRoutes.js";
@@ -70,11 +70,11 @@ app.use("/api/creator", (_req, res) => {
 app.use("/api/auth", authMiddleware, createSessionRoutes(db));
 app.use("/api", authMiddleware, createUserRoutes(db));
 app.use("/api", authMiddleware, createStateRoutes(db));
-app.use("/api", authMiddleware, createTimetableRoutes(db));
+app.use("/api", authMiddleware, requirePermission(db, "canConfigureTimetable"), createTimetableRoutes(db));
 app.use("/api", authMiddleware, createUsageRoutes(db));
-app.use("/api", authMiddleware, requireRole("owner", "admin"), createLicenseRoutes(db));
-app.use("/api", authMiddleware, requireRole("owner", "admin"), createApiKeyRoutes(db));
-app.use("/api", authMiddleware, requireRole("owner", "admin"), createAuditRoutes(db));
+app.use("/api", authMiddleware, requirePermission(db, "canManageCredits"), createLicenseRoutes(db));
+app.use("/api", authMiddleware, requirePermission(db, "canManageApiKeys"), createApiKeyRoutes(db));
+app.use("/api", authMiddleware, requirePermission(db, "canViewAudit"), createAuditRoutes(db));
 app.use("/api", apiKeyAuthMiddleware(db), createB2BRoutes(db));
 
 app.use(async (err, req, res, next) => {
