@@ -1,8 +1,59 @@
 ﻿import { useEffect, useState } from "react";
 import { confirmPasswordReset, requestPasswordReset } from "../../api";
 
+function EyeIcon({ off = false }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z" {...common} />
+      <circle cx="12" cy="12" r="2.8" {...common} />
+      {off && <path d="M4 20L20 4" {...common} />}
+    </svg>
+  );
+}
+
+function PasswordInputWithToggle({ label, value, onChange, placeholder, ui }) {
+  const { Field, css, T } = ui;
+  const [visible, setVisible] = useState(false);
+  return (
+    <Field label={label}>
+      <div style={{ position: "relative" }}>
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ ...css.input, paddingRight: 40 }}
+        />
+        <button
+          type="button"
+          aria-label={visible ? "Hide password" : "Show password"}
+          title={visible ? "Hide password" : "Show password"}
+          onClick={() => setVisible((v) => !v)}
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            border: "none",
+            background: "transparent",
+            color: T.textSoft,
+            cursor: "pointer",
+            padding: 4,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <EyeIcon off={visible} />
+        </button>
+      </div>
+    </Field>
+  );
+}
+
 export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
-  const { T, Input, Btn } = ui;
+  const { T, Input, Btn, Field, css } = ui;
   const { BRAND_FONT, schoolTimeLogo } = branding;
 
   const [form, setForm] = useState({ orgName: "", fullName: "", email: "", password: "" });
@@ -185,11 +236,24 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
             </>
           )}
           <Input label="Email" value={form.email} onChange={(v) => setForm((p) => ({ ...p, email: v }))} placeholder="you@school.org" />
-          {mode !== "reset" && <Input label="Password" type="password" value={form.password} onChange={(v) => setForm((p) => ({ ...p, password: v }))} placeholder="At least 6 characters" />}
+          {mode !== "reset" && (
+            <PasswordInputWithToggle
+              label="Password"
+              value={form.password}
+              onChange={(v) => setForm((p) => ({ ...p, password: v }))}
+              placeholder="At least 6 characters"
+              ui={{ Field, css, T }}
+            />
+          )}
           {mode === "reset" && (
             <>
               <Input label="Reset Token" value={reset.token} onChange={(v) => setReset((p) => ({ ...p, token: v }))} />
-              <Input label="New Password" type="password" value={reset.newPassword} onChange={(v) => setReset((p) => ({ ...p, newPassword: v }))} />
+              <PasswordInputWithToggle
+                label="New Password"
+                value={reset.newPassword}
+                onChange={(v) => setReset((p) => ({ ...p, newPassword: v }))}
+                ui={{ Field, css, T }}
+              />
             </>
           )}
           {resetTokenHint && <p style={{ fontSize: 11, color: T.info, marginBottom: 10 }}>{resetTokenHint}</p>}

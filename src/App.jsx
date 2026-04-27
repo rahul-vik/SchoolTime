@@ -402,7 +402,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn }} branding={{ BRAND_FONT, schoolTimeLogo }} />;
+    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn, Field, css }} branding={{ BRAND_FONT, schoolTimeLogo }} />;
   }
 
   const activeRulesCount = schedulingRules.filter(r => r.isActive).length;

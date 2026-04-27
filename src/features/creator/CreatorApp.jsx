@@ -46,9 +46,21 @@ function formatDateTime(value) {
   return d.toLocaleString();
 }
 
+function EyeIcon({ off = false }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z" {...common} />
+      <circle cx="12" cy="12" r="2.8" {...common} />
+      {off && <path d="M4 20L20 4" {...common} />}
+    </svg>
+  );
+}
+
 export function CreatorApp() {
   const [token, setTokenState] = useState(() => getCreatorToken());
   const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginErr, setLoginErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("overview");
@@ -442,13 +454,42 @@ export function CreatorApp() {
             Operator dashboard: enrollments, credits, audit trail, and server error logs. This is separate from the school app.
           </p>
           <form onSubmit={handleLogin}>
-            <Input
-              label="Portal password"
-              type="password"
-              value={loginPassword}
-              onChange={setLoginPassword}
-              placeholder="From CREATOR_PORTAL_PASSWORD*"
-            />
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Portal password
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showLoginPassword ? "text" : "password"}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="From CREATOR_PORTAL_PASSWORD*"
+                  style={{ ...css.input, paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                  title={showLoginPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowLoginPassword((v) => !v)}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    border: "none",
+                    background: "transparent",
+                    color: T.textSoft,
+                    cursor: "pointer",
+                    padding: 4,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <EyeIcon off={showLoginPassword} />
+                </button>
+              </div>
+            </div>
             {loginErr && <p style={{ color: T.danger, fontSize: 13, marginTop: 8 }}>{loginErr}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap", alignItems: "center" }}>
               <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = schoolAppPath; }}>
