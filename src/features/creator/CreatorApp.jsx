@@ -83,6 +83,11 @@ export function CreatorApp() {
   const [creditPurchasePending, setCreditPurchasePending] = useState(null);
   const [reg, setReg] = useState({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
   const [settingsDraft, setSettingsDraft] = useState({ signup_initial_credits: "", credit_pack_size: "", credit_pack_price_cents: "" });
+  const schoolAppPath = (() => {
+    const base = String(import.meta.env.BASE_URL || "/");
+    const normalizedBase = base.replace(/\/+$/, "");
+    return normalizedBase || "/";
+  })();
 
   const notify = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -446,7 +451,7 @@ export function CreatorApp() {
             />
             {loginErr && <p style={{ color: T.danger, fontSize: 13, marginTop: 8 }}>{loginErr}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap", alignItems: "center" }}>
-              <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = "/"; }}>
+              <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = schoolAppPath; }}>
                 <UiIcon name="school" size={20} stroke="currentColor" />
               </Btn>
               <Btn type="submit" disabled={busy} iconOnly ariaLabel={busy ? "Signing in" : "Sign in"} title={busy ? "Signing in…" : "Sign in"}>
@@ -510,7 +515,7 @@ export function CreatorApp() {
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>Credits, members, and operations</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Open school app" onClick={() => { window.location.href = "/"; }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
+          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Open school app" onClick={() => { window.location.href = schoolAppPath; }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
             <UiIcon name="school" size={18} stroke="currentColor" />
           </Btn>
           <Btn variant="ghost" size="sm" iconOnly ariaLabel="Sign out" onClick={handleLogout} disabled={busy} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
