@@ -12,6 +12,11 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
   const [busy, setBusy] = useState(false);
   const [operatorIconHover, setOperatorIconHover] = useState(false);
   const isCompact = typeof window !== "undefined" ? window.innerWidth < 900 : false;
+  const creatorPortalPath = (() => {
+    const base = String(import.meta.env.BASE_URL || "/");
+    const normalizedBase = base === "/" ? "" : base.replace(/\/+$/, "");
+    return `${normalizedBase}/creator`;
+  })();
 
   useEffect(() => {
     // Clear stale auth errors when switching between login/register/reset views.
@@ -132,7 +137,7 @@ export function AuthScreen({ mode, setMode, onSubmit, ui, branding }) {
             type="button"
             aria-label="Platform operator sign-in"
             onClick={() => {
-              window.location.assign("/creator");
+              window.location.assign(creatorPortalPath);
             }}
             onMouseEnter={() => setOperatorIconHover(true)}
             onMouseLeave={() => setOperatorIconHover(false)}
