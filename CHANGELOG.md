@@ -2,6 +2,12 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.2] - 2026-04-27
+
+- Added a dedicated Role Access section in the platform portal to manage permissions per role and add custom roles.
+- Enforced role permissions end-to-end across tenant APIs and school app UI using policy-driven runtime checks.
+- Improved platform portal session handling so stale creator tokens auto-clear and return users to sign in cleanly.
+
 ## [1.0.1] - 2026-04-27
 
 - Replaced direct credit top-up with a purchase-request workflow: schools submit requests and platform admins approve/reject in the creator portal before credits are added.
