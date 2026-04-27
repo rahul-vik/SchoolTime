@@ -4,6 +4,8 @@ import { execSync } from "node:child_process";
 const eventName = process.env.GITHUB_EVENT_NAME || "";
 const baseRef = process.env.GITHUB_BASE_REF || "";
 const headRef = process.env.GITHUB_HEAD_REF || "";
+const isReleaseBranch = headRef.startsWith("release/");
+const isHotfixBranch = headRef.startsWith("hotfix/");
 
 function run(cmd, fallback = "") {
   try {
@@ -18,20 +20,40 @@ function fail(msg) {
   process.exit(1);
 }
 
-if (eventName !== "pull_request" || baseRef !== "main") {
-  console.log("Release governance check skipped (not PR to main).");
+if (eventName !== "pull_request") {
+  console.log("Release governance check skipped (not a pull request event).");
   process.exit(0);
 }
 
-const isReleaseBranch = headRef.startsWith("release/");
-const isHotfixBranch = headRef.startsWith("hotfix/");
-if (!isReleaseBranch && !isHotfixBranch) {
-  console.log("Release governance check skipped (not release/* or hotfix/*).");
+const baseBranch = baseRef || "";
+const compareBase = baseBranch === "main" ? "origin/main" : baseBranch === "develop" ? "origin/develop" : "";
+if (!compareBase) {
+  console.log("Release governance check skipped (base branch is not main/develop).");
   process.exit(0);
 }
 
-const changedRaw = run("git diff --name-only origin/main...HEAD", "");
+const changedRaw = run(`git diff --name-only ${compareBase}...HEAD`, "");
 const changed = changedRaw ? changedRaw.split(/\r?\n/).filter(Boolean) : [];
+
+if (baseBranch === "develop") {
+  if (isReleaseBranch || isHotfixBranch) {
+    console.log("Release governance check passed (release/hotfix branch into develop).");
+    process.exit(0);
+  }
+  if (changed.includes("package.json")) {
+    fail("Release governance failed: package.json version bumps are only allowed on release/* or hotfix/* branches.");
+  }
+  if (changed.includes("CHANGELOG.md")) {
+    fail("Release governance failed: CHANGELOG.md release entries are only allowed on release/* or hotfix/* branches.");
+  }
+  console.log("Release governance check passed.");
+  process.exit(0);
+}
+
+if (!isReleaseBranch && !isHotfixBranch) {
+  console.log("Release governance check skipped (PR to main is not release/* or hotfix/*).");
+  process.exit(0);
+}
 
 if (!changed.includes("package.json")) {
   fail("Release governance failed: package.json version bump is required for release/hotfix PRs.");
