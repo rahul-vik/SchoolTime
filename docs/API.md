@@ -19,8 +19,8 @@ Auth:
 - `POST /auth/login`
 - `POST /auth/refresh`
 - `POST /auth/logout`
-- `POST /auth/password-reset/request`
-- `POST /auth/password-reset/confirm`
+- `POST /auth/password-reset/request` — body `{ "email": string }`; creates token and sends reset link via SMTP when configured; always returns generic success for privacy
+- `POST /auth/password-reset/confirm` — body `{ "token": string, "newPassword": string }`
 
 ## Session/User
 

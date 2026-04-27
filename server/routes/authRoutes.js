@@ -5,6 +5,8 @@ import { getOrgCredits, isAfter, logAudit, nowIso, schemas } from "../services/c
 import { issueTokenPair } from "../services/tokens.js";
 import { getSignupInitialCredits } from "../services/platformSettings.js";
 import { createOrgWithOwnerUser } from "../services/registrationService.js";
+import { getRolePermissionContext } from "../services/roleAccess.js";
+import { sendPasswordResetEmail } from "../services/emailService.js";
 
 export function createAuthRoutes(db) {
   const router = Router();
@@ -31,10 +33,20 @@ export function createAuthRoutes(db) {
 
     const user = { id: userId, org_id: orgId, email: emailNorm, role: "owner" };
     const tokens = await issueTokenPair(db, user);
+    const access = await getRolePermissionContext(db, "owner");
     res.status(201).json({
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: { id: userId, orgId, orgName: orgName.trim(), fullName, email: emailNorm, role: "owner" },
+      user: {
+        id: userId,
+        orgId,
+        orgName: orgName.trim(),
+        fullName,
+        email: emailNorm,
+        role: "owner",
+        permissions: access.permissions,
+        availableRoles: access.availableRoles,
+      },
       license: { creditsRemaining: initialCredits },
     });
   });
@@ -56,10 +68,20 @@ export function createAuthRoutes(db) {
     const tokens = await issueTokenPair(db, row);
     await logAudit(db, row.org_id, row.id, "USER_LOGIN", "user", row.id);
     const credits = await getOrgCredits(db, row.org_id);
+    const access = await getRolePermissionContext(db, row.role);
     res.json({
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: { id: row.id, orgId: row.org_id, orgName: row.org_name, fullName: row.full_name, email: row.email, role: row.role },
+      user: {
+        id: row.id,
+        orgId: row.org_id,
+        orgName: row.org_name,
+        fullName: row.full_name,
+        email: row.email,
+        role: row.role,
+        permissions: access.permissions,
+        availableRoles: access.availableRoles,
+      },
       license: { creditsRemaining: credits },
     });
   });
@@ -93,6 +115,10 @@ export function createAuthRoutes(db) {
       new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       nowIso(),
     );
+    const emailOut = await sendPasswordResetEmail(emailNorm, rawToken);
+    if (!emailOut.sent && process.env.NODE_ENV !== "production") {
+      console.warn("[password-reset] SMTP not configured. Reset email skipped for:", emailNorm);
+    }
     await logAudit(db, user.org_id, user.id, "PASSWORD_RESET_REQUESTED", "user", user.id);
     res.json({ ok: true });
   });
