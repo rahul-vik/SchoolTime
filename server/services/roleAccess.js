@@ -5,6 +5,13 @@ const FALLBACK_PERMISSIONS = {
   admin: { canManageUsers: true, canManageCredits: true, canViewAudit: true, canManageApiKeys: true, canConfigureTimetable: true },
   staff: { canManageUsers: false, canManageCredits: false, canViewAudit: false, canManageApiKeys: false, canConfigureTimetable: true },
 };
+const DENY_ALL_PERMISSIONS = {
+  canManageUsers: false,
+  canManageCredits: false,
+  canViewAudit: false,
+  canManageApiKeys: false,
+  canConfigureTimetable: false,
+};
 
 function normalizeRoleKey(value) {
   return String(value || "").trim().toLowerCase();
@@ -15,13 +22,7 @@ export async function getRolePermissionContext(db, roleInput) {
   const policy = await getRoleAccessPolicy(db);
   const roles = Array.isArray(policy?.roles) ? policy.roles : [];
   const configured = roles.find((r) => normalizeRoleKey(r.key) === role);
-  const fallback = FALLBACK_PERMISSIONS[role] || {
-    canManageUsers: false,
-    canManageCredits: false,
-    canViewAudit: false,
-    canManageApiKeys: false,
-    canConfigureTimetable: true,
-  };
+  const fallback = FALLBACK_PERMISSIONS[role] || DENY_ALL_PERMISSIONS;
   const permissions = {
     canManageUsers: Boolean(configured?.canManageUsers ?? fallback.canManageUsers),
     canManageCredits: Boolean(configured?.canManageCredits ?? fallback.canManageCredits),
