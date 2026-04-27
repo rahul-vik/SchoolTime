@@ -6,6 +6,7 @@ import { ENV } from "./config/env.js";
 const JWT_SECRET = ENV.JWT_SECRET;
 const JWT_EXPIRES_IN = ENV.JWT_EXPIRES_IN;
 const REFRESH_DAYS = ENV.REFRESH_TOKEN_DAYS;
+const CREATOR_JWT_EXPIRES_IN = ENV.CREATOR_JWT_EXPIRES_IN;
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -17,6 +18,11 @@ export function comparePassword(password, passwordHash) {
 
 export function signAuthToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
+/** Platform (creator) portal — never use as a tenant session token. */
+export function signCreatorToken() {
+  return jwt.sign({ scope: "platform_creator", v: 1 }, JWT_SECRET, { expiresIn: CREATOR_JWT_EXPIRES_IN });
 }
 
 export function makeOpaqueToken() {
@@ -45,6 +51,14 @@ export function authMiddleware(req, res, next) {
   }
   try {
     const decoded = verifyAuthToken(token);
+    if (decoded?.scope === "platform_creator") {
+      res.status(403).json({ error: "This token is for the platform portal only. Sign in from the school app for tenant APIs." });
+      return;
+    }
+    if (!decoded.userId || !decoded.orgId) {
+      res.status(401).json({ error: "Invalid auth token" });
+      return;
+    }
     req.auth = decoded;
     next();
   } catch {

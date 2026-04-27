@@ -1,0 +1,856 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  clearCreatorToken,
+  creatorAdjustCredits,
+  creatorDeleteOrganization,
+  creatorDeleteUser,
+  creatorGetOverview,
+  creatorGetPlatformSettings,
+  creatorListAuditLogs,
+  creatorListCreditLedger,
+  creatorListCreditPurchaseRequests,
+  creatorApproveCreditPurchase,
+  creatorRejectCreditPurchase,
+  creatorListErrorLogs,
+  creatorListOrgPurges,
+  creatorListOrgs,
+  creatorListUsers,
+  creatorLogin,
+  creatorLogout,
+  creatorPatchPlatformSettings,
+  creatorRegisterOrg,
+  creatorSetUserActive,
+  getCreatorToken,
+} from "./creatorApi";
+import { Btn, Input, Modal, T, UiIcon, css } from "../shared/uiPrimitives";
+
+const tabs = [
+  { id: "overview", label: "Overview" },
+  { id: "orgs", label: "Organizations" },
+  { id: "users", label: "Users" },
+  { id: "credits", label: "Credit ledger" },
+  { id: "audit", label: "Audit" },
+  { id: "errors", label: "Error logs" },
+  { id: "settings", label: "Pricing & credits" },
+  { id: "register", label: "Register org" },
+];
+
+export function CreatorApp() {
+  const [token, setTokenState] = useState(() => getCreatorToken());
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginErr, setLoginErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("overview");
+  const [toast, setToast] = useState(null);
+
+  const [overview, setOverview] = useState(null);
+  const [orgs, setOrgs] = useState(null);
+  const [users, setUsers] = useState(null);
+  const [ledger, setLedger] = useState(null);
+  const [audit, setAudit] = useState(null);
+  const [errors, setErrors] = useState(null);
+  const [settings, setSettings] = useState(null);
+
+  const [userQ, setUserQ] = useState("");
+  const [creditOrgId, setCreditOrgId] = useState("");
+  const [creditPacksTen, setCreditPacksTen] = useState("");
+  const [creditReason, setCreditReason] = useState("Support adjustment");
+  const [orgCreditModal, setOrgCreditModal] = useState(null);
+  const [orgCreditPacks, setOrgCreditPacks] = useState("");
+  const [orgCreditReason, setOrgCreditReason] = useState("Operator adjustment");
+  const [orgDeleteModal, setOrgDeleteModal] = useState(null);
+  const [orgDeleteConfirmName, setOrgDeleteConfirmName] = useState("");
+  const [orgDeleteNotes, setOrgDeleteNotes] = useState("");
+  const [orgPurges, setOrgPurges] = useState(null);
+  const [creditPurchasePending, setCreditPurchasePending] = useState(null);
+  const [reg, setReg] = useState({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
+  const [settingsDraft, setSettingsDraft] = useState({ signup_initial_credits: "", credit_pack_size: "", credit_pack_price_cents: "" });
+
+  const notify = useCallback((msg, type = "success") => {
+    setToast({ msg, type });
+    window.setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  const refreshTab = useCallback(async () => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      if (tab === "overview") setOverview(await creatorGetOverview());
+      if (tab === "orgs") {
+        const o = await creatorListOrgs({ limit: 80 });
+        setOrgs(o);
+        try {
+          setOrgPurges(await creatorListOrgPurges({ limit: 25 }));
+        } catch (e) {
+          setOrgPurges({ purges: [] });
+          const msg = String(e?.message || "");
+          if (/platform portal only|Unknown platform portal/i.test(msg)) {
+            notify("Organizations loaded. Restart the API server to enable purge history (GET /api/creator/org-purges).", "warning");
+          } else {
+            notify(msg || "Could not load purge history", "warning");
+          }
+        }
+        try {
+          setCreditPurchasePending(await creatorListCreditPurchaseRequests({ status: "pending" }));
+        } catch {
+          setCreditPurchasePending({ requests: [] });
+        }
+      }
+      if (tab === "users") setUsers(await creatorListUsers({ limit: 80, q: userQ || undefined }));
+      if (tab === "credits") setLedger(await creatorListCreditLedger({ limit: 120, orgId: creditOrgId.trim() || undefined }));
+      if (tab === "audit") setAudit(await creatorListAuditLogs({ limit: 120 }));
+      if (tab === "errors") setErrors(await creatorListErrorLogs({ limit: 120 }));
+      if (tab === "settings") {
+        const s = await creatorGetPlatformSettings();
+        setSettings(s.settings);
+        const g = (k) => s.settings[k]?.value;
+        setSettingsDraft({
+          signup_initial_credits: String(g("signup_initial_credits") ?? ""),
+          credit_pack_size: String(g("credit_pack_size") ?? ""),
+          credit_pack_price_cents: String(g("credit_pack_price_cents") ?? ""),
+        });
+      }
+    } catch (e) {
+      notify(e.message || "Load failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  }, [token, tab, userQ, creditOrgId, notify]);
+
+  useEffect(() => {
+    refreshTab();
+  }, [refreshTab]);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginErr("");
+    setBusy(true);
+    try {
+      await creatorLogin(loginPassword);
+      setLoginPassword("");
+      setTokenState(getCreatorToken());
+      notify("Signed in to platform portal");
+    } catch (err) {
+      setLoginErr(err.message || "Login failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLogout = () => {
+    creatorLogout();
+    setTokenState(null);
+    setOverview(null);
+    notify("Signed out");
+  };
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const body = {};
+      const si = Number(settingsDraft.signup_initial_credits);
+      const ps = Number(settingsDraft.credit_pack_size);
+      const pr = Number(settingsDraft.credit_pack_price_cents);
+      if (settingsDraft.signup_initial_credits !== "" && Number.isFinite(si)) body.signup_initial_credits = si;
+      if (settingsDraft.credit_pack_size !== "" && Number.isFinite(ps)) body.credit_pack_size = ps;
+      if (settingsDraft.credit_pack_price_cents !== "" && Number.isFinite(pr)) body.credit_pack_price_cents = pr;
+      const out = await creatorPatchPlatformSettings(body);
+      setSettings(out.settings);
+      notify("Settings saved");
+    } catch (err) {
+      notify(err.message || "Save failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAdjustCredits = async (e) => {
+    e.preventDefault();
+    if (!creditOrgId.trim()) {
+      notify("Organization ID is required", "warning");
+      return;
+    }
+    const packs = Number(creditPacksTen);
+    if (!Number.isFinite(packs) || packs === 0 || !Number.isInteger(packs)) {
+      notify("Enter a whole number of 10-credit packs (e.g. 3 for +30, -2 for −20).", "warning");
+      return;
+    }
+    const delta = packs * 10;
+    setBusy(true);
+    try {
+      await creatorAdjustCredits(creditOrgId.trim(), { delta, reason: creditReason.trim() || "Adjustment" });
+      notify("Credits updated");
+      setCreditPacksTen("");
+    } catch (err) {
+      notify(err.message || "Update failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitOrgCredits = async (e) => {
+    e.preventDefault();
+    if (!orgCreditModal) return;
+    const packs = Number(orgCreditPacks);
+    if (!Number.isFinite(packs) || packs === 0 || !Number.isInteger(packs)) {
+      notify("Enter a whole number of 10-credit packs (e.g. 5 adds 50 credits).", "warning");
+      return;
+    }
+    const delta = packs * 10;
+    setBusy(true);
+    try {
+      await creatorAdjustCredits(orgCreditModal.id, { delta, reason: orgCreditReason.trim() || "Adjustment" });
+      notify("Organization credits updated");
+      setOrgCreditModal(null);
+      setOrgCreditPacks("");
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Update failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleUserActive = async (u) => {
+    const next = !Boolean(u.is_active);
+    const label = next ? "activate" : "deactivate";
+    if (!window.confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${u.full_name} (${u.email})?`)) return;
+    setBusy(true);
+    try {
+      await creatorSetUserActive(u.id, next);
+      notify(`User ${next ? "activated" : "deactivated"}`);
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Update failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeUser = async (u) => {
+    if (!window.confirm(`Permanently delete user ${u.full_name} (${u.email})? This cannot be undone. Not allowed if they are the only user in the school.`)) return;
+    setBusy(true);
+    try {
+      await creatorDeleteUser(u.id);
+      notify("User deleted");
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Delete failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const body = {
+        orgName: reg.orgName.trim(),
+        fullName: reg.fullName.trim(),
+        email: reg.email.trim(),
+        password: reg.password,
+      };
+      const ic = reg.initialCredits.trim();
+      if (ic !== "") body.initialCredits = Number(ic);
+      const out = await creatorRegisterOrg(body);
+      notify(out.message || "Organization created");
+      setReg({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
+    } catch (err) {
+      notify(err.message || "Registration failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitDeleteOrg = async (e) => {
+    e.preventDefault();
+    if (!orgDeleteModal) return;
+    setBusy(true);
+    try {
+      await creatorDeleteOrganization(orgDeleteModal.id, {
+        confirmationName: orgDeleteConfirmName.trim(),
+        notes: orgDeleteNotes.trim() || undefined,
+      });
+      notify("Organization and all related data removed");
+      setOrgDeleteModal(null);
+      setOrgDeleteConfirmName("");
+      setOrgDeleteNotes("");
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Delete failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveCreditPurchase = async (reqId) => {
+    if (!window.confirm("Approve and add these credits to the school?")) return;
+    setBusy(true);
+    try {
+      await creatorApproveCreditPurchase(reqId);
+      notify("Purchase approved");
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Approve failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rejectCreditPurchase = async (reqId) => {
+    const note = window.prompt("Optional note for the school (stored on the request):", "");
+    if (note === null) return;
+    if (!window.confirm("Reject this credit purchase request?")) return;
+    setBusy(true);
+    try {
+      await creatorRejectCreditPurchase(reqId, { note: note.trim() || undefined });
+      notify("Request rejected");
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Reject failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!token) {
+    return (
+      <div style={{ minHeight: "100vh", background: T.surfaceAlt, color: T.text, fontFamily: "Inter, system-ui, sans-serif", padding: 24 }}>
+        <div style={{ maxWidth: 420, margin: "64px auto", ...css.card }}>
+          <h1 style={{ margin: "0 0 8px", fontSize: 20, color: T.brand }}>SchoolTime platform portal</h1>
+          <p style={{ margin: "0 0 20px", fontSize: 14, color: T.textMid, lineHeight: 1.5 }}>
+            Operator dashboard: enrollments, credits, audit trail, and server error logs. This is separate from the school app.
+          </p>
+          <form onSubmit={handleLogin}>
+            <Input
+              label="Portal password"
+              type="password"
+              value={loginPassword}
+              onChange={setLoginPassword}
+              placeholder="From CREATOR_PORTAL_PASSWORD*"
+            />
+            {loginErr && <p style={{ color: T.danger, fontSize: 13, marginTop: 8 }}>{loginErr}</p>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap", alignItems: "center" }}>
+              <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = "/"; }}>
+                <UiIcon name="school" size={20} stroke="currentColor" />
+              </Btn>
+              <Btn type="submit" disabled={busy} iconOnly ariaLabel={busy ? "Signing in" : "Sign in"} title={busy ? "Signing in…" : "Sign in"}>
+                {busy ? <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>…</span> : <UiIcon name="login" size={20} stroke="currentColor" />}
+              </Btn>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  const pt = {
+    table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+    th: { padding: "11px 14px", textAlign: "left", borderBottom: `1px solid ${T.surfaceBorder}`, fontSize: 12, fontWeight: 700, color: T.textMid, verticalAlign: "middle" },
+    td: { padding: "11px 14px", verticalAlign: "middle", borderBottom: `1px solid ${T.surfaceBorder}` },
+    tdMono: { padding: "11px 14px", verticalAlign: "middle", borderBottom: `1px solid ${T.surfaceBorder}`, fontFamily: "ui-monospace, monospace", fontSize: 11, color: T.textMid },
+    tdActions: { padding: "10px 14px", verticalAlign: "middle", borderBottom: `1px solid ${T.surfaceBorder}`, textAlign: "right" },
+    tableSm: { width: "100%", borderCollapse: "collapse", fontSize: 12 },
+    thSm: { padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${T.surfaceBorder}`, fontSize: 11, fontWeight: 700, color: T.textMid, verticalAlign: "middle" },
+    tdSm: { padding: "10px 14px", verticalAlign: "middle", borderBottom: `1px solid ${T.surfaceBorder}` },
+    toolRow: { marginBottom: 14, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" },
+    modalActions: { display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap" },
+    inlineField: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
+    inlineLabel: { fontSize: 11, fontWeight: 700, color: T.textMid, textTransform: "uppercase", letterSpacing: "0.06em", lineHeight: 1.2 },
+    inlineInput: { ...css.input, height: 39, padding: "8px 12px", boxSizing: "border-box" },
+    /** Single-line control + icon button (input and button share 39px height). */
+    controlWithIconRow: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
+    iconSq39: { height: 39, width: 39, padding: 0, flexShrink: 0, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+    rowActions: { display: "inline-flex", gap: 8, flexWrap: "nowrap", justifyContent: "flex-end", alignItems: "center", whiteSpace: "nowrap" },
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.surfaceAlt, color: T.text, fontFamily: "Inter, system-ui, sans-serif" }}>
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 2000,
+            padding: "12px 20px",
+            borderRadius: 10,
+            background: toast.type === "danger" ? T.danger : T.brand,
+            color: "#fff",
+            fontSize: 14,
+            fontWeight: 600,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+            maxWidth: "min(560px, 92vw)",
+            textAlign: "center",
+          }}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      <header style={{ background: T.brand, color: "#fff", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>SchoolTime · Platform portal</div>
+          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>Credits, members, and operations</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Open school app" onClick={() => { window.location.href = "/"; }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
+            <UiIcon name="school" size={18} stroke="currentColor" />
+          </Btn>
+          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Sign out" onClick={handleLogout} disabled={busy} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
+            <UiIcon name="logout" size={18} stroke="currentColor" />
+          </Btn>
+        </div>
+      </header>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "12px 16px", borderBottom: `1px solid ${T.surfaceBorder}`, background: T.surface }}>
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 8,
+              border: tab === t.id ? `2px solid ${T.brand}` : `1px solid ${T.surfaceBorder}`,
+              background: tab === t.id ? `${T.brand}12` : "transparent",
+              color: tab === t.id ? T.brand : T.textMid,
+              fontWeight: tab === t.id ? 700 : 600,
+              fontSize: 13,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+        <Btn type="button" variant="ghost" size="sm" iconOnly ariaLabel={busy ? "Loading" : "Refresh"} title={busy ? "Loading…" : "Refresh"} onClick={refreshTab} disabled={busy} style={{ marginLeft: "auto" }}>
+          <UiIcon name="refresh" size={18} stroke="currentColor" />
+        </Btn>
+      </div>
+
+      <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
+        {tab === "overview" && overview && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+            {[
+              ["Organizations", overview.organizations],
+              ["Users", overview.users],
+              ["Credits (sum)", overview.creditsRemainingAcrossOrgs],
+              ["Errors (24h)", overview.errorLogsLast24h],
+            ].map(([label, val]) => (
+              <div key={label} style={{ ...css.card, padding: 16 }}>
+                <div style={{ fontSize: 12, color: T.textMid, fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: T.brand }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === "orgs" && orgs && (
+          <div>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              Credits belong to the <strong>organization</strong> (school). Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. You can still use <strong>Add credits</strong> for manual adjustments. <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
+            </p>
+            {creditPurchasePending?.requests?.length > 0 && (
+              <div style={{ ...css.card, marginBottom: 16, padding: 0, overflow: "auto" }}>
+                <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.surfaceBorder}` }}>
+                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Pending credit purchase requests</h3>
+                  <p style={{ margin: "8px 0 0", fontSize: 12, color: T.textMid }}>Approve to add credits to the license balance, or reject with an optional note.</p>
+                </div>
+                <table style={pt.table}>
+                  <thead>
+                    <tr>
+                      <th style={pt.th}>Requested</th>
+                      <th style={pt.th}>School</th>
+                      <th style={pt.th}>Requester</th>
+                      <th style={pt.th}>Packs</th>
+                      <th style={pt.th}>Credits</th>
+                      <th style={pt.th}>Note</th>
+                      <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditPurchasePending.requests.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{r.created_at}</td>
+                        <td style={pt.td}>{r.org_name}</td>
+                        <td style={pt.td}><span style={{ fontSize: 12 }}>{r.requester_name}</span><br /><span style={{ fontSize: 11, color: T.textMid }}>{r.requester_email}</span></td>
+                        <td style={pt.td}>{r.pack_count}</td>
+                        <td style={{ ...pt.td, fontWeight: 700 }}>{r.credits_total}</td>
+                        <td style={{ ...pt.td, fontSize: 12, color: T.textMid }}>{r.requester_note || "—"}</td>
+                        <td style={pt.tdActions}>
+                          <div style={pt.rowActions}>
+                            <Btn size="sm" iconOnly ariaLabel="Approve request" onClick={() => approveCreditPurchase(r.id)} disabled={busy}>
+                              <UiIcon name="check" size={16} stroke="currentColor" />
+                            </Btn>
+                            <Btn size="sm" variant="danger" iconOnly ariaLabel="Reject request" onClick={() => rejectCreditPurchase(r.id)} disabled={busy}>
+                              <UiIcon name="close" size={16} stroke="#fff" />
+                            </Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {orgCreditModal && (
+              <Modal
+                title={`Credits — ${orgCreditModal.name}`}
+                onClose={() => { setOrgCreditModal(null); setOrgCreditPacks(""); }}
+              >
+                <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid }}>
+                  Current balance: <strong>{orgCreditModal.credits_remaining}</strong> credits for this school.
+                </p>
+                <form onSubmit={submitOrgCredits}>
+                  <Input
+                    label="10-credit packs (+ or −)"
+                    value={orgCreditPacks}
+                    onChange={setOrgCreditPacks}
+                    placeholder="e.g. 5 adds 50, −2 removes 20"
+                    help="Whole numbers only. Each pack is exactly 10 credits."
+                  />
+                  <Input label="Reason (audit)" value={orgCreditReason} onChange={setOrgCreditReason} />
+                  <div style={pt.modalActions}>
+                    <Btn type="button" variant="ghost" iconOnly ariaLabel="Cancel" onClick={() => { setOrgCreditModal(null); setOrgCreditPacks(""); }} disabled={busy}>
+                      <UiIcon name="close" size={18} stroke="currentColor" />
+                    </Btn>
+                    <Btn type="submit" iconOnly ariaLabel="Apply credits" disabled={busy}>
+                      <UiIcon name="check" size={18} stroke="currentColor" />
+                    </Btn>
+                  </div>
+                </form>
+              </Modal>
+            )}
+            {orgDeleteModal && (
+              <Modal
+                title={`Remove organization — ${orgDeleteModal.name}`}
+                onClose={() => { setOrgDeleteModal(null); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }}
+              >
+                <p style={{ margin: "0 0 12px", fontSize: 13, color: T.danger, fontWeight: 600 }}>
+                  This cannot be undone. All users, sign-ins, timetable state, generated timetables/reports, credit history, and keys for this school will be deleted.
+                </p>
+                <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid }}>
+                  Type the organization name exactly as shown: <strong style={{ color: T.text }}>{orgDeleteModal.name}</strong>
+                </p>
+                <form onSubmit={submitDeleteOrg}>
+                  <Input label="Confirmation (organization name)" value={orgDeleteConfirmName} onChange={setOrgDeleteConfirmName} placeholder={orgDeleteModal.name} required />
+                  <Input label="Notes (stored on purge record)" value={orgDeleteNotes} onChange={setOrgDeleteNotes} placeholder="Optional reason for your records" />
+                  <div style={pt.modalActions}>
+                    <Btn type="button" variant="ghost" iconOnly ariaLabel="Cancel" onClick={() => { setOrgDeleteModal(null); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }} disabled={busy}>
+                      <UiIcon name="close" size={18} stroke="currentColor" />
+                    </Btn>
+                    <Btn type="submit" variant="danger" iconOnly ariaLabel="Remove organization" disabled={busy}>
+                      <UiIcon name="trash" size={18} stroke="#fff" />
+                    </Btn>
+                  </div>
+                </form>
+              </Modal>
+            )}
+            <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              <table style={pt.table}>
+                <thead>
+                  <tr>
+                    <th style={pt.th}>School / org</th>
+                    <th style={pt.th}>Current credits</th>
+                    <th style={pt.th}>Users</th>
+                    <th style={pt.th}>Org ID</th>
+                    <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orgs.orgs.map((o) => (
+                    <tr key={o.id}>
+                      <td style={{ ...pt.td, fontWeight: 600 }}>{o.name}</td>
+                      <td style={{ ...pt.td, fontWeight: 700, fontSize: 15 }}>{o.credits_remaining}</td>
+                      <td style={pt.td}>{o.user_count}</td>
+                      <td style={pt.tdMono}>{o.id}</td>
+                      <td style={pt.tdActions}>
+                        <div style={pt.rowActions}>
+                          <Btn size="sm" iconOnly ariaLabel={`Add credits — ${o.name}`} onClick={() => { setOrgCreditModal(o); setOrgCreditPacks(""); setOrgCreditReason("Operator adjustment"); }} disabled={busy}>
+                            <UiIcon name="create" size={16} stroke="currentColor" />
+                          </Btn>
+                          <Btn size="sm" variant="danger" iconOnly ariaLabel={`Remove organization — ${o.name}`} onClick={() => { setOrgDeleteModal(o); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }} disabled={busy}>
+                            <UiIcon name="trash" size={16} stroke="#fff" />
+                          </Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: "10px 4px 0", fontSize: 12, color: T.textMid }}>Total organizations: {orgs.total}</div>
+
+            {orgPurges?.purges?.length > 0 && (
+              <div style={{ ...css.card, marginTop: 16, padding: 16 }}>
+                <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 700, color: T.text }}>Recent organization removals</h3>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: T.textMid }}>Snapshot of users and counts is stored for compliance and support.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {orgPurges.purges.map((p) => (
+                    <div key={p.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: "10px 12px", fontSize: 12 }}>
+                      <div style={{ fontWeight: 700, color: T.text }}>{p.orgName} <span style={{ fontWeight: 500, color: T.textMid }}>({p.createdAt})</span></div>
+                      {p.summary && (
+                        <div style={{ marginTop: 6, color: T.textMid, lineHeight: 1.5 }}>
+                          Users removed: {p.summary.userCount} · Runs: {p.summary.timetableRunCount} · Credit rows: {p.summary.creditLedgerRowCount} · API keys: {p.summary.apiKeyCount}
+                          {typeof p.summary.platformErrorLogRowCount === "number" ? ` · Error log rows: ${p.summary.platformErrorLogRowCount}` : ""}
+                          {p.summary.hadTenantState ? " · Had timetable setup data" : ""}
+                          {p.notes ? ` · Notes: ${p.notes}` : ""}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "users" && users && (
+          <div>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              Each row is one login. School credits are managed on the <strong>Organizations</strong> tab. Multiple rows usually mean several schools or test accounts.
+            </p>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ ...pt.inlineLabel, display: "block", marginBottom: 6 }} htmlFor="portal-user-search">Search (name, email, org)</label>
+              <div style={pt.controlWithIconRow}>
+                <input
+                  id="portal-user-search"
+                  type="text"
+                  value={userQ}
+                  onChange={(e) => setUserQ(e.target.value)}
+                  placeholder="Filter…"
+                  style={{ ...pt.inlineInput, flex: "1 1 220px", minWidth: 0, maxWidth: 480, width: "100%" }}
+                />
+                <Btn type="button" iconOnly ariaLabel="Search users" onClick={refreshTab} disabled={busy} style={pt.iconSq39}>
+                  <UiIcon name="search" size={18} stroke="currentColor" />
+                </Btn>
+              </div>
+            </div>
+            <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              <table style={pt.table}>
+                <thead>
+                  <tr>
+                    <th style={pt.th}>Name</th>
+                    <th style={pt.th}>Email</th>
+                    <th style={pt.th}>Role</th>
+                    <th style={pt.th}>Org</th>
+                    <th style={pt.th}>Active</th>
+                    <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.users.map((u) => (
+                    <tr key={u.id}>
+                      <td style={pt.td}>{u.full_name}</td>
+                      <td style={pt.td}>{u.email}</td>
+                      <td style={pt.td}>{u.role}</td>
+                      <td style={pt.td}>{u.org_name}</td>
+                      <td style={pt.td}>{u.is_active ? "Yes" : "No"}</td>
+                      <td style={pt.tdActions}>
+                        <div style={pt.rowActions}>
+                          <Btn
+                            size="sm"
+                            variant="ghost"
+                            iconOnly
+                            ariaLabel={u.is_active ? `Deactivate ${u.full_name}` : `Activate ${u.full_name}`}
+                            onClick={() => toggleUserActive(u)}
+                            disabled={busy}
+                          >
+                            <UiIcon name={u.is_active ? "pause" : "play"} size={16} stroke="currentColor" />
+                          </Btn>
+                          <Btn size="sm" variant="danger" iconOnly ariaLabel={`Delete user ${u.full_name}`} onClick={() => removeUser(u)} disabled={busy}>
+                            <UiIcon name="trash" size={16} stroke="#fff" />
+                          </Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === "credits" && ledger && (
+          <div>
+            <form onSubmit={(e) => { e.preventDefault(); refreshTab(); }} style={{ marginBottom: 14 }}>
+              <label style={{ ...pt.inlineLabel, display: "block", marginBottom: 6 }} htmlFor="credit-ledger-org-filter">Filter by org ID (optional)</label>
+              <div style={pt.controlWithIconRow}>
+                <input
+                  id="credit-ledger-org-filter"
+                  type="text"
+                  value={creditOrgId}
+                  onChange={(e) => setCreditOrgId(e.target.value)}
+                  placeholder="UUID"
+                  style={{ ...pt.inlineInput, flex: "1 1 220px", minWidth: 0, maxWidth: 520, width: "100%" }}
+                />
+                <Btn
+                  type="submit"
+                  variant="ghost"
+                  iconOnly
+                  ariaLabel="Apply filter and reload ledger"
+                  disabled={busy}
+                  style={pt.iconSq39}
+                >
+                  <UiIcon name="filter" size={18} stroke="currentColor" />
+                </Btn>
+              </div>
+            </form>
+            <div style={{ ...css.card, marginBottom: 20 }}>
+              <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Adjust credits (by organization)</h3>
+              <p style={{ margin: "0 0 12px", fontSize: 12, color: T.textMid }}>Amount must be a multiple of 10. Enter <strong>packs of 10</strong> (e.g. 6 → +60 credits, −1 → −10).</p>
+              <form onSubmit={handleAdjustCredits} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+                <div style={{ ...pt.inlineField, flex: "1 1 200px", minWidth: 0 }}>
+                  <label style={pt.inlineLabel} htmlFor="credit-adjust-org-id">Organization ID</label>
+                  <input
+                    id="credit-adjust-org-id"
+                    type="text"
+                    required
+                    value={creditOrgId}
+                    onChange={(e) => setCreditOrgId(e.target.value)}
+                    style={pt.inlineInput}
+                  />
+                </div>
+                <div style={{ ...pt.inlineField, flex: "0 1 168px", minWidth: 0 }}>
+                  <label style={pt.inlineLabel} htmlFor="credit-adjust-packs">10-credit packs (+ or −)</label>
+                  <input
+                    id="credit-adjust-packs"
+                    type="text"
+                    value={creditPacksTen}
+                    onChange={(e) => setCreditPacksTen(e.target.value)}
+                    placeholder="e.g. 3 or −2"
+                    style={pt.inlineInput}
+                  />
+                </div>
+                <div style={{ ...pt.inlineField, flex: "1 1 200px", minWidth: 0 }}>
+                  <label style={pt.inlineLabel} htmlFor="credit-adjust-reason">Reason (audit)</label>
+                  <input
+                    id="credit-adjust-reason"
+                    type="text"
+                    value={creditReason}
+                    onChange={(e) => setCreditReason(e.target.value)}
+                    style={pt.inlineInput}
+                  />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                  <span style={{ ...pt.inlineLabel, visibility: "hidden" }} aria-hidden="true">Action</span>
+                  <Btn type="submit" iconOnly ariaLabel="Apply credit adjustment" disabled={busy} style={pt.iconSq39}>
+                    <UiIcon name="check" size={18} stroke="currentColor" />
+                  </Btn>
+                </div>
+              </form>
+            </div>
+            <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              <table style={pt.tableSm}>
+                <thead>
+                  <tr>
+                    <th style={pt.thSm}>When</th>
+                    <th style={pt.thSm}>Org</th>
+                    <th style={{ ...pt.thSm, textAlign: "right" }}>Δ</th>
+                    <th style={pt.thSm}>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.entries.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{r.created_at}</td>
+                      <td style={pt.tdSm}>{r.org_name}</td>
+                      <td style={{ ...pt.tdSm, textAlign: "right", fontWeight: 700, color: r.delta < 0 ? T.danger : T.success }}>{r.delta}</td>
+                      <td style={pt.tdSm}>{r.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === "audit" && audit && (
+          <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+            <table style={pt.tableSm}>
+              <thead>
+                <tr>
+                  <th style={pt.thSm}>When</th>
+                  <th style={pt.thSm}>Org</th>
+                  <th style={pt.thSm}>Action</th>
+                  <th style={pt.thSm}>Entity</th>
+                  <th style={pt.thSm}>User</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.logs.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{r.created_at}</td>
+                    <td style={pt.tdSm}>{r.org_name}</td>
+                    <td style={pt.tdSm}>{r.action}</td>
+                    <td style={pt.tdSm}>{r.entity_type}</td>
+                    <td style={pt.tdSm}>{r.user_name || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === "errors" && errors && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {errors.logs.length === 0 && <p style={{ color: T.textMid }}>No errors recorded yet. Unhandled server exceptions are logged here.</p>}
+            {errors.logs.map((r) => (
+              <div key={r.id} style={{ ...css.card, padding: 14 }}>
+                <div style={{ fontSize: 12, color: T.textMid }}>{r.created_at} · {r.method} {r.route}</div>
+                <div style={{ fontWeight: 700, marginTop: 6 }}>{r.message}</div>
+                {r.detail_text && <pre style={{ margin: "8px 0 0", fontSize: 11, whiteSpace: "pre-wrap", color: T.textMid }}>{r.detail_text}</pre>}
+                {r.stack_text && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: "pointer", fontSize: 12 }}>Stack trace</summary>
+                    <pre style={{ fontSize: 10, overflow: "auto", maxHeight: 200, background: T.surfaceAlt, padding: 8, borderRadius: 6 }}>{r.stack_text}</pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === "settings" && settings && (
+          <form onSubmit={handleSaveSettings} style={{ ...css.card, maxWidth: 480 }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Defaults (live)</h3>
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              New self-serve signups receive <strong>signup initial credits</strong>. The in-app purchase screen uses <strong>credit pack size</strong> per pack; schools request packs and the portal approves. Price is stored for future billing (not charged in-app yet).
+            </p>
+            <Input label="Signup initial credits" value={settingsDraft.signup_initial_credits} onChange={(v) => setSettingsDraft((d) => ({ ...d, signup_initial_credits: v }))} />
+            <Input label="Credit pack size (purchase button)" value={settingsDraft.credit_pack_size} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_size: v }))} />
+            <Input label="Pack price (cents, informational)" value={settingsDraft.credit_pack_price_cents} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_price_cents: v }))} />
+            <div style={pt.modalActions}>
+              <Btn type="submit" iconOnly ariaLabel="Save settings" disabled={busy}>
+                <UiIcon name="check" size={18} stroke="currentColor" />
+              </Btn>
+            </div>
+          </form>
+        )}
+
+        {tab === "register" && (
+          <form onSubmit={handleRegister} style={{ ...css.card, maxWidth: 480 }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Register organization (owner)</h3>
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              Creates a new school account the same way self-serve signup does, with an optional custom starting credit balance.
+            </p>
+            <Input label="Organization name" value={reg.orgName} onChange={(v) => setReg((r) => ({ ...r, orgName: v }))} required />
+            <Input label="Owner full name" value={reg.fullName} onChange={(v) => setReg((r) => ({ ...r, fullName: v }))} required />
+            <Input label="Owner email" type="email" value={reg.email} onChange={(v) => setReg((r) => ({ ...r, email: v }))} required />
+            <Input label="Initial password (share with owner)" type="password" value={reg.password} onChange={(v) => setReg((r) => ({ ...r, password: v }))} required />
+            <Input label="Initial credits (optional, blank = portal default)" value={reg.initialCredits} onChange={(v) => setReg((r) => ({ ...r, initialCredits: v }))} placeholder="e.g. 50" />
+            <div style={pt.modalActions}>
+              <Btn type="submit" iconOnly ariaLabel="Create organization" disabled={busy}>
+                <UiIcon name="create" size={18} stroke="currentColor" />
+              </Btn>
+            </div>
+          </form>
+        )}
+      </main>
+    </div>
+  );
+}

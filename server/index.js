@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { db, initDb } from "./db.js";
 import { authMiddleware } from "./auth.js";
+import { creatorAuthMiddleware } from "./middleware/creatorAuth.js";
 import { requireRole } from "./middleware/requireRole.js";
 import { apiKeyAuthMiddleware } from "./middleware/apiKeyAuth.js";
 import { createAuthRoutes } from "./routes/authRoutes.js";
@@ -17,9 +18,14 @@ import { createAuditRoutes } from "./routes/auditRoutes.js";
 import { createUsageRoutes } from "./routes/usageRoutes.js";
 import { createApiKeyRoutes } from "./routes/apiKeyRoutes.js";
 import { createB2BRoutes } from "./routes/b2bRoutes.js";
+import { createCreatorAuthRoutes } from "./routes/creatorAuthRoutes.js";
+import { createCreatorRoutes } from "./routes/creatorRoutes.js";
+import { insertPlatformError } from "./services/platformErrorLog.js";
+import { ensurePlatformSettingsDefaults } from "./services/platformSettings.js";
 import { ENV } from "./config/env.js";
 
 await initDb();
+await ensurePlatformSettingsDefaults(db);
 
 const app = express();
 const { NODE_ENV, PORT, RATE_LIMIT_MAX, CORS_ORIGINS, hasWildcardCors } = ENV;
@@ -53,6 +59,14 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", createAuthRoutes(db));
+// Public creator login must mount on the same `/api/creator` prefix *before* the protected stack;
+// otherwise `POST /api/creator/auth/login` can match `/api/creator` first and hit auth middleware (401 Missing auth token).
+app.use("/api/creator", createCreatorAuthRoutes());
+app.use("/api/creator", creatorAuthMiddleware, createCreatorRoutes(db));
+// Never fall through to tenant `/api` stack for unrecognized `/api/creator/*` (would treat creator JWT as tenant token → 403).
+app.use("/api/creator", (_req, res) => {
+  res.status(404).json({ error: "Unknown platform portal path" });
+});
 app.use("/api/auth", authMiddleware, createSessionRoutes(db));
 app.use("/api", authMiddleware, createUserRoutes(db));
 app.use("/api", authMiddleware, createStateRoutes(db));
@@ -62,6 +76,27 @@ app.use("/api", authMiddleware, requireRole("owner", "admin"), createLicenseRout
 app.use("/api", authMiddleware, requireRole("owner", "admin"), createApiKeyRoutes(db));
 app.use("/api", authMiddleware, requireRole("owner", "admin"), createAuditRoutes(db));
 app.use("/api", apiKeyAuthMiddleware(db), createB2BRoutes(db));
+
+app.use(async (err, req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  try {
+    await insertPlatformError(db, {
+      message: err?.message || "Unhandled error",
+      stack: err?.stack || null,
+      route: String(req.originalUrl || req.url || "").slice(0, 500),
+      method: req.method,
+      orgId: req.auth?.orgId ?? null,
+      userId: req.auth?.userId ?? null,
+    });
+  } catch (logErr) {
+    console.error("[platform_error_log]", logErr);
+  }
+  const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 500;
+  res.status(status).json({ error: err?.message || "Server error" });
+});
 
 app.listen(PORT, () => {
   console.log(`[config] env=${NODE_ENV} port=${PORT} corsOrigins=${hasWildcardCors ? "wildcard" : CORS_ORIGINS.length}`);

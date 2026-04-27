@@ -6,7 +6,7 @@ import { ENV } from "./config/env.js";
 
 const { Pool } = pg;
 const DB_CLIENT = String(process.env.DB_CLIENT || "sqlite").toLowerCase();
-const EXPECTED_POSTGRES_SCHEMA_VERSION = 1;
+const EXPECTED_POSTGRES_SCHEMA_VERSION = 4;
 
 let sqlite = null;
 let pgPool = null;
@@ -106,6 +106,46 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at TEXT,
   FOREIGN KEY (org_id) REFERENCES organizations(id),
   FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS platform_error_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  level TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail_text TEXT,
+  stack_text TEXT,
+  route TEXT,
+  method TEXT,
+  org_id TEXT,
+  user_id TEXT,
+  metadata_json TEXT
+);
+CREATE TABLE IF NOT EXISTS platform_settings (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS platform_org_purges (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  org_name TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  notes TEXT
+);
+CREATE TABLE IF NOT EXISTS credit_purchase_requests (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  pack_count INTEGER NOT NULL,
+  credits_total INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  requester_note TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolver_note TEXT,
+  FOREIGN KEY (org_id) REFERENCES organizations(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
 );
 `;
 

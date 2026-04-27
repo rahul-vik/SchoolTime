@@ -34,28 +34,6 @@ export function generateTimetableFlow({
   }, 1200);
 }
 
-export async function purchasePackFlow({
-  canManageBilling,
-  apiPurchasePack,
-  setCreditsRemaining,
-  creditsRemaining,
-  notify,
-  onSuccess,
-}) {
-  if (!canManageBilling) {
-    notify("Only owner/admin can purchase credit packs", "warning");
-    return;
-  }
-  try {
-    const resp = await apiPurchasePack();
-    setCreditsRemaining(resp.license?.creditsRemaining ?? creditsRemaining);
-    await onSuccess?.(resp);
-    notify("Added 10 timetable credits", "success");
-  } catch (err) {
-    notify(err.message || "Could not add credits", "danger");
-  }
-}
-
 export function swapTimetableCells({
   entry,
   isEditMode,

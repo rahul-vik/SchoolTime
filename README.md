@@ -42,7 +42,8 @@ See `LICENSE` for full text.
 - Export bundle:
   - Visual PDF timetable pages
   - Visual Excel timetable sheets
-- Usage, licensing credits, API key management, audit logs
+- Usage, licensing credits (schools **request** extra credits from the app; a platform operator **approves** them in `/creator`), API key management, audit logs
+- Optional platform operator portal (`/creator`) for cross-tenant credits, purchase approvals, enrollment, settings, and error logs when server env is configured
 
 ## Prerequisites
 
@@ -79,6 +80,16 @@ See `LICENSE` for full text.
 - Frontend: `http://localhost:5173`
 - API health: `http://localhost:8787/api/health`
 
+### Platform portal (operator / creator)
+
+Separate from the school tenant app: cross-tenant visibility, credit controls, and server diagnostics.
+
+- **Open:** `http://localhost:5173/creator` (same Vite app; portal session uses `localStorage` key `st_creator_token`, the school app uses `tt_token` — do not copy one into the other). If the school app shows *“This token is for the platform portal only”*, the school session slot held a portal JWT; sign in again with your school email and password (the client clears that mismatch when it detects it).
+- **Configure server:** set `CREATOR_PORTAL_PASSWORD` (local dev) or `CREATOR_PORTAL_PASSWORD_HASH` (bcrypt hash; recommended for production) in `.env`. Optional `CREATOR_JWT_EXPIRES_IN` (default `8h`).
+- **What you can do:** list organizations and users, **approve or reject pending school credit purchase requests** (from the Organizations tab), browse credit ledger and audit logs across all tenants, **add org credits in multiples of 10** manually when needed (Organizations / Credit ledger), **remove an organization** (destructive; a **purge record** is retained), register a new organization, edit platform defaults (`signup_initial_credits`, `credit_pack_size`, `credit_pack_price_cents`), and review **platform error logs**.
+
+See `docs/API.md` for route names. After pulling changes that add platform routes (for example org purge history), **restart the Node API process** so it loads the new handlers; an old process can otherwise mis-route `/api/creator/*` requests.
+
 ## Environment Variables
 
 Based on `.env.example`:
@@ -93,6 +104,9 @@ Based on `.env.example`:
 - `DB_CLIENT` - current runtime DB engine (`sqlite` default)
 - `DATABASE_URL` - required for Postgres migration / Postgres runtime
 - `VITE_API_BASE_URL` - frontend API base URL
+- `CREATOR_PORTAL_PASSWORD` - optional; enables `/creator` portal login (use a long random value; for production prefer `CREATOR_PORTAL_PASSWORD_HASH`)
+- `CREATOR_PORTAL_PASSWORD_HASH` - optional bcrypt hash for portal login (overrides plain password when set)
+- `CREATOR_JWT_EXPIRES_IN` - portal session JWT lifetime (default `8h`)
 
 ## Available Scripts
 

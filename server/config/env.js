@@ -26,6 +26,9 @@ function buildEnv() {
   const CORS_ORIGIN_RAW = process.env.CORS_ORIGIN || (isProduction ? "" : "http://localhost:5173");
   const CORS_ORIGINS = parseCorsOrigins(CORS_ORIGIN_RAW);
   const hasWildcardCors = CORS_ORIGINS.includes("*");
+  const CREATOR_PORTAL_PASSWORD = String(process.env.CREATOR_PORTAL_PASSWORD || "").trim();
+  const CREATOR_PORTAL_PASSWORD_HASH = String(process.env.CREATOR_PORTAL_PASSWORD_HASH || "").trim();
+  const CREATOR_JWT_EXPIRES_IN = process.env.CREATOR_JWT_EXPIRES_IN || "8h";
 
   return {
     NODE_ENV,
@@ -40,6 +43,9 @@ function buildEnv() {
     CORS_ORIGIN_RAW,
     CORS_ORIGINS,
     hasWildcardCors,
+    CREATOR_PORTAL_PASSWORD,
+    CREATOR_PORTAL_PASSWORD_HASH,
+    CREATOR_JWT_EXPIRES_IN,
   };
 }
 
@@ -56,6 +62,14 @@ function validateEnv(env) {
     }
     if (env.CORS_ORIGINS.length === 0 || env.hasWildcardCors) {
       throw new Error("Invalid CORS_ORIGIN for production. Provide one or more explicit origins (comma-separated).");
+    }
+    const creatorConfigured = Boolean(env.CREATOR_PORTAL_PASSWORD_HASH || env.CREATOR_PORTAL_PASSWORD);
+    if (creatorConfigured && !env.CREATOR_PORTAL_PASSWORD_HASH) {
+      if (env.CREATOR_PORTAL_PASSWORD.length < 20) {
+        throw new Error(
+          "For production, set CREATOR_PORTAL_PASSWORD_HASH (bcrypt) for the platform portal, or use CREATOR_PORTAL_PASSWORD with at least 20 characters.",
+        );
+      }
     }
   }
 }
