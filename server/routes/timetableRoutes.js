@@ -52,6 +52,24 @@ export function createTimetableRoutes(db) {
     res.json({ runs: rows });
   });
 
+  router.get("/timetable/latest", async (req, res) => {
+    const row = await db.get(
+      "SELECT id, status, score, report_json, entries_json, created_at FROM timetable_runs WHERE org_id = ? AND entries_json IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+      req.auth.orgId,
+    );
+    if (!row) return res.json({ run: null, timetable: null });
+    try {
+      const report = row.report_json ? JSON.parse(row.report_json) : {};
+      const entries = row.entries_json ? JSON.parse(row.entries_json) : [];
+      return res.json({
+        run: { id: row.id, status: row.status, score: row.score, createdAt: row.created_at },
+        timetable: { entries, score: row.score, status: row.status, report },
+      });
+    } catch {
+      return res.status(500).json({ error: "Stored timetable data is invalid" });
+    }
+  });
+
   async function handleTimetableExportDownload(req, res) {
     const type = String(req.query.type || "").toUpperCase();
     const scope = String(req.query.scope || "").toUpperCase();

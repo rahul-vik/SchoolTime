@@ -75,7 +75,7 @@ export function clearToken() {
 function forceLogoutToAuth() {
   clearStoredSession();
   if (typeof window !== "undefined") {
-    window.location.reload();
+    window.dispatchEvent(new CustomEvent("schooltime:auth-expired"));
   }
 }
 
@@ -192,11 +192,14 @@ export function updateMe(payload) { return request("/me", { method: "PATCH", bod
 export function loadState() { return request("/state"); }
 export function saveState(state, section) {
   const q = section ? `?section=${encodeURIComponent(section)}` : "";
-  return request(`/state${q}`, { method: "PUT", body: JSON.stringify(state) });
+  return request(`/state${q}`, { method: "PUT", body: JSON.stringify(state), suppressAutoLogout: true });
 }
 export function generateTimetable(state) {
   if (!getToken()) throw new Error("Your session is not available. Please sign in again.");
   return request("/timetable/generate", { method: "POST", body: JSON.stringify(state) });
+}
+export function getLatestTimetable() {
+  return request("/timetable/latest", { suppressAutoLogout: true });
 }
 export function getPurchasePackInfo() {
   return request("/license/purchase-pack-info", { suppressAutoLogout: true });
@@ -213,16 +216,16 @@ export function createCreditPurchaseRequest(body) {
 export function getMyCreditPurchaseRequests() {
   return request("/license/my-credit-purchase-requests", { suppressAutoLogout: true });
 }
-export function getUsers() { return request("/users"); }
+export function getUsers() { return request("/users", { suppressAutoLogout: true }); }
 export function createUser(payload) { return request("/users", { method: "POST", body: JSON.stringify(payload) }); }
 export function updateUser(id, payload) { return request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); }
-export function getAuditLogs() { return request("/audit-logs"); }
+export function getAuditLogs() { return request("/audit-logs", { suppressAutoLogout: true }); }
 export function getAuditLogsFiltered(params = {}) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && String(v) !== "") q.set(k, String(v));
   });
-  return request(`/audit-logs?${q.toString()}`);
+  return request(`/audit-logs?${q.toString()}`, { suppressAutoLogout: true });
 }
 export async function exportAuditLogsCsv(params = {}) {
   const token = getToken();
@@ -242,8 +245,8 @@ export async function exportAuditLogsCsv(params = {}) {
   a.click();
   window.URL.revokeObjectURL(url);
 }
-export function getUsage() { return request("/usage"); }
-export function getApiKeys() { return request("/api-keys"); }
+export function getUsage() { return request("/usage", { suppressAutoLogout: true }); }
+export function getApiKeys() { return request("/api-keys", { suppressAutoLogout: true }); }
 export function createApiKey(name) { return request("/api-keys", { method: "POST", body: JSON.stringify({ name }) }); }
 export function revokeApiKey(id) { return request(`/api-keys/${id}`, { method: "DELETE" }); }
 export function requestPasswordReset(email) { return request("/auth/password-reset/request", { method: "POST", body: JSON.stringify({ email }) }); }

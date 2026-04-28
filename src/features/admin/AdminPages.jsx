@@ -90,7 +90,19 @@ function getActionLabel(action) {
 export function UsageDashboardPage({ usageData, navigate, ui }) {
   const { T, css, Btn } = ui;
   const { isMobile } = useBreakpoint();
-  if (!usageData) return <div style={css.card}>Loading usage...</div>;
+  if (!usageData) {
+    return (
+      <div style={css.card}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Usage</h3>
+        <p style={{ margin: 0, fontSize: 12, color: T.textSoft }}>
+          No usage data available right now.
+        </p>
+        <div style={{ marginTop: 12 }}>
+          <Btn onClick={() => navigate("generate")} size="sm">Go to Create</Btn>
+        </div>
+      </div>
+    );
+  }
   const s = usageData.summary || {};
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -101,17 +113,6 @@ export function UsageDashboardPage({ usageData, navigate, ui }) {
             <div style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1.1 }}>{value ?? 0}</div>
           </div>
         ))}
-      </div>
-      <div style={css.card}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Daily timetable activity</h3>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, minHeight: 140 }}>
-          {(usageData.byDay || []).map((d) => (
-            <div key={d.day} style={{ flex: 1, minWidth: 24, textAlign: "center" }}>
-              <div style={{ background: T.brand, height: Math.max(8, d.count * 10), borderRadius: 6 }} />
-              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 4 }}>{d.day.slice(5)}</div>
-            </div>
-          ))}
-        </div>
       </div>
       <div style={css.card}>
         <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Recent balance activity</h3>

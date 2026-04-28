@@ -4,6 +4,7 @@ import {
   getAuditLogs,
   getApiKeys,
   getUsage,
+  getLatestTimetable,
   getUsers,
   generateTimetable as apiGenerateTimetable,
   getMe,
@@ -108,6 +109,7 @@ export default function App() {
   const [periodSlots, setPeriodSlots] = useState(SEED.periodSlots);
   const [workingDays, setWorkingDays] = useState(SEED.workingDays);
   const [schedulingRules, setSchedulingRules] = useState(SEED.schedulingRules);
+  const [classTeacherPreferences, setClassTeacherPreferences] = useState(SEED.classTeacherPreferences || { enabled: false, firstPeriodMode: "DISABLED", dailyPrimaryMinPeriods: 0 });
   const [teacherSubjects] = useState([]);
   const [freePeriodRules] = useState([]);
   const [subjectAllocations] = useState([]);
@@ -158,6 +160,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const onAuthExpired = () => {
+      setUser(null);
+      setCreditsRemaining(0);
+      setOrgUsers([]);
+      setUsageData(null);
+      setAuditLogs([]);
+      setApiKeys([]);
+      setTimetable(null);
+      setTimetableStatus("DRAFT");
+      setStateHydrated(true);
+      setAuthLoading(false);
+      setPage("dashboard");
+      setSettingsTab("usage");
+      notify("Session expired. Please sign in again.", "warning");
+    };
+    window.addEventListener("schooltime:auth-expired", onAuthExpired);
+    return () => window.removeEventListener("schooltime:auth-expired", onAuthExpired);
+  }, [notify]);
+
+  useEffect(() => {
     if (!userMenuOpen) return;
     const onDoc = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
@@ -199,6 +221,10 @@ export default function App() {
       setPeriodSlots,
       setWorkingDays,
       setSchedulingRules,
+      setClassTeacherPreferences,
+      setExportJobs,
+      setTimetable,
+      setTimetableStatus,
     });
   }, []);
 
@@ -213,11 +239,14 @@ export default function App() {
       periodSlots,
       workingDays,
       schedulingRules,
+      classTeacherPreferences,
+      exportJobs: (exportJobs || []).slice(0, 3),
+      lastGeneratedTimetable: timetableStatus === "GENERATED" ? timetable : null,
       teacherSubjects,
       freePeriodRules,
       subjectAllocations,
     }),
-  }), [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations]);
+  }), [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, classTeacherPreferences, exportJobs, timetable, timetableStatus, teacherSubjects, freePeriodRules, subjectAllocations]);
 
   const saveTenantStateNow = useCallback(async ({ schoolOverride, section } = {}) => {
     const payload = {
@@ -233,10 +262,13 @@ export default function App() {
       hasStoredSession,
       getMe,
       loadState: apiLoadState,
+      loadLatestTimetable: getLatestTimetable,
       clearToken,
       applyTenantState,
       onUser: setUser,
       onCredits: setCreditsRemaining,
+      onTimetable: setTimetable,
+      onTimetableStatus: setTimetableStatus,
       onHydrated: setStateHydrated,
       onLoading: setAuthLoading,
       onNoState: applyOrgDefaultsToSchool,
@@ -261,6 +293,8 @@ export default function App() {
     setTeachers(prev => prev.map(t => ({
       ...t,
       assignedDivisionIds: (t.assignedDivisionIds || []).filter(id => divIds.has(id)),
+      classTeacherDivisionIds: (t.classTeacherDivisionIds || []).filter(id => divIds.has(id)),
+      primaryClassTeacherDivisionId: divIds.has(t.primaryClassTeacherDivisionId) ? t.primaryClassTeacherDivisionId : null,
     })));
   }, [divisions]);
 
@@ -284,6 +318,7 @@ export default function App() {
   const generateTimetable = useCallback(() => {
     const payload = {
       school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules,
+      classTeacherPreferences,
       teacherSubjects, freePeriodRules, subjectAllocations,
     };
     generateTimetableFlow({
@@ -300,7 +335,7 @@ export default function App() {
         await fetchAndApplyAdminData(user);
       },
     });
-  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user]);
+  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, classTeacherPreferences, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user]);
 
   const refreshCreditsFromServer = useCallback(async () => {
     try {
@@ -327,9 +362,12 @@ export default function App() {
       login: apiLogin,
       register: apiRegister,
       loadState: apiLoadState,
+      loadLatestTimetable: getLatestTimetable,
       applyTenantState,
       onUser: setUser,
       onCredits: setCreditsRemaining,
+      onTimetable: setTimetable,
+      onTimetableStatus: setTimetableStatus,
       onHydrated: setStateHydrated,
       onNoState: applyOrgDefaultsToSchool,
     });
@@ -337,9 +375,23 @@ export default function App() {
   }, [authMode, applyTenantState, fetchAndApplyAdminData, applyOrgDefaultsToSchool]);
 
   const logout = useCallback(async () => {
+    try {
+      await apiSaveState(getTenantState());
+    } catch {
+      // best-effort state persistence before logout
+    }
     await apiLogout();
-    window.location.reload();
-  }, []);
+    setUser(null);
+    setCreditsRemaining(0);
+    setOrgUsers([]);
+    setUsageData(null);
+    setAuditLogs([]);
+    setApiKeys([]);
+    setTimetable(null);
+    setTimetableStatus("DRAFT");
+    setSettingsTab("usage");
+    setPage("dashboard");
+  }, [getTenantState]);
 
   const refreshAdminData = useCallback(async () => {
     await fetchAndApplyAdminData(user);
@@ -448,10 +500,10 @@ export default function App() {
       case "setup":      return <SetupPage school={school} setSchool={setSchool} mediums={mediums} setMediums={setMediums} workingDays={workingDays} setWorkingDays={setWorkingDays} notify={notify} onConfirmSave={(nextSchool) => saveTenantStateNow({ schoolOverride: nextSchool, section: "setup" }).catch(() => null)} ui={{ T, css, Btn, Input, Select }} />;
       case "standards":  return <StandardsPage standards={standards} setStandards={setStandards} divisions={divisions} setDivisions={setDivisions} mediums={mediums} notify={notify} helpers={{ parseDivisionInput, DivisionPill }} ui={{ T, css, Btn, Input, Select, Modal, EmptyState }} />;
       case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
-      case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
+      case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
       case "periods":    return <PeriodsPage periodSlots={periodSlots} setPeriodSlots={setPeriodSlots} notify={notify} ui={{ T, css, Btn, Modal, Input, Select, Field }} />;
-      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
-      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} ui={{ T, css, Btn, ProgressBar, Modal }} />;
+      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
+      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} ui={{ T, css, Btn, ProgressBar, Modal, Select }} />;
       case "timetable":  return <TimetablePage timetable={timetable} timetableStatus={timetableStatus} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} standards={standards} viewMode={viewMode} setViewMode={setViewMode} selectedDivisionId={selectedDivisionId} setSelectedDivisionId={setSelectedDivisionId} selectedTeacherId={selectedTeacherId} setSelectedTeacherId={setSelectedTeacherId} isEditMode={isEditMode} setIsEditMode={setIsEditMode} pendingSwap={pendingSwap} setPendingSwap={setPendingSwap} onCellClick={handleCellClick} notify={notify} navigate={navigate} helpers={{ TimetableGrid }} ui={{ T, css, Btn, EmptyState }} />;
       case "reports":    return <ReportsPage timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} workingDays={workingDays} periodSlots={periodSlots} navigate={navigate} ui={{ T, css, Btn, EmptyState, ProgressBar }} />;
       case "exports":    return <ExportsPage exportJobs={exportJobs} onExport={queueExport} onDownload={downloadExportNow} onRemoveExportJob={removeExportJob} timetable={timetable} notify={notify} navigate={navigate} helpers={{ StatusBadge }} ui={{ T, css, Btn, EmptyState }} />;
