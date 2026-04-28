@@ -90,7 +90,19 @@ function getActionLabel(action) {
 export function UsageDashboardPage({ usageData, navigate, ui }) {
   const { T, css, Btn } = ui;
   const { isMobile } = useBreakpoint();
-  if (!usageData) return <div style={css.card}>Loading usage...</div>;
+  if (!usageData) {
+    return (
+      <div style={css.card}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Usage</h3>
+        <p style={{ margin: 0, fontSize: 12, color: T.textSoft }}>
+          No usage data available right now.
+        </p>
+        <div style={{ marginTop: 12 }}>
+          <Btn onClick={() => navigate("generate")} size="sm">Go to Create</Btn>
+        </div>
+      </div>
+    );
+  }
   const s = usageData.summary || {};
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -101,17 +113,6 @@ export function UsageDashboardPage({ usageData, navigate, ui }) {
             <div style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1.1 }}>{value ?? 0}</div>
           </div>
         ))}
-      </div>
-      <div style={css.card}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Daily timetable activity</h3>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, minHeight: 140 }}>
-          {(usageData.byDay || []).map((d) => (
-            <div key={d.day} style={{ flex: 1, minWidth: 24, textAlign: "center" }}>
-              <div style={{ background: T.brand, height: Math.max(8, d.count * 10), borderRadius: 6 }} />
-              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 4 }}>{d.day.slice(5)}</div>
-            </div>
-          ))}
-        </div>
       </div>
       <div style={css.card}>
         <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Recent balance activity</h3>
@@ -153,10 +154,15 @@ function mergeMeIntoTeamUsers(users, me) {
   return [normalizeTeamUserRow({ id: me.id, full_name: me.fullName ?? me.full_name, email: me.email, role: me.role, is_active: 1 }), ...rows];
 }
 
-export function UsersPage({ users, me, onRefresh, notify, ui }) {
+export function UsersPage({ users, me, availableRoles = ["owner", "admin", "staff"], onRefresh, notify, ui }) {
   const { css, Input, Select, Btn, T } = ui;
   const { isMobile } = useBreakpoint();
-  const [form, setForm] = useState({ fullName: "", email: "", password: "", role: "staff" });
+  const canManageUsers = Boolean(me?.permissions?.canManageUsers);
+  const roleOptions = availableRoles
+    .filter((r) => (me?.role === "owner" ? true : r !== "owner"))
+    .map((r) => ({ value: r, label: r.charAt(0).toUpperCase() + r.slice(1) }));
+  const defaultCreateRole = roleOptions.some((r) => r.value === "staff") ? "staff" : (roleOptions[0]?.value || "staff");
+  const [form, setForm] = useState({ fullName: "", email: "", password: "", role: defaultCreateRole });
   const [busy, setBusy] = useState(false);
   const displayUsers = mergeMeIntoTeamUsers(users, me);
 
@@ -164,7 +170,7 @@ export function UsersPage({ users, me, onRefresh, notify, ui }) {
     setBusy(true);
     try {
       await createUser(form);
-      setForm({ fullName: "", email: "", password: "", role: "staff" });
+      setForm({ fullName: "", email: "", password: "", role: defaultCreateRole });
       await onRefresh();
       notify("User created", "success");
     } catch (err) {
@@ -191,7 +197,7 @@ export function UsersPage({ users, me, onRefresh, notify, ui }) {
         <Input label="Full Name" value={form.fullName} onChange={(v) => setForm((p) => ({ ...p, fullName: v }))} />
         <Input label="Email" value={form.email} onChange={(v) => setForm((p) => ({ ...p, email: v }))} />
         <Input label="Temporary Password" type="password" value={form.password} onChange={(v) => setForm((p) => ({ ...p, password: v }))} />
-        <Select label="Role" value={form.role} onChange={(v) => setForm((p) => ({ ...p, role: v }))} options={[{ value: "staff", label: "Staff" }, { value: "admin", label: "Admin" }]} />
+        <Select label="Role" value={form.role} onChange={(v) => setForm((p) => ({ ...p, role: v }))} options={roleOptions.filter((o) => o.value !== "owner")} />
         <Btn onClick={addUser} fullWidth disabled={busy}>{busy ? "Creating..." : "Add Team Member"}</Btn>
       </div>
       <div style={css.card}>
@@ -204,11 +210,13 @@ export function UsersPage({ users, me, onRefresh, notify, ui }) {
                 <div style={{ fontSize: 11, color: T.textSoft }}>{u.email}</div>
               </div>
               <span style={css.badge(u.role === "owner" ? T.brand : u.role === "admin" ? T.warning : T.textSoft)}>{u.role}</span>
-              {me.role === "owner" && u.id !== me.id && (
+              {canManageUsers && u.id !== me.id && (
                 <select value={u.role} onChange={(e) => changeRole(u, e.target.value)} style={{ ...css.input, width: 110, padding: "6px 8px", fontSize: 12 }}>
-                  <option value="staff">staff</option>
-                  <option value="admin">admin</option>
-                  <option value="owner">owner</option>
+                  {roleOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.value}
+                    </option>
+                  ))}
                 </select>
               )}
             </div>

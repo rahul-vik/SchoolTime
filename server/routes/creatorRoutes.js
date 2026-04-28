@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
 import { createOrgWithOwnerUser } from "../services/registrationService.js";
-import { getSignupInitialCredits, getAllPlatformSettings, upsertPlatformSettings } from "../services/platformSettings.js";
+import { getSignupInitialCredits, getAllPlatformSettings, getRoleAccessPolicy, upsertPlatformSettings, upsertRoleAccessPolicy } from "../services/platformSettings.js";
 import { listPlatformErrors } from "../services/platformErrorLog.js";
 import { deleteUserInTransaction } from "../services/platformUserLifecycle.js";
 import { purgeOrganizationInTransaction } from "../services/platformOrgDelete.js";
@@ -269,6 +269,46 @@ export function createCreatorRoutes(db) {
     res.json({ ok: true, userId, isActive: parsed.data.isActive });
   });
 
+  router.patch("/users/:userId", async (req, res) => {
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Invalid user" });
+    const parsed = schemas.creatorUserPatchSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
+    const existing = await db.get("SELECT id, org_id, email, full_name, role FROM users WHERE id = ?", userId);
+    if (!existing) return res.status(404).json({ error: "User not found" });
+    const nextEmail = parsed.data.email ? parsed.data.email.trim().toLowerCase() : null;
+    if (nextEmail) {
+      const clash = await db.get("SELECT id FROM users WHERE email = ? AND id <> ?", nextEmail, userId);
+      if (clash) return res.status(409).json({ error: "Email already registered" });
+    }
+    const sets = [];
+    const vals = [];
+    if (parsed.data.fullName !== undefined) {
+      sets.push("full_name = ?");
+      vals.push(parsed.data.fullName.trim());
+    }
+    if (nextEmail !== null) {
+      sets.push("email = ?");
+      vals.push(nextEmail);
+    }
+    if (parsed.data.role !== undefined) {
+      sets.push("role = ?");
+      vals.push(parsed.data.role);
+    }
+    vals.push(userId);
+    await db.run(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, ...vals);
+    await logAudit(db, existing.org_id, null, "PLATFORM_USER_UPDATED", "user", userId, {
+      fullNameChanged: parsed.data.fullName !== undefined,
+      emailChanged: nextEmail !== null,
+      roleChanged: parsed.data.role !== undefined,
+    });
+    const row = await db.get(
+      "SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.id = ?",
+      userId,
+    );
+    res.json({ ok: true, user: row });
+  });
+
   router.delete("/users/:userId", async (req, res) => {
     const userId = String(req.params.userId || "").trim();
     if (!userId) return res.status(400).json({ error: "Invalid user" });
@@ -337,6 +377,27 @@ export function createCreatorRoutes(db) {
     await upsertPlatformSettings(db, partial);
     const settings = await getAllPlatformSettings(db);
     res.json({ ok: true, settings });
+  });
+
+  router.get("/role-access", async (_req, res) => {
+    const policy = await getRoleAccessPolicy(db);
+    res.json({ policy });
+  });
+
+  router.put("/role-access", async (req, res) => {
+    const parsed = schemas.creatorRoleAccessPolicySchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
+    const deduped = [];
+    const seen = new Set();
+    for (const role of parsed.data.roles) {
+      const key = role.key.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push({ ...role, key });
+    }
+    const policy = { roles: deduped };
+    await upsertRoleAccessPolicy(db, policy);
+    res.json({ ok: true, policy });
   });
 
   router.get("/error-logs", async (req, res) => {

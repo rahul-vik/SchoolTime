@@ -1,7 +1,7 @@
 {
   "name": "schooltime",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.3",
   "author": "Rahul V",
   "license": "MIT",
   "type": "module",
@@ -21,9 +21,11 @@
     "migrate:postgres": "node scripts/migrate-sqlite-to-postgres.mjs",
     "test:postgres:integration": "node scripts/postgres-integration-check.mjs",
     "docs:auto": "node scripts/auto-docs-rules.mjs",
+    "release:prepare": "node scripts/prepare-release-branch.mjs",
     "health:daily": "npm run build && npm run smoke:prod && npm run audit:security",
     "autofix:risk-gate": "node scripts/autofix-risk-gate.mjs",
-    "check:release-governance": "node scripts/check-release-governance.mjs"
+    "check:release-governance": "node scripts/check-release-governance.mjs",
+    "check:versioning": "node scripts/check-versioning-local.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

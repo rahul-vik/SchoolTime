@@ -4,6 +4,7 @@ import {
   creatorAdjustCredits,
   creatorDeleteOrganization,
   creatorDeleteUser,
+  creatorUpdateUser,
   creatorGetOverview,
   creatorGetPlatformSettings,
   creatorListAuditLogs,
@@ -18,6 +19,8 @@ import {
   creatorLogin,
   creatorLogout,
   creatorPatchPlatformSettings,
+  creatorGetRoleAccessPolicy,
+  creatorPutRoleAccessPolicy,
   creatorRegisterOrg,
   creatorSetUserActive,
   getCreatorToken,
@@ -32,6 +35,7 @@ const tabs = [
   { id: "audit", label: "Audit" },
   { id: "errors", label: "Error logs" },
   { id: "settings", label: "Pricing & credits" },
+  { id: "role-access", label: "Role access" },
   { id: "register", label: "Register org" },
 ];
 
@@ -42,9 +46,21 @@ function formatDateTime(value) {
   return d.toLocaleString();
 }
 
+function EyeIcon({ off = false }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z" {...common} />
+      <circle cx="12" cy="12" r="2.8" {...common} />
+      {off && <path d="M4 20L20 4" {...common} />}
+    </svg>
+  );
+}
+
 export function CreatorApp() {
   const [token, setTokenState] = useState(() => getCreatorToken());
   const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginErr, setLoginErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("overview");
@@ -57,8 +73,13 @@ export function CreatorApp() {
   const [audit, setAudit] = useState(null);
   const [errors, setErrors] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [roleAccessPolicy, setRoleAccessPolicy] = useState({ roles: [] });
+  const [newRoleKey, setNewRoleKey] = useState("");
 
   const [userQ, setUserQ] = useState("");
+  const [roleVisibility, setRoleVisibility] = useState({ owner: true, admin: true, staff: true });
+  const [userEditModal, setUserEditModal] = useState(null);
+  const [userEditForm, setUserEditForm] = useState({ fullName: "", email: "", role: "staff" });
   const [orgSortBy, setOrgSortBy] = useState("created");
   const [orgSortDir, setOrgSortDir] = useState("desc");
   const [creditOrgId, setCreditOrgId] = useState("");
@@ -74,6 +95,11 @@ export function CreatorApp() {
   const [creditPurchasePending, setCreditPurchasePending] = useState(null);
   const [reg, setReg] = useState({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
   const [settingsDraft, setSettingsDraft] = useState({ signup_initial_credits: "", credit_pack_size: "", credit_pack_price_cents: "" });
+  const schoolAppPath = (() => {
+    const base = String(import.meta.env.BASE_URL || "/");
+    const normalizedBase = base.replace(/\/+$/, "");
+    return normalizedBase || "/";
+  })();
 
   const notify = useCallback((msg, type = "success") => {
     setToast({ msg, type });
@@ -119,8 +145,20 @@ export function CreatorApp() {
           credit_pack_price_cents: String(g("credit_pack_price_cents") ?? ""),
         });
       }
+      if (tab === "role-access") {
+        const out = await creatorGetRoleAccessPolicy();
+        setRoleAccessPolicy(out.policy || { roles: [] });
+      }
     } catch (e) {
-      notify(e.message || "Load failed", "danger");
+      const msg = String(e?.message || "Load failed");
+      if (/session expired|invalid auth token|missing auth token/i.test(msg)) {
+        clearCreatorToken();
+        setTokenState(null);
+        setLoginErr("Your platform session expired. Please sign in again.");
+        notify("Platform session expired. Please sign in again.", "warning");
+      } else {
+        notify(msg, "danger");
+      }
     } finally {
       setBusy(false);
     }
@@ -167,6 +205,59 @@ export function CreatorApp() {
       const out = await creatorPatchPlatformSettings(body);
       setSettings(out.settings);
       notify("Settings saved");
+    } catch (err) {
+      notify(err.message || "Save failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleRolePermission = (roleKey, permissionKey, value) => {
+    setRoleAccessPolicy((prev) => ({
+      ...prev,
+      roles: (prev.roles || []).map((r) => (r.key === roleKey ? { ...r, [permissionKey]: value } : r)),
+    }));
+  };
+
+  const addRole = () => {
+    const key = newRoleKey.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!key) {
+      notify("Enter a role name before adding", "warning");
+      return;
+    }
+    if (!/^[a-z][a-z0-9_ -]*$/i.test(key)) {
+      notify("Role key can use letters, numbers, space, underscore, hyphen", "warning");
+      return;
+    }
+    if ((roleAccessPolicy.roles || []).some((r) => String(r.key || "").trim().toLowerCase() === key)) {
+      notify("Role already exists", "warning");
+      return;
+    }
+    setRoleAccessPolicy((prev) => ({
+      ...prev,
+      roles: [
+        ...(prev.roles || []),
+        { key, canManageUsers: false, canManageCredits: false, canViewAudit: false, canManageApiKeys: false, canConfigureTimetable: true },
+      ],
+    }));
+    setNewRoleKey("");
+    notify("Role added. Click save to apply.", "info");
+  };
+
+  const removeRole = (key) => {
+    if (key === "owner" || key === "admin" || key === "staff") {
+      notify("Default roles cannot be removed", "warning");
+      return;
+    }
+    setRoleAccessPolicy((prev) => ({ ...prev, roles: (prev.roles || []).filter((r) => r.key !== key) }));
+  };
+
+  const saveRoleAccessPolicy = async () => {
+    setBusy(true);
+    try {
+      const out = await creatorPutRoleAccessPolicy(roleAccessPolicy);
+      setRoleAccessPolicy(out.policy || roleAccessPolicy);
+      notify("Role access policy saved");
     } catch (err) {
       notify(err.message || "Save failed", "danger");
     } finally {
@@ -246,6 +337,36 @@ export function CreatorApp() {
       await refreshTab();
     } catch (err) {
       notify(err.message || "Delete failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openEditUser = (u) => {
+    setUserEditModal(u);
+    setUserEditForm({
+      fullName: u.full_name || "",
+      email: u.email || "",
+      role: u.role || "staff",
+    });
+  };
+
+  const submitEditUser = async (e) => {
+    e.preventDefault();
+    if (!userEditModal) return;
+    const payload = {
+      fullName: userEditForm.fullName.trim(),
+      email: userEditForm.email.trim().toLowerCase(),
+      role: userEditForm.role,
+    };
+    setBusy(true);
+    try {
+      await creatorUpdateUser(userEditModal.id, payload);
+      notify("User updated");
+      setUserEditModal(null);
+      await refreshTab();
+    } catch (err) {
+      notify(err.message || "Update failed", "danger");
     } finally {
       setBusy(false);
     }
@@ -333,16 +454,45 @@ export function CreatorApp() {
             Operator dashboard: enrollments, credits, audit trail, and server error logs. This is separate from the school app.
           </p>
           <form onSubmit={handleLogin}>
-            <Input
-              label="Portal password"
-              type="password"
-              value={loginPassword}
-              onChange={setLoginPassword}
-              placeholder="From CREATOR_PORTAL_PASSWORD*"
-            />
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Portal password
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showLoginPassword ? "text" : "password"}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="From CREATOR_PORTAL_PASSWORD*"
+                  style={{ ...css.input, paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                  title={showLoginPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowLoginPassword((v) => !v)}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    border: "none",
+                    background: "transparent",
+                    color: T.textSoft,
+                    cursor: "pointer",
+                    padding: 4,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <EyeIcon off={showLoginPassword} />
+                </button>
+              </div>
+            </div>
             {loginErr && <p style={{ color: T.danger, fontSize: 13, marginTop: 8 }}>{loginErr}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap", alignItems: "center" }}>
-              <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = "/"; }}>
+              <Btn type="button" variant="ghost" iconOnly ariaLabel="Back to school app" onClick={() => { window.location.href = schoolAppPath; }}>
                 <UiIcon name="school" size={20} stroke="currentColor" />
               </Btn>
               <Btn type="submit" disabled={busy} iconOnly ariaLabel={busy ? "Signing in" : "Sign in"} title={busy ? "Signing in…" : "Sign in"}>
@@ -406,7 +556,7 @@ export function CreatorApp() {
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>Credits, members, and operations</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Open school app" onClick={() => { window.location.href = "/"; }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
+          <Btn variant="ghost" size="sm" iconOnly ariaLabel="Open school app" onClick={() => { window.location.href = schoolAppPath; }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
             <UiIcon name="school" size={18} stroke="currentColor" />
           </Btn>
           <Btn variant="ghost" size="sm" iconOnly ariaLabel="Sign out" onClick={handleLogout} disabled={busy} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
@@ -653,6 +803,18 @@ export function CreatorApp() {
             <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
               Each row is one login. School credits are managed on the <strong>Organizations</strong> tab. Multiple rows usually mean several schools or test accounts.
             </p>
+            <div style={{ ...pt.toolRow, marginBottom: 12 }}>
+              {Array.from(new Set((users.users || []).map((u) => String(u.role || "").toLowerCase()).filter(Boolean))).map((roleKey) => (
+                <label key={roleKey} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid }}>
+                  <input
+                    type="checkbox"
+                    checked={roleVisibility[roleKey] ?? true}
+                    onChange={(e) => setRoleVisibility((prev) => ({ ...prev, [roleKey]: e.target.checked }))}
+                  />
+                  Show {roleKey}
+                </label>
+              ))}
+            </div>
             <div style={{ marginBottom: 14 }}>
               <label style={{ ...pt.inlineLabel, display: "block", marginBottom: 6 }} htmlFor="portal-user-search">Search (name, email, org)</label>
               <div style={pt.controlWithIconRow}>
@@ -683,7 +845,7 @@ export function CreatorApp() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.users.map((u) => (
+                  {users.users.filter((u) => roleVisibility[String(u.role || "").toLowerCase()] ?? true).map((u) => (
                     <tr key={u.id}>
                       <td style={pt.td}>{u.full_name}</td>
                       <td style={pt.td}>{u.email}</td>
@@ -693,6 +855,16 @@ export function CreatorApp() {
                       <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.created_at)}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
+                          <Btn
+                            size="sm"
+                            variant="ghost"
+                            iconOnly
+                            ariaLabel={`Edit ${u.full_name}`}
+                            onClick={() => openEditUser(u)}
+                            disabled={busy}
+                          >
+                            <UiIcon name="preferences" size={16} stroke="currentColor" />
+                          </Btn>
                           <Btn
                             size="sm"
                             variant="ghost"
@@ -713,6 +885,34 @@ export function CreatorApp() {
                 </tbody>
               </table>
             </div>
+            {userEditModal && (
+              <Modal title={`Edit user — ${userEditModal.full_name}`} onClose={() => setUserEditModal(null)}>
+                <form onSubmit={submitEditUser}>
+                  <Input label="Full name" value={userEditForm.fullName} onChange={(v) => setUserEditForm((p) => ({ ...p, fullName: v }))} required />
+                  <Input label="Email" value={userEditForm.email} onChange={(v) => setUserEditForm((p) => ({ ...p, email: v }))} required />
+                  <div style={{ ...pt.inlineField, marginBottom: 12 }}>
+                    <label style={pt.inlineLabel}>Role</label>
+                    <select
+                      value={userEditForm.role}
+                      onChange={(e) => setUserEditForm((p) => ({ ...p, role: e.target.value }))}
+                      style={pt.inlineInput}
+                    >
+                      <option value="owner">owner</option>
+                      <option value="admin">admin</option>
+                      <option value="staff">staff</option>
+                    </select>
+                  </div>
+                  <div style={pt.modalActions}>
+                    <Btn type="button" variant="ghost" iconOnly ariaLabel="Cancel" onClick={() => setUserEditModal(null)} disabled={busy}>
+                      <UiIcon name="close" size={18} stroke="currentColor" />
+                    </Btn>
+                    <Btn type="submit" iconOnly ariaLabel="Save user" disabled={busy}>
+                      <UiIcon name="check" size={18} stroke="currentColor" />
+                    </Btn>
+                  </div>
+                </form>
+              </Modal>
+            )}
           </div>
         )}
 
@@ -871,6 +1071,62 @@ export function CreatorApp() {
               </Btn>
             </div>
           </form>
+        )}
+
+        {tab === "role-access" && (
+          <div style={{ ...css.card, maxWidth: 980 }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Role access control</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              Define what each role can see and do. You can also add custom roles here.
+            </p>
+            <div style={{ ...pt.toolRow, marginBottom: 12 }}>
+              <div style={{ ...pt.inlineField, minWidth: 280 }}>
+                <label style={pt.inlineLabel}>Add new role</label>
+                <input value={newRoleKey} onChange={(e) => setNewRoleKey(e.target.value)} placeholder="e.g. coordinator" style={pt.inlineInput} />
+              </div>
+              <Btn type="button" ariaLabel="Add role" onClick={addRole}>
+                <UiIcon name="create" size={16} stroke="currentColor" />
+                Add role
+              </Btn>
+            </div>
+            <div style={{ overflow: "auto", border: `1px solid ${T.surfaceBorder}`, borderRadius: 10 }}>
+              <table style={pt.tableSm}>
+                <thead>
+                  <tr>
+                    <th style={pt.thSm}>Role</th>
+                    <th style={pt.thSm}>Manage users</th>
+                    <th style={pt.thSm}>Manage credits</th>
+                    <th style={pt.thSm}>View audit</th>
+                    <th style={pt.thSm}>Manage API keys</th>
+                    <th style={pt.thSm}>Configure timetable</th>
+                    <th style={{ ...pt.thSm, textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(roleAccessPolicy.roles || []).map((r) => (
+                    <tr key={r.key}>
+                      <td style={{ ...pt.tdSm, fontWeight: 700 }}>{r.key}</td>
+                      {["canManageUsers", "canManageCredits", "canViewAudit", "canManageApiKeys", "canConfigureTimetable"].map((perm) => (
+                        <td key={perm} style={pt.tdSm}>
+                          <input type="checkbox" checked={Boolean(r[perm])} onChange={(e) => toggleRolePermission(r.key, perm, e.target.checked)} />
+                        </td>
+                      ))}
+                      <td style={{ ...pt.tdSm, textAlign: "right" }}>
+                        <Btn type="button" variant="ghost" size="sm" iconOnly ariaLabel={`Remove ${r.key}`} onClick={() => removeRole(r.key)} disabled={busy}>
+                          <UiIcon name="trash" size={15} stroke="currentColor" />
+                        </Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={pt.modalActions}>
+              <Btn type="button" iconOnly ariaLabel="Save role access" onClick={saveRoleAccessPolicy} disabled={busy}>
+                <UiIcon name="check" size={18} stroke="currentColor" />
+              </Btn>
+            </div>
+          </div>
         )}
 
         {tab === "register" && (

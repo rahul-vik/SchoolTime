@@ -14,6 +14,8 @@ alwaysApply: false
 - Avoid destructive schema/data operations in normal app startup.
 - Keep audit-sensitive actions logged where applicable.
 - If database strategy changes (SQLite -> Postgres), update `docs/POSTGRES_MIGRATION.md` and deployment docs in the same change.
+- When adding new `tenant_state` fields, update validation (`tenantStateSchema`) and load/save flows together so fields are never dropped.
+- Keep timetable diagnostics reason codes stable and human-readable; if you add reason keys, document/handle them in frontend diagnostics.
 
 ## API Safety
 

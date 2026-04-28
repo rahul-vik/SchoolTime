@@ -23,6 +23,8 @@
 - Resolve all review conversations
 - Hotfix merges to `main` must be back-merged to `develop`
 - Keep `package.json` version bumps and release `CHANGELOG.md` entries on `release/*` or `hotfix/*` branches only (not normal `feature/*` or `fix/*` PRs into `develop`)
+- Enforce strict SemVer (`x.y.z`) and branch-version match for `release/*` and `hotfix/*`.
+- For PRs into `main`, release/hotfix version must be greater than current `main` version.
 - Use PR templates:
   - default: `.github/pull_request_template.md`
   - release: `.github/PULL_REQUEST_TEMPLATE/release.md`
@@ -49,4 +51,22 @@
    - timetable generation
    - PDF and Excel export
 6. Merge release branch back into `develop`
+
+## Versioning Commands
+
+- Release prep (pre-resolve generated-doc conflicts): `npm run release:prepare`
+- Local validation: `npm run check:versioning`
+- PR governance validation: `npm run check:release-governance`
+- Full policy: `docs/VERSIONING.md`
+
+## Release Intent Interpretation
+
+When team members say "push to prod" or "release to prod", the expected workflow is:
+
+1. Prepare/update `release/x.y.z` (or `hotfix/x.y.z`) branch.
+2. Run release checks (`npm run check:versioning`, `npm run build`, `npm run smoke:prod`, docs/rules update).
+   - Include `npm run release:prepare` before pushing release/hotfix branches.
+3. Commit and push the release/hotfix branch.
+4. Raise and merge PR to `main` (no direct push to `main`).
+5. Raise and merge back-merge PR into `develop`.
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export const T = {
   brand: "#1a1a2e", brandMid: "#16213e", accent: "#0f3460",
@@ -117,13 +117,22 @@ export function Input({ label, value, onChange, placeholder, type = "text", erro
   );
 }
 
-export function Select({ label, value, onChange, options, placeholder, error }) {
+export function Select({ label, value, onChange, options, placeholder, error, disabled = false }) {
   return (
     <Field label={label} error={error}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={{ ...css.input, appearance: "none", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%23666' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center" }}
+        disabled={disabled}
+        style={{
+          ...css.input,
+          appearance: "none",
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%23666' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E\")",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "right 12px center",
+          opacity: disabled ? 0.6 : 1,
+          cursor: disabled ? "not-allowed" : "pointer",
+        }}
       >
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

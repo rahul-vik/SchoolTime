@@ -31,9 +31,13 @@ See `LICENSE` for full text.
 - Authentication (register/login/refresh/logout/password reset)
 - Role-based access (`owner`, `admin`, etc.)
 - School setup: mediums, standards, divisions
-- Academic setup: subjects, teachers, teacher-division mapping
-- Scheduling setup: period slots, working days, subject preferences
+- Academic setup: subjects, teachers, teacher-division mapping, class-teacher class assignment (including primary class)
+- Scheduling setup: period slots, working days, subject preferences, class-teacher first-period/daily-minimum rules
+- Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
+- Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
+- New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
 - Timetable generation engine with completion score and unscheduled insights
+- Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
   - Subject hours
@@ -86,7 +90,7 @@ Separate from the school tenant app: cross-tenant visibility, credit controls, a
 
 - **Open:** `http://localhost:5173/creator` (same Vite app; portal session uses `localStorage` key `st_creator_token`, the school app uses `tt_token` — do not copy one into the other). If the school app shows *“This token is for the platform portal only”*, the school session slot held a portal JWT; sign in again with your school email and password (the client clears that mismatch when it detects it).
 - **Configure server:** set `CREATOR_PORTAL_PASSWORD` (local dev) or `CREATOR_PORTAL_PASSWORD_HASH` (bcrypt hash; recommended for production) in `.env`. Optional `CREATOR_JWT_EXPIRES_IN` (default `8h`).
-- **What you can do:** list organizations and users, **approve or reject pending school credit purchase requests** (from the Organizations tab), browse credit ledger and audit logs across all tenants, **add org credits in multiples of 10** manually when needed (Organizations / Credit ledger), **remove an organization** (destructive; a **purge record** is retained), register a new organization, edit platform defaults (`signup_initial_credits`, `credit_pack_size`, `credit_pack_price_cents`), and review **platform error logs**.
+- **What you can do:** list organizations and users, **approve or reject pending school credit purchase requests** (from the Organizations tab), browse credit ledger and audit logs across all tenants, **add org credits in multiples of 10** manually when needed (Organizations / Credit ledger), **remove an organization** (destructive; a **purge record** is retained), register a new organization, edit platform defaults (`signup_initial_credits`, `credit_pack_size`, `credit_pack_price_cents`), configure a dedicated **Role access** matrix (including custom roles), and review **platform error logs**.
 
 See `docs/API.md` for route names. After pulling changes that add platform routes (for example org purge history), **restart the Node API process** so it loads the new handlers; an old process can otherwise mis-route `/api/creator/*` requests.
 
@@ -128,8 +132,10 @@ Based on `.env.example`:
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
 - `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
+- `npm run release:prepare` - pre-merge `origin/main` + regenerate auto docs on release/hotfix branches
 - `npm run health:daily` - run build + smoke + security audit health suite
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
+- `npm run check:versioning` - strict local SemVer + branch/version contract validation
 
 ## One-Click Dev Launcher (Windows)
 
@@ -154,6 +160,7 @@ Based on `.env.example`:
 - Default local DB file (SQLite): `server/data/app.db`
 - Production-ready DB option: Postgres via `DB_CLIENT=postgres` + `DATABASE_URL`
 - Tenant configuration state saved in `tenant_state`
+- `tenant_state` persists `classTeacherPreferences`, `exportJobs` (latest 3), and `lastGeneratedTimetable` for post-login continuity
 - Timetable run snapshots also persist `state_json` in `timetable_runs` so exports can reproduce the generated run accurately
 
 ## Exports
@@ -180,6 +187,7 @@ Based on `.env.example`:
 - `docs/API.md`
 - `docs/DEPLOYMENT.md`
 - `docs/BRANCH_POLICY.md`
+- `docs/VERSIONING.md`
 - `docs/PRODUCTION_READINESS.md`
 - `docs/PROJECT_STANDARDS.md` (master handbook)
 - `docs/POSTGRES_MIGRATION.md`

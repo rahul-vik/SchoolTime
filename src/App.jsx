@@ -4,6 +4,7 @@ import {
   getAuditLogs,
   getApiKeys,
   getUsage,
+  getLatestTimetable,
   getUsers,
   generateTimetable as apiGenerateTimetable,
   getMe,
@@ -34,6 +35,10 @@ import { applyTenantStateWithFallback, buildTenantState } from "./features/timet
 
 /** Sidebar app-title row and main top bar use the same height so they align edge-to-edge. */
 const APP_HEADER_STRIP_HEIGHT = 76;
+const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
+const APP_BUILD_NUMBER = typeof __APP_BUILD_NUMBER__ !== "undefined" ? __APP_BUILD_NUMBER__ : "0";
+const APP_RELEASE_LABEL = typeof __APP_RELEASE_LABEL__ !== "undefined" ? __APP_RELEASE_LABEL__ : `V${APP_VERSION} (${APP_BUILD_NUMBER})`;
+const SHOW_ENV_TAGS = Boolean(import.meta.env?.DEV);
 
 function buildSchoolCodeFromOrgName(name, fallback = "SCH") {
   const text = String(name || "").trim().toUpperCase();
@@ -108,6 +113,7 @@ export default function App() {
   const [periodSlots, setPeriodSlots] = useState(SEED.periodSlots);
   const [workingDays, setWorkingDays] = useState(SEED.workingDays);
   const [schedulingRules, setSchedulingRules] = useState(SEED.schedulingRules);
+  const [classTeacherPreferences, setClassTeacherPreferences] = useState(SEED.classTeacherPreferences || { enabled: false, firstPeriodMode: "DISABLED", dailyPrimaryMinPeriods: 0 });
   const [teacherSubjects] = useState([]);
   const [freePeriodRules] = useState([]);
   const [subjectAllocations] = useState([]);
@@ -125,9 +131,9 @@ export default function App() {
   const [generatingProgress, setGeneratingProgress] = useState(0);
   const [stateHydrated, setStateHydrated] = useState(false);
   const [settingsTab, setSettingsTab] = useState("usage");
-  const isManager = user?.role === "owner" || user?.role === "admin";
-  const canManageConfig = isManager;
-  const canManageBilling = isManager;
+  const permissions = user?.permissions || {};
+  const canManageConfig = Boolean(permissions.canConfigureTimetable);
+  const canManageBilling = Boolean(permissions.canManageCredits);
 
   const dismissNotification = useCallback(() => {
     if (notifyTimerRef.current != null) {
@@ -156,6 +162,26 @@ export default function App() {
   useEffect(() => () => {
     if (notifyTimerRef.current != null) window.clearTimeout(notifyTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const onAuthExpired = () => {
+      setUser(null);
+      setCreditsRemaining(0);
+      setOrgUsers([]);
+      setUsageData(null);
+      setAuditLogs([]);
+      setApiKeys([]);
+      setTimetable(null);
+      setTimetableStatus("DRAFT");
+      setStateHydrated(true);
+      setAuthLoading(false);
+      setPage("dashboard");
+      setSettingsTab("usage");
+      notify("Session expired. Please sign in again.", "warning");
+    };
+    window.addEventListener("schooltime:auth-expired", onAuthExpired);
+    return () => window.removeEventListener("schooltime:auth-expired", onAuthExpired);
+  }, [notify]);
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -199,6 +225,10 @@ export default function App() {
       setPeriodSlots,
       setWorkingDays,
       setSchedulingRules,
+      setClassTeacherPreferences,
+      setExportJobs,
+      setTimetable,
+      setTimetableStatus,
     });
   }, []);
 
@@ -213,11 +243,14 @@ export default function App() {
       periodSlots,
       workingDays,
       schedulingRules,
+      classTeacherPreferences,
+      exportJobs: (exportJobs || []).slice(0, 3),
+      lastGeneratedTimetable: timetableStatus === "GENERATED" ? timetable : null,
       teacherSubjects,
       freePeriodRules,
       subjectAllocations,
     }),
-  }), [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations]);
+  }), [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, classTeacherPreferences, exportJobs, timetable, timetableStatus, teacherSubjects, freePeriodRules, subjectAllocations]);
 
   const saveTenantStateNow = useCallback(async ({ schoolOverride, section } = {}) => {
     const payload = {
@@ -233,10 +266,13 @@ export default function App() {
       hasStoredSession,
       getMe,
       loadState: apiLoadState,
+      loadLatestTimetable: getLatestTimetable,
       clearToken,
       applyTenantState,
       onUser: setUser,
       onCredits: setCreditsRemaining,
+      onTimetable: setTimetable,
+      onTimetableStatus: setTimetableStatus,
       onHydrated: setStateHydrated,
       onLoading: setAuthLoading,
       onNoState: applyOrgDefaultsToSchool,
@@ -261,14 +297,16 @@ export default function App() {
     setTeachers(prev => prev.map(t => ({
       ...t,
       assignedDivisionIds: (t.assignedDivisionIds || []).filter(id => divIds.has(id)),
+      classTeacherDivisionIds: (t.classTeacherDivisionIds || []).filter(id => divIds.has(id)),
+      primaryClassTeacherDivisionId: divIds.has(t.primaryClassTeacherDivisionId) ? t.primaryClassTeacherDivisionId : null,
     })));
   }, [divisions]);
 
-  const fetchAndApplyAdminData = useCallback(async (role) => {
-    if (!role) return;
+  const fetchAndApplyAdminData = useCallback(async (userInput) => {
+    if (!userInput) return;
     try {
       const data = await fetchAdminData({
-        role,
+        permissions: userInput.permissions,
         getUsers,
         getUsage,
         getAuditLogs,
@@ -284,6 +322,7 @@ export default function App() {
   const generateTimetable = useCallback(() => {
     const payload = {
       school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules,
+      classTeacherPreferences,
       teacherSubjects, freePeriodRules, subjectAllocations,
     };
     generateTimetableFlow({
@@ -297,10 +336,10 @@ export default function App() {
       notify,
       navigate,
       onSuccess: async () => {
-        await fetchAndApplyAdminData(user?.role);
+        await fetchAndApplyAdminData(user);
       },
     });
-  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user?.role]);
+  }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, classTeacherPreferences, teacherSubjects, freePeriodRules, subjectAllocations, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user]);
 
   const refreshCreditsFromServer = useCallback(async () => {
     try {
@@ -313,7 +352,7 @@ export default function App() {
 
   const handleBuyPack = useCallback(() => {
     if (!canManageBilling) {
-      notify("Only owner/admin can request credit purchases", "warning");
+      notify("Your role cannot request credit purchases", "warning");
       return;
     }
     setSettingsTab("purchase-credits");
@@ -327,23 +366,40 @@ export default function App() {
       login: apiLogin,
       register: apiRegister,
       loadState: apiLoadState,
+      loadLatestTimetable: getLatestTimetable,
       applyTenantState,
       onUser: setUser,
       onCredits: setCreditsRemaining,
+      onTimetable: setTimetable,
+      onTimetableStatus: setTimetableStatus,
       onHydrated: setStateHydrated,
       onNoState: applyOrgDefaultsToSchool,
     });
-    await fetchAndApplyAdminData(resp?.user?.role);
+    await fetchAndApplyAdminData(resp?.user);
   }, [authMode, applyTenantState, fetchAndApplyAdminData, applyOrgDefaultsToSchool]);
 
   const logout = useCallback(async () => {
+    try {
+      await apiSaveState(getTenantState());
+    } catch {
+      // best-effort state persistence before logout
+    }
     await apiLogout();
-    window.location.reload();
-  }, []);
+    setUser(null);
+    setCreditsRemaining(0);
+    setOrgUsers([]);
+    setUsageData(null);
+    setAuditLogs([]);
+    setApiKeys([]);
+    setTimetable(null);
+    setTimetableStatus("DRAFT");
+    setSettingsTab("usage");
+    setPage("dashboard");
+  }, [getTenantState]);
 
   const refreshAdminData = useCallback(async () => {
-    await fetchAndApplyAdminData(user?.role);
-  }, [user?.role, fetchAndApplyAdminData]);
+    await fetchAndApplyAdminData(user);
+  }, [user, fetchAndApplyAdminData]);
 
   useEffect(() => {
     if (!user) return;
@@ -351,7 +407,7 @@ export default function App() {
   }, [user, refreshAdminData]);
 
   useEffect(() => {
-    const restricted = new Set(["setup", "standards", "subjects", "teachers", "periods", "rules"]);
+    const restricted = new Set(["setup", "standards", "subjects", "teachers", "periods", "rules", "generate", "exports"]);
     if (!canManageConfig && restricted.has(page)) {
       setPage("dashboard");
     }
@@ -402,7 +458,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn }} branding={{ BRAND_FONT, schoolTimeLogo }} />;
+    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn, Field, css }} branding={{ BRAND_FONT, schoolTimeLogo }} />;
   }
 
   const activeRulesCount = schedulingRules.filter(r => r.isActive).length;
@@ -418,10 +474,10 @@ export default function App() {
       { id: "periods",   label: "Periods",     iconKey: "periods" },
       { id: "rules",     label: "Preferences", iconKey: "preferences", badge: activeRulesCount },
     ] : []),
-    { id: "generate",  label: "Create",      iconKey: "create" },
+    ...(canManageConfig ? [{ id: "generate", label: "Create", iconKey: "create" }] : []),
     { id: "timetable", label: "Timetable",   iconKey: "timetable" },
     { id: "reports",   label: "Reports",     iconKey: "reports" },
-    { id: "exports",   label: "Downloads",   iconKey: "downloads" },
+    ...(canManageConfig ? [{ id: "exports", label: "Downloads", iconKey: "downloads" }] : []),
     { id: "settings",  label: "Settings",    iconKey: "settings" },
   ];
   const renderPage = () => {
@@ -434,6 +490,8 @@ export default function App() {
         navigate={navigate}
         users={orgUsers}
         me={user}
+        availableRoles={user?.availableRoles || ["owner", "admin", "staff"]}
+        permissions={permissions}
         onRefresh={refreshAdminData}
         onUserUpdated={setUser}
         notify={notify}
@@ -446,10 +504,10 @@ export default function App() {
       case "setup":      return <SetupPage school={school} setSchool={setSchool} mediums={mediums} setMediums={setMediums} workingDays={workingDays} setWorkingDays={setWorkingDays} notify={notify} onConfirmSave={(nextSchool) => saveTenantStateNow({ schoolOverride: nextSchool, section: "setup" }).catch(() => null)} ui={{ T, css, Btn, Input, Select }} />;
       case "standards":  return <StandardsPage standards={standards} setStandards={setStandards} divisions={divisions} setDivisions={setDivisions} mediums={mediums} notify={notify} helpers={{ parseDivisionInput, DivisionPill }} ui={{ T, css, Btn, Input, Select, Modal, EmptyState }} />;
       case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
-      case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
+      case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
       case "periods":    return <PeriodsPage periodSlots={periodSlots} setPeriodSlots={setPeriodSlots} notify={notify} ui={{ T, css, Btn, Modal, Input, Select, Field }} />;
-      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
-      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} ui={{ T, css, Btn, ProgressBar, Modal }} />;
+      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
+      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} ui={{ T, css, Btn, ProgressBar, Modal, Select }} />;
       case "timetable":  return <TimetablePage timetable={timetable} timetableStatus={timetableStatus} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} standards={standards} viewMode={viewMode} setViewMode={setViewMode} selectedDivisionId={selectedDivisionId} setSelectedDivisionId={setSelectedDivisionId} selectedTeacherId={selectedTeacherId} setSelectedTeacherId={setSelectedTeacherId} isEditMode={isEditMode} setIsEditMode={setIsEditMode} pendingSwap={pendingSwap} setPendingSwap={setPendingSwap} onCellClick={handleCellClick} notify={notify} navigate={navigate} helpers={{ TimetableGrid }} ui={{ T, css, Btn, EmptyState }} />;
       case "reports":    return <ReportsPage timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} workingDays={workingDays} periodSlots={periodSlots} navigate={navigate} ui={{ T, css, Btn, EmptyState, ProgressBar }} />;
       case "exports":    return <ExportsPage exportJobs={exportJobs} onExport={queueExport} onDownload={downloadExportNow} onRemoveExportJob={removeExportJob} timetable={timetable} notify={notify} navigate={navigate} helpers={{ StatusBadge }} ui={{ T, css, Btn, EmptyState }} />;
@@ -483,6 +541,12 @@ export default function App() {
             {sidebarOpen && <div><div style={{ color: "#fff", fontSize: 16, fontWeight: 700, letterSpacing: "0.02em", fontFamily: BRAND_FONT }}>SchoolTime</div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>School Edition</div></div>}
           </div>
           <SidebarNav collapsed={!sidebarOpen} />
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: sidebarOpen ? "8px 10px 6px" : "8px 0 6px", textAlign: "center" }}>
+            <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 10, letterSpacing: "0.03em" }}>
+              {APP_RELEASE_LABEL}
+              {SHOW_ENV_TAGS ? " · LOCAL · DEV" : ""}
+            </div>
+          </div>
           <button onClick={() => setSidebarOpen(p => !p)} style={{ padding: "12px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center" }}>{sidebarOpen ? "◀" : "▶"}</button>
         </div>
       )}
@@ -512,6 +576,10 @@ export default function App() {
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{school.academicYear}</div>
             </div>
             <SidebarNav collapsed={false} />
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "8px 14px 10px", textAlign: "center", color: "rgba(255,255,255,0.48)", fontSize: 10, letterSpacing: "0.03em" }}>
+              {APP_RELEASE_LABEL}
+              {SHOW_ENV_TAGS ? " · LOCAL · DEV" : ""}
+            </div>
           </div>
           <div style={{ flex: 1, background: "rgba(0,0,0,0.5)" }} onClick={() => setMobileMenuOpen(false)} />
         </div>
@@ -548,7 +616,7 @@ export default function App() {
               onClick={handleBuyPack}
               disabled={!canManageBilling}
               aria-label="Open credit purchase"
-              title={canManageBilling ? "Open credit purchase" : "Only owner/admin can request credit"}
+              title={canManageBilling ? "Open credit purchase" : "Your role cannot request credits"}
               style={{
                 ...css.badge(T.brand),
                 display: "inline-flex",

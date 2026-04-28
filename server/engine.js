@@ -69,27 +69,195 @@ export function runTimetableEngine(data) {
     fixedSlots,
     subjectAllocations,
     schedulingRules,
+    classTeacherPreferences,
   } = data;
 
   const rules = schedulingRules || [];
+  const classPrefs = classTeacherPreferences || { enabled: false, firstPeriodMode: "ALL_DAYS_PRIMARY_ONLY", dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" };
+  const schedulingMode = classPrefs.schedulingMode === "OPTIMAL"
+    ? "OPTIMAL"
+    : classPrefs.schedulingMode === "BEST_FIT"
+      ? "BEST_FIT"
+      : "STRICT";
   const lessonSlots = periodSlots.filter((s) => s.slotType === "LESSON").sort((a, b) => a.slotNumber - b.slotNumber);
   const entries = [];
   const teacherSlotMap = new Map();
   const divisionSlotMap = new Map();
   const teacherDailyCount = new Map();
+  const teacherMorningCount = new Map();
+  const teacherEveningCount = new Map();
+  const teacherWeeklyCount = new Map();
   const subjectWeeklyCount = new Map();
   const subjectDailyCount = new Map();
+  const classTeacherRuleStats = {
+    firstPeriodRequested: 0,
+    firstPeriodPlaced: 0,
+    firstPeriodSkipped: 0,
+    dailyMinRequested: 0,
+    dailyMinPlaced: 0,
+    dailyMinSkipped: 0,
+    skipReasons: {},
+  };
+  const optimizationStats = {
+    mode: schedulingMode,
+    softRuleRelaxPlacements: 0,
+    searchPasses: 0,
+  };
+  const rejectionStats = {
+    DIVISION_BLOCKED: 0,
+    DIVISION_OCCUPIED: 0,
+    DAY_RULE_BLOCKED: 0,
+    SLOT_RULE_BLOCKED: 0,
+    SUBJECT_MAX_PER_DAY: 0,
+    TEACHER_SLOT_TAKEN: 0,
+    TEACHER_FREE_PERIOD_RULE: 0,
+    TEACHER_DAILY_CAPACITY: 0,
+    TEACHER_MORNING_CAPACITY: 0,
+    TEACHER_EVENING_CAPACITY: 0,
+    TEACHER_WEEKLY_CAPACITY: 0,
+    CONTINUITY_LIMIT: 0,
+    CROSS_DIVISION_CONTINUITY_DAY: 0,
+    NO_ELIGIBLE_SUBJECT: 0,
+  };
 
   const tSlotKey = (tId, day, slot) => `${tId}:${day}:${slot}`;
   const dSlotKey = (dId, day, slot) => `${dId}:${day}:${slot}`;
   const tDayKey = (tId, day) => `${tId}:${day}`;
+  const tWeekKey = (tId) => `${tId}:WEEK`;
   const subWKey = (dId, subId) => `${dId}:${subId}`;
   const subDKey = (dId, subId, day) => `${dId}:${subId}:${day}`;
 
   const { firstAfterLunch } = getSlotMeta(periodSlots);
+  const { firstMorning } = getSlotMeta(periodSlots);
   const isMornSlot = (n) => (firstAfterLunch ? n < firstAfterLunch : n <= Math.ceil(lessonSlots.length / 2));
   const mornSlots = lessonSlots.filter((s) => isMornSlot(s.slotNumber));
   const eveSlots = lessonSlots.filter((s) => !isMornSlot(s.slotNumber));
+  const lessonIdxBySlot = new Map(lessonSlots.map((s, idx) => [s.slotNumber, idx]));
+
+  function getTeacherCapacity(teacher) {
+    const fm = Math.max(0, Number(teacher.freeMorningPeriods || 0));
+    const fe = Math.max(0, Number(teacher.freeEveningPeriods || 0));
+    const morningAllowed = Math.max(0, mornSlots.length - fm);
+    const eveningAllowed = Math.max(0, eveSlots.length - fe);
+    const sessionAllowed = morningAllowed + eveningAllowed;
+    const effectiveDailyMax = Math.max(0, Math.min(lessonSlots.length, sessionAllowed));
+    const effectiveWeeklyMax = effectiveDailyMax * workingDays.length;
+    return { effectiveDailyMax, effectiveWeeklyMax, morningAllowed, eveningAllowed };
+  }
+
+  function canAssignTeacherForSlot(teacher, day, slotNumber) {
+    if (teacherSlotMap.has(tSlotKey(teacher.id, day, slotNumber))) return { ok: false, reason: "TEACHER_SLOT_TAKEN" };
+    if ((freePeriodRules || []).some((r) => r.teacherId === teacher.id && r.dayOfWeek === day && r.slotNumber === slotNumber)) return { ok: false, reason: "TEACHER_FREE_PERIOD_RULE" };
+    const { effectiveDailyMax, effectiveWeeklyMax, morningAllowed, eveningAllowed } = getTeacherCapacity(teacher);
+    if ((teacherDailyCount.get(tDayKey(teacher.id, day)) || 0) >= effectiveDailyMax) return { ok: false, reason: "TEACHER_DAILY_CAPACITY" };
+    if (isMornSlot(slotNumber)) {
+      if ((teacherMorningCount.get(tDayKey(teacher.id, day)) || 0) >= morningAllowed) return { ok: false, reason: "TEACHER_MORNING_CAPACITY" };
+    } else {
+      if ((teacherEveningCount.get(tDayKey(teacher.id, day)) || 0) >= eveningAllowed) return { ok: false, reason: "TEACHER_EVENING_CAPACITY" };
+    }
+    if ((teacherWeeklyCount.get(tWeekKey(teacher.id)) || 0) >= effectiveWeeklyMax) return { ok: false, reason: "TEACHER_WEEKLY_CAPACITY" };
+    return { ok: true };
+  }
+
+  function violatesContinuityLimits(teacher, divisionId, day, slotNumber, subjectId) {
+    const maxSameSubject = Math.max(1, Number(teacher.maxContinuousSameSubjectPerDivision || 2));
+    const maxCombined = Math.max(1, Number(teacher.maxContinuousAnySubjectPerDivision || 3));
+    const startIdx = lessonIdxBySlot.get(slotNumber);
+    if (startIdx === undefined) return false;
+    let streakAny = 0;
+    let streakSame = 0;
+    for (let i = startIdx - 1; i >= 0; i--) {
+      const prevSlot = lessonSlots[i].slotNumber;
+      const prev = divisionSlotMap.get(dSlotKey(divisionId, day, prevSlot));
+      if (!prev || prev.teacherId !== teacher.id || prev.isFreePeriod || prev.slotType !== "LESSON") break;
+      streakAny += 1;
+      if (prev.subjectId === subjectId) streakSame += 1;
+      else if (streakSame > 0) break;
+    }
+    if (streakAny + 1 > maxCombined) return true;
+    if (streakSame + 1 > maxSameSubject) return true;
+    return false;
+  }
+
+  function hasTeacherContinuityInDivisionOnDay(teacherId, divisionId, day) {
+    for (let i = 1; i < lessonSlots.length; i++) {
+      const prevSlot = lessonSlots[i - 1].slotNumber;
+      const currSlot = lessonSlots[i].slotNumber;
+      const prev = divisionSlotMap.get(dSlotKey(divisionId, day, prevSlot));
+      const curr = divisionSlotMap.get(dSlotKey(divisionId, day, currSlot));
+      if (
+        prev &&
+        curr &&
+        prev.teacherId === teacherId &&
+        curr.teacherId === teacherId &&
+        prev.slotType === "LESSON" &&
+        curr.slotType === "LESSON" &&
+        !prev.isFreePeriod &&
+        !curr.isFreePeriod
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function candidateCreatesContinuityForDivision(teacherId, divisionId, day, slotNumber) {
+    const idx = lessonIdxBySlot.get(slotNumber);
+    if (idx === undefined) return false;
+    const prevSlot = idx > 0 ? lessonSlots[idx - 1].slotNumber : null;
+    const nextSlot = idx < lessonSlots.length - 1 ? lessonSlots[idx + 1].slotNumber : null;
+    const prev = prevSlot !== null ? divisionSlotMap.get(dSlotKey(divisionId, day, prevSlot)) : null;
+    const next = nextSlot !== null ? divisionSlotMap.get(dSlotKey(divisionId, day, nextSlot)) : null;
+    const leftMatch = prev && prev.teacherId === teacherId && prev.slotType === "LESSON" && !prev.isFreePeriod;
+    const rightMatch = next && next.teacherId === teacherId && next.slotType === "LESSON" && !next.isFreePeriod;
+    return Boolean(leftMatch || rightMatch);
+  }
+
+  function violatesSingleClassContinuityPerDay(teacherId, divisionId, day, slotNumber) {
+    // New assignment does not create continuity in this division; no cross-division conflict.
+    if (!candidateCreatesContinuityForDivision(teacherId, divisionId, day, slotNumber)) return false;
+    // If another division already has continuity for this teacher/day, block.
+    for (const div of divisions) {
+      if (div.id === divisionId) continue;
+      if (hasTeacherContinuityInDivisionOnDay(teacherId, div.id, day)) return true;
+    }
+    return false;
+  }
+
+  function countCurrentTeacherDivisionDayLessons(teacherId, divisionId, day) {
+    return entries.filter(
+      (e) =>
+        e.teacherId === teacherId &&
+        e.divisionId === divisionId &&
+        e.dayOfWeek === day &&
+        e.slotType === "LESSON" &&
+        !e.isFreePeriod
+    ).length;
+  }
+
+  function markClassTeacherSkip(reason) {
+    classTeacherRuleStats.skipReasons[reason] = (classTeacherRuleStats.skipReasons[reason] || 0) + 1;
+  }
+
+  function markRejection(reason) {
+    if (!reason) return;
+    rejectionStats[reason] = (rejectionStats[reason] || 0) + 1;
+  }
+
+  function canPlaceAssignment({ teacher, divisionId, day, slotNumber, subjectId, ignoreSoftRules = false }) {
+    if (!teacherAllowedInDivision(teacher, divisionId)) return { ok: false, reason: "DIVISION_BLOCKED" };
+    if (divisionSlotMap.has(dSlotKey(divisionId, day, slotNumber))) return { ok: false, reason: "DIVISION_OCCUPIED" };
+    if (!ignoreSoftRules && isDayBlockedByRule(subjectId, day, rules)) return { ok: false, reason: "DAY_RULE_BLOCKED" };
+    if (!ignoreSoftRules && isSlotBlockedByRule(subjectId, slotNumber, periodSlots, rules)) return { ok: false, reason: "SLOT_RULE_BLOCKED" };
+    const subDayCount = subjectDailyCount.get(subDKey(divisionId, subjectId, day)) || 0;
+    const sub = subjects.find((s) => s.id === subjectId);
+    if (sub && subDayCount >= (sub.maxPerDay || 2)) return { ok: false, reason: "SUBJECT_MAX_PER_DAY" };
+    const teacherSlotCheck = canAssignTeacherForSlot(teacher, day, slotNumber);
+    if (!teacherSlotCheck.ok) return teacherSlotCheck;
+    if (violatesContinuityLimits(teacher, divisionId, day, slotNumber, subjectId)) return { ok: false, reason: "CONTINUITY_LIMIT" };
+    if (violatesSingleClassContinuityPerDay(teacher.id, divisionId, day, slotNumber)) return { ok: false, reason: "CROSS_DIVISION_CONTINUITY_DAY" };
+    return { ok: true };
+  }
 
   function findEligibleTeacher(subjectId, divisionId, day, slotNumber) {
     const div = divisions.find((d) => d.id === divisionId);
@@ -113,22 +281,20 @@ export function runTimetableEngine(data) {
       );
     }
 
-    for (const t of candidates) {
-      if (teacherSlotMap.has(tSlotKey(t.id, day, slotNumber))) continue;
-      if ((freePeriodRules || []).some((r) => r.teacherId === t.id && r.dayOfWeek === day && r.slotNumber === slotNumber)) {
+    const rankedCandidates = [...candidates].sort((a, b) => {
+      const aWeek = teacherWeeklyCount.get(tWeekKey(a.id)) || 0;
+      const bWeek = teacherWeeklyCount.get(tWeekKey(b.id)) || 0;
+      if (aWeek !== bWeek) return aWeek - bWeek;
+      const aDay = teacherDailyCount.get(tDayKey(a.id, day)) || 0;
+      const bDay = teacherDailyCount.get(tDayKey(b.id, day)) || 0;
+      if (aDay !== bDay) return aDay - bDay;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    for (const t of rankedCandidates) {
+      const placementCheck = canPlaceAssignment({ teacher: t, divisionId, day, slotNumber, subjectId, ignoreSoftRules: false });
+      if (!placementCheck.ok) {
+        markRejection(placementCheck.reason);
         continue;
-      }
-      if ((teacherDailyCount.get(tDayKey(t.id, day)) || 0) >= (t.maxPerDay || 6)) continue;
-
-      const fm = t.freeMorningPeriods || 0;
-      const fe = t.freeEveningPeriods || 0;
-      if (fm > 0 || fe > 0) {
-        const morn = isMornSlot(slotNumber);
-        const sessSlots = morn ? mornSlots : eveSlots;
-        const freeCount = morn ? fm : fe;
-        const sessMax = sessSlots.length - freeCount;
-        const sessAssigned = sessSlots.filter((s) => teacherSlotMap.has(tSlotKey(t.id, day, s.slotNumber))).length;
-        if (sessMax >= 0 && sessAssigned >= sessMax) continue;
       }
       return t;
     }
@@ -141,14 +307,116 @@ export function runTimetableEngine(data) {
     divisionSlotMap.set(dSlotKey(divisionId, day, slotNumber), entry);
     teacherSlotMap.set(tSlotKey(teacherId, day, slotNumber), divisionId);
     teacherDailyCount.set(tDayKey(teacherId, day), (teacherDailyCount.get(tDayKey(teacherId, day)) || 0) + 1);
+    if (isMornSlot(slotNumber)) {
+      teacherMorningCount.set(tDayKey(teacherId, day), (teacherMorningCount.get(tDayKey(teacherId, day)) || 0) + 1);
+    } else {
+      teacherEveningCount.set(tDayKey(teacherId, day), (teacherEveningCount.get(tDayKey(teacherId, day)) || 0) + 1);
+    }
+    teacherWeeklyCount.set(tWeekKey(teacherId), (teacherWeeklyCount.get(tWeekKey(teacherId)) || 0) + 1);
     subjectWeeklyCount.set(subWKey(divisionId, subjectId), (subjectWeeklyCount.get(subWKey(divisionId, subjectId)) || 0) + 1);
     subjectDailyCount.set(subDKey(divisionId, subjectId, day), (subjectDailyCount.get(subDKey(divisionId, subjectId, day)) || 0) + 1);
+  }
+
+  function getEligibleSubjectsForTeacherDivision(teacher, divisionId) {
+    const div = divisions.find((d) => d.id === divisionId);
+    if (!div) return [];
+    const byTeacher = subjects.filter(
+      (sub) =>
+        (teacher.subjectIds || []).includes(sub.id) &&
+        (sub.standardIds || []).includes(div.standardId) &&
+        (sub.mediumIds || []).includes(div.mediumId)
+    );
+    const explicit = (teacherSubjects || [])
+      .filter((ts) => ts.teacherId === teacher.id && (!ts.divisionId || ts.divisionId === divisionId))
+      .map((ts) => subjects.find((s) => s.id === ts.subjectId))
+      .filter(Boolean)
+      .filter((sub) => (sub.standardIds || []).includes(div.standardId) && (sub.mediumIds || []).includes(div.mediumId));
+    return explicit.length > 0 ? explicit : byTeacher;
+  }
+
+  function tryPlaceTeacherDivision(teacher, divisionId, day, slotNumber) {
+    const orderedSubjects = [];
+    if (teacher.primarySubjectId) {
+      const p = subjects.find((s) => s.id === teacher.primarySubjectId);
+      if (p) orderedSubjects.push(p);
+    }
+    for (const sub of getEligibleSubjectsForTeacherDivision(teacher, divisionId)) {
+      if (!orderedSubjects.some((s) => s.id === sub.id)) orderedSubjects.push(sub);
+    }
+    if (orderedSubjects.length === 0) {
+      markRejection("NO_ELIGIBLE_SUBJECT");
+      return false;
+    }
+    for (const sub of orderedSubjects) {
+      const placementCheck = canPlaceAssignment({ teacher, divisionId, day, slotNumber, subjectId: sub.id, ignoreSoftRules: false });
+      if (!placementCheck.ok) {
+        markRejection(placementCheck.reason);
+        continue;
+      }
+      placeEntry(divisionId, teacher.id, sub.id, day, slotNumber);
+      return true;
+    }
+    return false;
   }
 
   for (const fs of fixedSlots || []) {
     if (divisionSlotMap.has(dSlotKey(fs.divisionId, fs.dayOfWeek, fs.slotNumber))) continue;
     const t = findEligibleTeacher(fs.subjectId, fs.divisionId, fs.dayOfWeek, fs.slotNumber);
     if (t) placeEntry(fs.divisionId, t.id, fs.subjectId, fs.dayOfWeek, fs.slotNumber);
+  }
+
+  if (classPrefs.enabled && firstMorning !== null) {
+    const allowedFirstModes = new Set(["ALL_DAYS_PRIMARY_ONLY", "FIRST_DAY_PRIMARY_ONLY"]);
+    const firstMode = allowedFirstModes.has(classPrefs.firstPeriodMode) ? classPrefs.firstPeriodMode : "ALL_DAYS_PRIMARY_ONLY";
+    const applyAllDays = firstMode === "ALL_DAYS_PRIMARY_ONLY";
+    const applyFirstDay = firstMode === "FIRST_DAY_PRIMARY_ONLY";
+    const applyPrimaryOnly = true;
+    const ruleDays = applyAllDays ? workingDays : applyFirstDay && workingDays.length ? [workingDays[0]] : [];
+    if (ruleDays.length > 0) {
+      for (const t of teachers) {
+        const classDivs = t.classTeacherDivisionIds || [];
+        const targets = applyPrimaryOnly
+          ? (t.primaryClassTeacherDivisionId ? [t.primaryClassTeacherDivisionId] : [])
+          : classDivs;
+        for (const day of ruleDays) {
+          for (const divId of targets) {
+            classTeacherRuleStats.firstPeriodRequested += 1;
+            const placed = tryPlaceTeacherDivision(t, divId, day, firstMorning);
+            if (placed) classTeacherRuleStats.firstPeriodPlaced += 1;
+            else {
+              classTeacherRuleStats.firstPeriodSkipped += 1;
+              markClassTeacherSkip("FIRST_PERIOD_CONFLICT_OR_CONSTRAINT");
+            }
+          }
+        }
+      }
+    }
+    const dailyMin = Number(classPrefs.dailyPrimaryMinPeriods || 0);
+    if (dailyMin > 0) {
+      for (const t of teachers) {
+        const primaryDiv = t.primaryClassTeacherDivisionId;
+        if (!primaryDiv) continue;
+        for (const day of workingDays) {
+          const existingCount = countCurrentTeacherDivisionDayLessons(t.id, primaryDiv, day);
+          let needed = Math.max(0, dailyMin - existingCount);
+          if (needed === 0) continue;
+          classTeacherRuleStats.dailyMinRequested += needed;
+          let placedToday = 0;
+          for (const slot of lessonSlots) {
+            if (needed <= 0) break;
+            if (tryPlaceTeacherDivision(t, primaryDiv, day, slot.slotNumber)) {
+              needed--;
+              placedToday++;
+              classTeacherRuleStats.dailyMinPlaced += 1;
+            }
+          }
+          if (needed > 0) {
+            classTeacherRuleStats.dailyMinSkipped += needed;
+            markClassTeacherSkip("DAILY_MIN_UNSATISFIED");
+          }
+        }
+      }
+    }
   }
 
   const sortedSubjects = [...subjects].sort((a, b) => b.priorityWeight - a.priorityWeight);
@@ -173,6 +441,79 @@ export function runTimetableEngine(data) {
           placeEntry(div.id, t.id, sub.id, day, slot.slotNumber);
           scheduled++;
           break;
+        }
+      }
+    }
+  }
+
+  if (schedulingMode === "BEST_FIT" || schedulingMode === "OPTIMAL") {
+    const passCount = schedulingMode === "OPTIMAL" ? 8 : 1;
+    const rotate = (arr, n) => {
+      if (!arr.length) return arr;
+      const k = ((n % arr.length) + arr.length) % arr.length;
+      return [...arr.slice(k), ...arr.slice(0, k)];
+    };
+    const reverseEveryOther = (arr, pass) => (pass % 2 === 0 ? arr : [...arr].reverse());
+    for (let pass = 0; pass < passCount; pass++) {
+      optimizationStats.searchPasses += 1;
+      const divOrder = reverseEveryOther(rotate(divisions, pass), pass);
+      const subjectOrder = reverseEveryOther(rotate(sortedSubjects, pass), pass);
+      const dayOrder = reverseEveryOther(rotate(workingDays, pass), pass);
+      for (const div of divOrder) {
+        for (const sub of subjectOrder) {
+          if (!(sub.standardIds || []).includes(div.standardId)) continue;
+          if (!(sub.mediumIds || []).includes(div.mediumId)) continue;
+          const alloc = (subjectAllocations || []).find((a) => a.divisionId === div.id && a.subjectId === sub.id);
+          const required = alloc ? alloc.weeklyPeriods : sub.weeklyPeriods;
+          let scheduled = subjectWeeklyCount.get(subWKey(div.id, sub.id)) || 0;
+          if (scheduled >= required) continue;
+          const dayQ = [...dayOrder, ...dayOrder, ...dayOrder];
+          let di = 0;
+          while (scheduled < required && di < dayQ.length) {
+            const day = dayQ[di++];
+            if ((subjectDailyCount.get(subDKey(div.id, sub.id, day)) || 0) >= (sub.maxPerDay || 2)) continue;
+            const slotOrder = reverseEveryOther(rotate(lessonSlots, pass + di), pass);
+            for (const slot of slotOrder) {
+              if (divisionSlotMap.has(dSlotKey(div.id, day, slot.slotNumber))) continue;
+              const divMeta = divisions.find((d) => d.id === div.id);
+              const candidates = teachers.filter(
+                (t) =>
+                  (t.subjectIds || []).includes(sub.id) &&
+                  (t.mediumIds || []).includes(divMeta?.mediumId) &&
+                  teacherAllowedInDivision(t, div.id)
+              );
+              const ranked = [...candidates].sort((a, b) => {
+                const aWeek = teacherWeeklyCount.get(tWeekKey(a.id)) || 0;
+                const bWeek = teacherWeeklyCount.get(tWeekKey(b.id)) || 0;
+                if (aWeek !== bWeek) return aWeek - bWeek;
+                const aDay = teacherDailyCount.get(tDayKey(a.id, day)) || 0;
+                const bDay = teacherDailyCount.get(tDayKey(b.id, day)) || 0;
+                if (aDay !== bDay) return aDay - bDay;
+                return String(a.id).localeCompare(String(b.id));
+              });
+              let t = null;
+              for (const cand of ranked) {
+                const placementCheck = canPlaceAssignment({
+                  teacher: cand,
+                  divisionId: div.id,
+                  day,
+                  slotNumber: slot.slotNumber,
+                  subjectId: sub.id,
+                  ignoreSoftRules: true,
+                });
+                if (placementCheck.ok) {
+                  t = cand;
+                  break;
+                }
+                markRejection(placementCheck.reason);
+              }
+              if (!t) continue;
+              placeEntry(div.id, t.id, sub.id, day, slot.slotNumber);
+              optimizationStats.softRuleRelaxPlacements += 1;
+              scheduled++;
+              break;
+            }
+          }
         }
       }
     }
@@ -222,6 +563,14 @@ export function runTimetableEngine(data) {
     entries,
     score,
     status: score > 85 ? "FEASIBLE" : score > 60 ? "PARTIAL" : "INFEASIBLE",
-    report: { totalRequired, totalScheduled, unscheduled, durationMs: Math.floor(Math.random() * 800) + 200 },
+    report: {
+      totalRequired,
+      totalScheduled,
+      unscheduled,
+      classTeacherRules: classTeacherRuleStats,
+      optimization: optimizationStats,
+      rejections: rejectionStats,
+      durationMs: Math.floor(Math.random() * 800) + 200,
+    },
   };
 }

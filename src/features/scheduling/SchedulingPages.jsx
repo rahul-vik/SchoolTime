@@ -48,7 +48,7 @@ export function PeriodsPage({ periodSlots, setPeriodSlots, notify, ui }) {
   );
 }
 
-export function RulesPage({ schedulingRules, setSchedulingRules, subjects, periodSlots, workingDays, notify, helpers, ui }) {
+export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPreferences, setClassTeacherPreferences, subjects, periodSlots, workingDays, notify, helpers, ui }) {
   const { T, css, Btn, EmptyState, Modal, Input, Select, Field } = ui;
   const { getSlotMeta } = helpers;
   const { isMobile } = useBreakpoint();
@@ -96,6 +96,8 @@ export function RulesPage({ schedulingRules, setSchedulingRules, subjects, perio
   const toggleRule = (id) => setSchedulingRules((p) => p.map((r) => r.id === id ? { ...r, isActive: !r.isActive } : r));
   const deleteRule = (id) => { setSchedulingRules((p) => p.filter((r) => r.id !== id)); notify("Rule removed"); };
   const activeCount = schedulingRules.filter((r) => r.isActive).length;
+  const classTeacherPrefs = classTeacherPreferences || { enabled: false, firstPeriodMode: "ALL_DAYS_PRIMARY_ONLY", dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" };
+  const classTeacherRulesEnabled = classTeacherPrefs.enabled !== false;
   const grouped = useMemo(() => { const m = new Map(); schedulingRules.forEach((r) => { if (!m.has(r.subjectId)) m.set(r.subjectId, []); m.get(r.subjectId).push(r); }); return m; }, [schedulingRules]);
 
   return (
@@ -116,6 +118,46 @@ export function RulesPage({ schedulingRules, setSchedulingRules, subjects, perio
           ))}
         </div>
         <p style={{ fontSize: 11, color: T.textSoft, margin: "10px 0 0" }}>If you change your period structure or lunch time, these values update automatically.</p>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 18, border: `1px solid ${T.info + "30"}`, background: T.info + "08" }}>
+        <h4 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 700, color: T.info }}>Class Teacher Rules</h4>
+        <p style={{ fontSize: 12, color: T.textMid, margin: "0 0 12px" }}>Apply homeroom-based placement for class teachers.</p>
+        <Field label="">
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={classTeacherPrefs.enabled !== false}
+              onChange={(e) => setClassTeacherPreferences((p) => ({ ...(p || {}), enabled: e.target.checked }))}
+              style={{ width: 18, height: 18, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 14, color: T.textMid, fontWeight: 600 }}>Enable class teacher placement rules</span>
+          </label>
+        </Field>
+        <Select
+          label="First Period Rule"
+          value={classTeacherPrefs.firstPeriodMode || "ALL_DAYS_PRIMARY_ONLY"}
+          onChange={(v) => setClassTeacherPreferences((p) => ({ ...(p || {}), firstPeriodMode: v }))}
+          options={[
+            { value: "ALL_DAYS_PRIMARY_ONLY", label: "All days - primary class only" },
+            { value: "FIRST_DAY_PRIMARY_ONLY", label: "First day only - primary class only" },
+          ]}
+          disabled={!classTeacherRulesEnabled}
+        />
+        <Field label="Primary Class Daily Minimum Periods">
+          <input
+            type="number"
+            min={0}
+            max={2}
+            value={classTeacherPrefs.dailyPrimaryMinPeriods ?? 0}
+            onChange={(e) => setClassTeacherPreferences((p) => ({ ...(p || {}), dailyPrimaryMinPeriods: Math.max(0, Math.min(2, Number(e.target.value) || 0)) }))}
+            style={{ ...css.input, opacity: classTeacherRulesEnabled ? 1 : 0.6, cursor: classTeacherRulesEnabled ? "text" : "not-allowed" }}
+            disabled={!classTeacherRulesEnabled}
+          />
+        </Field>
+        <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
+          Daily minimum applies to each teacher's primary class teacher class and is not limited to first period.
+        </p>
       </div>
 
       {suggested.length > 0 && (

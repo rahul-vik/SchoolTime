@@ -1,12 +1,13 @@
 ﻿import { useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
 
-export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, ui }) {
-  const { T, css, Btn, ProgressBar, Modal } = ui;
+export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, classTeacherPreferences, setClassTeacherPreferences, ui }) {
+  const { T, css, Btn, ProgressBar, Modal, Select } = ui;
   const { isMobile } = useBreakpoint();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const activeRules = schedulingRules.filter((r) => r.isActive);
   const restrictedCount = teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length;
+  const schedulingMode = classTeacherPreferences?.schedulingMode || "STRICT";
 
   const readiness = [
     { label: "Classes added", ok: divisions.length > 0, count: divisions.length, nav: "standards" },
@@ -39,6 +40,18 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
         {activeRules.length === 0
           ? <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.warning + "10", borderRadius: 8, border: `1px solid ${T.warning + "30"}` }}><UiIcon name="alert" size={15} stroke={T.warning} /><span style={{ fontSize: 13, color: T.warning, flex: 1 }}>No placement preferences set yet.</span><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Set →</Btn></div>
           : <div><div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{activeRules.map((r) => { const sub = subjects.find((s) => s.id === r.subjectId); return <span key={r.id} style={{ ...css.badge(sub?.colorHex || T.CORE), gap: 4 }}><UiIcon name="preferences" size={12} stroke="currentColor" />{sub?.code}</span>; })}</div><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Review Preferences →</Btn></div>}
+        <div style={{ marginTop: 12 }}>
+          <Select
+            label="Scheduling Mode"
+            value={schedulingMode}
+            onChange={(v) => setClassTeacherPreferences?.((p) => ({ ...(p || {}), schedulingMode: v }))}
+            options={[
+              { value: "STRICT", label: "Strict (enforce all active rules)" },
+              { value: "BEST_FIT", label: "Best Fit (allow soft relax for better coverage)" },
+              { value: "OPTIMAL", label: "Optimal (deeper search for best allocation)" },
+            ]}
+          />
+        </div>
       </div>
 
       <div style={{ ...css.card, padding: isMobile ? 16 : 20 }}>
@@ -116,6 +129,98 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const currentStd = currentDiv ? standards.find((s) => s.id === currentDiv.standardId) : null;
   const selTeacher = teachers.find((t) => t.id === selectedTeacherId);
   const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
+  const topRejectionReasons = Object.entries(timetable.report?.rejections || {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3);
+  const formatRejectionReason = (reason) =>
+    String(reason || "")
+      .toLowerCase()
+      .split("_")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  const recommendationByReason = {
+    DIVISION_BLOCKED: {
+      title: "Teacher blocked for division",
+      detail: "Open Teachers and add missing class assignment for teachers handling this subject.",
+      nav: "teachers",
+    },
+    DIVISION_OCCUPIED: {
+      title: "Division slots already full",
+      detail: "Open Rules and reduce hard constraints that force too many fixed placements.",
+      nav: "rules",
+    },
+    DAY_RULE_BLOCKED: {
+      title: "Day exclusion too strict",
+      detail: "Open Rules and remove day exclusions for the most constrained subjects first.",
+      nav: "rules",
+    },
+    SLOT_RULE_BLOCKED: {
+      title: "Slot exclusion too strict",
+      detail: "Open Rules and relax boundary/slot locks for one subject at a time.",
+      nav: "rules",
+    },
+    SUBJECT_MAX_PER_DAY: {
+      title: "Subject daily cap reached",
+      detail: "Open Subjects and increase max per day where academically acceptable.",
+      nav: "subjects",
+    },
+    TEACHER_SLOT_TAKEN: {
+      title: "Teacher clashes in same slot",
+      detail: "Open Teachers and assign at least one alternate teacher for overloaded subjects.",
+      nav: "teachers",
+    },
+    TEACHER_FREE_PERIOD_RULE: {
+      title: "Manual free-period rules blocking placements",
+      detail: "Open Rules and move manual free-period reservations away from busy slots.",
+      nav: "rules",
+    },
+    TEACHER_DAILY_CAPACITY: {
+      title: "Daily capacity reached",
+      detail: "Open Teachers and reduce free periods or split load across more teachers.",
+      nav: "teachers",
+    },
+    TEACHER_MORNING_CAPACITY: {
+      title: "Morning capacity reached",
+      detail: "Open Teachers and reduce morning free-period count for overloaded teachers.",
+      nav: "teachers",
+    },
+    TEACHER_EVENING_CAPACITY: {
+      title: "Evening capacity reached",
+      detail: "Open Teachers and reduce evening free-period count for overloaded teachers.",
+      nav: "teachers",
+    },
+    TEACHER_WEEKLY_CAPACITY: {
+      title: "Weekly capacity reached",
+      detail: "Open Teachers and distribute the subject across more qualified teachers.",
+      nav: "teachers",
+    },
+    CONTINUITY_LIMIT: {
+      title: "Continuity rule blocking consecutive classes",
+      detail: "Open Teachers and relax max continuous limits for constrained teachers.",
+      nav: "teachers",
+    },
+    CROSS_DIVISION_CONTINUITY_DAY: {
+      title: "Cross-division continuity blocked",
+      detail: "Open Teachers and distribute classes to avoid same-day continuity conflicts.",
+      nav: "teachers",
+    },
+    NO_ELIGIBLE_SUBJECT: {
+      title: "No eligible teacher found",
+      detail: "Open Teachers and verify subject + medium mapping for this subject.",
+      nav: "teachers",
+    },
+  };
+  const recommendedFixes = topRejectionReasons.map(([reason, count]) => ({
+    reason,
+    count,
+    ...(recommendationByReason[reason] || {
+      title: formatRejectionReason(reason),
+      detail: "Review related constraints and relax them slightly for better coverage.",
+      nav: "rules",
+    }),
+  }));
 
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
@@ -151,8 +256,28 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         </div>
         {timetable.report?.unscheduled?.length > 0 && (
           <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><UiIcon name="alert" size={14} stroke={T.warning} />{timetable.report.unscheduled.length} subjects need more periods</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{timetable.report.unscheduled.slice(0, 6).map((u, i) => { const s = subjects.find((x) => x.id === u.subjectId); return <span key={i} style={css.badge(T.warning)}>{s?.code}: -{u.periodsShort}</span>; })}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              <UiIcon name="alert" size={14} stroke={T.warning} />
+              {timetable.report.unscheduled.length} class-subject entries still need periods
+            </div>
+            <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 8 }}>
+              This means required weekly periods could not be fully placed for the entries below.
+            </div>
+            <div style={{ fontSize: 11, color: T.info, marginBottom: 8 }}>
+              Need help fixing this? See Scheduling diagnostics below.
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {timetable.report.unscheduled.slice(0, 6).map((u, i) => {
+                const s = subjects.find((x) => x.id === u.subjectId);
+                const d = divisions.find((x) => x.id === u.divisionId);
+                const std = d ? standards.find((x) => x.id === d.standardId) : null;
+                return (
+                  <span key={i} style={css.badge(T.warning)}>
+                    Std {std?.name || "?"} - Div {d?.name || "?"} - {s?.code || "SUB"}: short by {u.periodsShort}
+                  </span>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -175,6 +300,40 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
           </div>
         )}
       </div>
+      {timetable.report?.optimization && (
+        <div style={{ ...css.card, marginTop: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.info, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+            <UiIcon name="preferences" size={14} stroke={T.info} />
+            Scheduling diagnostics
+          </div>
+          <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.5 }}>
+            Mode: <strong>{timetable.report.optimization.mode || "STRICT"}</strong><br />
+            Search passes: <strong>{timetable.report.optimization.searchPasses ?? 0}</strong><br />
+            Soft relax placements: <strong>{timetable.report.optimization.softRuleRelaxPlacements ?? 0}</strong>
+          </div>
+          {topRejectionReasons.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11, color: T.textSoft }}>
+              Top rejections: {topRejectionReasons.map(([reason, count]) => `${formatRejectionReason(reason)} (${count})`).join(" · ")}
+            </div>
+          )}
+          {recommendedFixes.length > 0 && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              {recommendedFixes.map((fix) => (
+                <div key={fix.reason} style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.45, background: T.surfaceAlt, border: `1px solid ${T.surfaceBorder}`, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                    <strong style={{ color: T.textMid }}>{fix.title}</strong>
+                    <span style={{ fontSize: 10, color: T.textSoft }}>{fix.count} hits</span>
+                  </div>
+                  <div>{fix.detail}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <Btn size="sm" variant="ghost" onClick={() => navigate(fix.nav)}>Open {fix.nav === "teachers" ? "Teachers" : fix.nav === "subjects" ? "Subjects" : "Rules"} →</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

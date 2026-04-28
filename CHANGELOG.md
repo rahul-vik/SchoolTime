@@ -2,6 +2,20 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.3] - 2026-04-28
+
+- Improved timetable reliability by enforcing teacher morning/evening free-period limits as strict session-wise capacity rules.
+- Added clearer coverage and diagnostics UX, including actionable rejection fixes, class-context shortage labels, and guidance links.
+- Hardened state persistence for latest timetable and download history across login/logout sessions.
+- Introduced stricter release/version governance with SemVer checks, branch-version validation, and visible sidebar build labels (`Vx.y.z (build)` with local dev tags).
+
+## [1.0.2] - 2026-04-27
+
+- Added a dedicated Role Access section in the platform portal to manage permissions per role and add custom roles.
+- Enforced role permissions end-to-end across tenant APIs and school app UI using policy-driven runtime checks.
+- Improved platform portal session handling so stale creator tokens auto-clear and return users to sign in cleanly.
+- Implemented SMTP-based password reset email delivery and reset-link token prefill in the user app.
+
 ## [1.0.1] - 2026-04-27
 
 - Replaced direct credit top-up with a purchase-request workflow: schools submit requests and platform admins approve/reject in the creator portal before credits are added.
