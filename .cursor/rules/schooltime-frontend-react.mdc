@@ -16,6 +16,7 @@ alwaysApply: false
 - Preserve existing navigation and page IDs used by `navigate(...)`.
 - For timetable diagnostics/shortage insights, show class context (standard + division + subject) instead of subject-only summaries.
 - Prefer actionable quick links from diagnostics cards (`navigate("teachers"|"subjects"|"rules")`) when recommending fixes.
+- Keep sidebar release footer format as `V<version> (<build-number>)`; show `LOCAL · DEV` tags only in local dev mode.
 
 ## UI Change Checklist
 

@@ -35,6 +35,10 @@ import { applyTenantStateWithFallback, buildTenantState } from "./features/timet
 
 /** Sidebar app-title row and main top bar use the same height so they align edge-to-edge. */
 const APP_HEADER_STRIP_HEIGHT = 76;
+const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
+const APP_BUILD_NUMBER = typeof __APP_BUILD_NUMBER__ !== "undefined" ? __APP_BUILD_NUMBER__ : "0";
+const APP_RELEASE_LABEL = typeof __APP_RELEASE_LABEL__ !== "undefined" ? __APP_RELEASE_LABEL__ : `V${APP_VERSION} (${APP_BUILD_NUMBER})`;
+const SHOW_ENV_TAGS = Boolean(import.meta.env?.DEV);
 
 function buildSchoolCodeFromOrgName(name, fallback = "SCH") {
   const text = String(name || "").trim().toUpperCase();
@@ -537,6 +541,12 @@ export default function App() {
             {sidebarOpen && <div><div style={{ color: "#fff", fontSize: 16, fontWeight: 700, letterSpacing: "0.02em", fontFamily: BRAND_FONT }}>SchoolTime</div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>School Edition</div></div>}
           </div>
           <SidebarNav collapsed={!sidebarOpen} />
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: sidebarOpen ? "8px 10px 6px" : "8px 0 6px", textAlign: "center" }}>
+            <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 10, letterSpacing: "0.03em" }}>
+              {APP_RELEASE_LABEL}
+              {SHOW_ENV_TAGS ? " · LOCAL · DEV" : ""}
+            </div>
+          </div>
           <button onClick={() => setSidebarOpen(p => !p)} style={{ padding: "12px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center" }}>{sidebarOpen ? "◀" : "▶"}</button>
         </div>
       )}
@@ -566,6 +576,10 @@ export default function App() {
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{school.academicYear}</div>
             </div>
             <SidebarNav collapsed={false} />
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "8px 14px 10px", textAlign: "center", color: "rgba(255,255,255,0.48)", fontSize: 10, letterSpacing: "0.03em" }}>
+              {APP_RELEASE_LABEL}
+              {SHOW_ENV_TAGS ? " · LOCAL · DEV" : ""}
+            </div>
           </div>
           <div style={{ flex: 1, background: "rgba(0,0,0,0.5)" }} onClick={() => setMobileMenuOpen(false)} />
         </div>

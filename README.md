@@ -37,6 +37,7 @@ See `LICENSE` for full text.
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
 - New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
 - Timetable generation engine with completion score and unscheduled insights
+- Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
   - Subject hours
@@ -133,6 +134,7 @@ Based on `.env.example`:
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
 - `npm run health:daily` - run build + smoke + security audit health suite
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
+- `npm run check:versioning` - strict local SemVer + branch/version contract validation
 
 ## One-Click Dev Launcher (Windows)
 
@@ -184,6 +186,7 @@ Based on `.env.example`:
 - `docs/API.md`
 - `docs/DEPLOYMENT.md`
 - `docs/BRANCH_POLICY.md`
+- `docs/VERSIONING.md`
 - `docs/PRODUCTION_READINESS.md`
 - `docs/PROJECT_STANDARDS.md` (master handbook)
 - `docs/POSTGRES_MIGRATION.md`
