@@ -44,6 +44,7 @@ alwaysApply: true
 ## Versioning Enforcement
 
 - Run `npm run check:versioning` before pushing release/hotfix work.
+- Run `npm run release:prepare` before release/hotfix push to pre-merge `origin/main` and regenerate auto docs.
 - CI/PR must pass `npm run check:release-governance`.
 - Keep `docs/VERSIONING.md` aligned when versioning policy changes.
 
