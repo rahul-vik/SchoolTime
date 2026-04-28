@@ -47,3 +47,13 @@ alwaysApply: true
 - CI/PR must pass `npm run check:release-governance`.
 - Keep `docs/VERSIONING.md` aligned when versioning policy changes.
 
+## Intent Mapping For User Commands
+
+- Interpret "push to prod", "release to prod", or equivalent as:
+  1. Prepare/update a `release/x.y.z` (or `hotfix/x.y.z`) branch.
+  2. Run required checks (`check:versioning`, build, smoke, docs/rules regeneration).
+  3. Commit and push the release/hotfix branch.
+  4. Follow PR workflow to `main` (never direct-push to `main`).
+  5. Prepare/follow back-merge PR workflow from release/hotfix into `develop`.
+- Do not treat "push to prod" as a direct branch push to `main`.
+

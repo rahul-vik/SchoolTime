@@ -58,3 +58,13 @@
 - PR governance validation: `npm run check:release-governance`
 - Full policy: `docs/VERSIONING.md`
 
+## Release Intent Interpretation
+
+When team members say "push to prod" or "release to prod", the expected workflow is:
+
+1. Prepare/update `release/x.y.z` (or `hotfix/x.y.z`) branch.
+2. Run release checks (`npm run check:versioning`, `npm run build`, `npm run smoke:prod`, docs/rules update).
+3. Commit and push the release/hotfix branch.
+4. Raise and merge PR to `main` (no direct push to `main`).
+5. Raise and merge back-merge PR into `develop`.
+
