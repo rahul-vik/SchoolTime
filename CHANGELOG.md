@@ -2,6 +2,12 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.4] - 2026-04-29
+
+- Added class-teacher uniqueness enforcement so a class can be assigned as class teacher to only one teacher at a time.
+- Locked already-assigned class-teacher divisions in teacher edit/add UI and added conflict-safe save validation.
+- Added pre-release conflict prevention flow (`npm run release:prepare`) to pre-merge main and regenerate generated docs before release pushes.
+
 ## [1.0.3] - 2026-04-28
 
 - Improved timetable reliability by enforcing teacher morning/evening free-period limits as strict session-wise capacity rules.
