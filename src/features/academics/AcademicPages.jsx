@@ -87,6 +87,14 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
       ? (form.assignedDivisionIds || [])
       : divisions.map((d) => d.id);
     const cleanedClassTeacherDivisionIds = (form.classTeacherDivisionIds || []).filter((id) => allowedClassTeacherDivisionIds.includes(id));
+    const conflictDivisionId = cleanedClassTeacherDivisionIds.find((divId) => classTeacherOwnerByDivision.has(divId));
+    if (conflictDivisionId) {
+      const owner = classTeacherOwnerByDivision.get(conflictDivisionId);
+      const div = divisions.find((d) => d.id === conflictDivisionId);
+      const std = standards.find((s) => s.id === div?.standardId);
+      notify(`Class teacher already assigned: Std ${std?.name || "?"}-${div?.name || "?"} is mapped to ${owner?.firstName || ""} ${owner?.lastName || ""}`.trim(), "warning");
+      return;
+    }
     const cleanedPrimaryClassTeacherDivisionId = cleanedClassTeacherDivisionIds.length === 1
       ? cleanedClassTeacherDivisionIds[0]
       : cleanedClassTeacherDivisionIds.includes(form.primaryClassTeacherDivisionId)
@@ -136,6 +144,16 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
     const maxPerWeek = maxPerDay * (workingDays?.length || 0);
     return { maxPerDay, maxPerWeek };
   };
+  const classTeacherOwnerByDivision = useMemo(() => {
+    const map = new Map();
+    for (const t of teachers || []) {
+      if (form?.id && t.id === form.id) continue;
+      for (const divId of (t.classTeacherDivisionIds || [])) {
+        if (!map.has(divId)) map.set(divId, t);
+      }
+    }
+    return map;
+  }, [teachers, form?.id]);
 
   const teacherGrid = isMobile ? "1fr" : "repeat(auto-fill,minmax(300px,1fr))";
 
@@ -323,20 +341,27 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
                       Showing only assigned divisions for this teacher.
                     </p>
                   )}
+                  {classTeacherDivisionOptions.some((d) => classTeacherOwnerByDivision.has(d.id)) && (
+                    <p style={{ fontSize: 11, color: T.warning, margin: "0 0 8px" }}>
+                      Some divisions are already assigned to other class teachers and are locked.
+                    </p>
+                  )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                     {classTeacherDivisionOptions.map((div) => {
                       const std = standards.find((s) => s.id === div.standardId);
                       const checked = (form.classTeacherDivisionIds || []).includes(div.id);
+                      const owner = classTeacherOwnerByDivision.get(div.id);
+                      const locked = Boolean(owner) && !checked;
                       return (
-                        <button key={div.id} onClick={() => setForm((p) => {
+                        <button key={div.id} disabled={locked} title={locked ? `Already assigned to ${owner?.firstName || ""} ${owner?.lastName || ""}`.trim() : ""} onClick={() => setForm((p) => {
                           const current = p.classTeacherDivisionIds || [];
                           const next = checked ? current.filter((id) => id !== div.id) : [...current, div.id];
                           const keepPrimary = next.length === 1
                             ? next[0]
                             : next.includes(p.primaryClassTeacherDivisionId) ? p.primaryClassTeacherDivisionId : null;
                           return { ...p, classTeacherDivisionIds: next, primaryClassTeacherDivisionId: keepPrimary };
-                        })} style={{ padding: "6px 10px", borderRadius: 8, border: `1.5px solid ${checked ? T.info : T.surfaceBorder}`, background: checked ? T.info + "12" : T.surface, color: checked ? T.info : T.textMid, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                          Std {std?.name || "?"}-{div.name}
+                        })} style={{ padding: "6px 10px", borderRadius: 8, border: `1.5px solid ${checked ? T.info : locked ? T.warning + "55" : T.surfaceBorder}`, background: checked ? T.info + "12" : locked ? T.warning + "12" : T.surface, color: checked ? T.info : locked ? T.warning : T.textMid, cursor: locked ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600, opacity: locked ? 0.75 : 1 }}>
+                          Std {std?.name || "?"}-{div.name}{locked ? " (Assigned)" : ""}
                         </button>
                       );
                     })}

@@ -54,6 +54,7 @@
 
 ## Versioning Commands
 
+- Release prep (pre-resolve generated-doc conflicts): `npm run release:prepare`
 - Local validation: `npm run check:versioning`
 - PR governance validation: `npm run check:release-governance`
 - Full policy: `docs/VERSIONING.md`
@@ -64,6 +65,7 @@ When team members say "push to prod" or "release to prod", the expected workflow
 
 1. Prepare/update `release/x.y.z` (or `hotfix/x.y.z`) branch.
 2. Run release checks (`npm run check:versioning`, `npm run build`, `npm run smoke:prod`, docs/rules update).
+   - Include `npm run release:prepare` before pushing release/hotfix branches.
 3. Commit and push the release/hotfix branch.
 4. Raise and merge PR to `main` (no direct push to `main`).
 5. Raise and merge back-merge PR into `develop`.

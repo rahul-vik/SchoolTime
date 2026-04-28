@@ -132,6 +132,7 @@ Based on `.env.example`:
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
 - `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
+- `npm run release:prepare` - pre-merge `origin/main` + regenerate auto docs on release/hotfix branches
 - `npm run health:daily` - run build + smoke + security audit health suite
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 - `npm run check:versioning` - strict local SemVer + branch/version contract validation
