@@ -61,4 +61,12 @@ export const SEED = {
     { id: "r1", subjectId: "sub7", ruleType: "BOTH_BOUNDARY", isActive: true, note: "PE should not be first or last lesson period" },
     { id: "r2", subjectId: "sub8", ruleType: "BOTH_BOUNDARY", isActive: true, note: "Art & Craft should not be first or last lesson period" },
   ],
+  classTeacherPreferences: {
+    enabled: false,
+    firstPeriodMode: "ALL_DAYS_PRIMARY_ONLY",
+    dailyPrimaryMinPeriods: 0,
+    schedulingMode: "STRICT", // STRICT | BEST_FIT | OPTIMAL
+  },
+  exportJobs: [],
+  lastGeneratedTimetable: null,
 };

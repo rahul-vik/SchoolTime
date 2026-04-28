@@ -34,10 +34,12 @@ Auth:
 
 - `GET /state`
 - `PUT /state` — requires `canConfigureTimetable`
+- State payload may include `classTeacherPreferences`, `exportJobs` (latest 3 retained by client), and `lastGeneratedTimetable`
 
 ## Timetable
 
 - `POST /timetable/generate` — requires `canConfigureTimetable`
+- `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
 - `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`
 
 ## Settings/Admin
@@ -101,7 +103,7 @@ Unhandled errors that reach the Express error handler are persisted to `platform
   - `entries`
   - `score`
   - `status`
-  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `durationMs`)
+  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `classTeacherRules`, `optimization`, `rejections`, `durationMs`)
 
 ## Client Integration
 

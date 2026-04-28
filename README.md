@@ -31,8 +31,11 @@ See `LICENSE` for full text.
 - Authentication (register/login/refresh/logout/password reset)
 - Role-based access (`owner`, `admin`, etc.)
 - School setup: mediums, standards, divisions
-- Academic setup: subjects, teachers, teacher-division mapping
-- Scheduling setup: period slots, working days, subject preferences
+- Academic setup: subjects, teachers, teacher-division mapping, class-teacher class assignment (including primary class)
+- Scheduling setup: period slots, working days, subject preferences, class-teacher first-period/daily-minimum rules
+- Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
+- Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
+- New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
 - Timetable generation engine with completion score and unscheduled insights
 - Dashboard insights for below-100% completion
 - Timetable reports:
@@ -154,6 +157,7 @@ Based on `.env.example`:
 - Default local DB file (SQLite): `server/data/app.db`
 - Production-ready DB option: Postgres via `DB_CLIENT=postgres` + `DATABASE_URL`
 - Tenant configuration state saved in `tenant_state`
+- `tenant_state` persists `classTeacherPreferences`, `exportJobs` (latest 3), and `lastGeneratedTimetable` for post-login continuity
 - Timetable run snapshots also persist `state_json` in `timetable_runs` so exports can reproduce the generated run accurately
 
 ## Exports

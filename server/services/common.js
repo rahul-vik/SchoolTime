@@ -23,6 +23,9 @@ export const schemas = {
   tenantStateSchema: z.object({
     school: z.any(), mediums: z.array(z.any()), standards: z.array(z.any()), divisions: z.array(z.any()), subjects: z.array(z.any()),
     teachers: z.array(z.any()), periodSlots: z.array(z.any()), workingDays: z.array(z.any()), schedulingRules: z.array(z.any()),
+    classTeacherPreferences: z.any().optional(),
+    exportJobs: z.array(z.any()).optional(),
+    lastGeneratedTimetable: z.any().nullable().optional(),
     teacherSubjects: z.array(z.any()).optional(), freePeriodRules: z.array(z.any()).optional(), subjectAllocations: z.array(z.any()).optional(),
   }),
   creatorRegisterOrgSchema: z.object({
