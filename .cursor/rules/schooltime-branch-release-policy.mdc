@@ -17,6 +17,8 @@ alwaysApply: true
 - CI expectations before merge: build + smoke + security audit should pass.
 - Release/hotfix PRs into `main` must update `package.json` version and `CHANGELOG.md`.
 - `release/x.y.z` branches must match `package.json` version `x.y.z`.
+- Version format must be strict SemVer (`x.y.z`) for release and hotfix branches.
+- PRs into `main` from release/hotfix branches must bump version above current `main`.
 - PR templates to follow:
   - `.github/pull_request_template.md`
   - `.github/PULL_REQUEST_TEMPLATE/release.md`
@@ -38,4 +40,10 @@ alwaysApply: true
 4. Merge to `main`, tag release, deploy (or run release workflow).
 5. Smoke test health, login, generate, export.
 6. Back-merge release to `develop`.
+
+## Versioning Enforcement
+
+- Run `npm run check:versioning` before pushing release/hotfix work.
+- CI/PR must pass `npm run check:release-governance`.
+- Keep `docs/VERSIONING.md` aligned when versioning policy changes.
 

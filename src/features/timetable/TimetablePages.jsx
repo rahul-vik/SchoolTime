@@ -263,6 +263,9 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 8 }}>
               This means required weekly periods could not be fully placed for the entries below.
             </div>
+            <div style={{ fontSize: 11, color: T.info, marginBottom: 8 }}>
+              Need help fixing this? See Scheduling diagnostics below.
+            </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {timetable.report.unscheduled.slice(0, 6).map((u, i) => {
                 const s = subjects.find((x) => x.id === u.subjectId);

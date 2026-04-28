@@ -23,6 +23,8 @@
 - Resolve all review conversations
 - Hotfix merges to `main` must be back-merged to `develop`
 - Keep `package.json` version bumps and release `CHANGELOG.md` entries on `release/*` or `hotfix/*` branches only (not normal `feature/*` or `fix/*` PRs into `develop`)
+- Enforce strict SemVer (`x.y.z`) and branch-version match for `release/*` and `hotfix/*`.
+- For PRs into `main`, release/hotfix version must be greater than current `main` version.
 - Use PR templates:
   - default: `.github/pull_request_template.md`
   - release: `.github/PULL_REQUEST_TEMPLATE/release.md`
@@ -49,4 +51,10 @@
    - timetable generation
    - PDF and Excel export
 6. Merge release branch back into `develop`
+
+## Versioning Commands
+
+- Local validation: `npm run check:versioning`
+- PR governance validation: `npm run check:release-governance`
+- Full policy: `docs/VERSIONING.md`
 

@@ -1,7 +1,7 @@
 {
   "name": "schooltime",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Rahul V",
   "license": "MIT",
   "type": "module",
@@ -23,7 +23,8 @@
     "docs:auto": "node scripts/auto-docs-rules.mjs",
     "health:daily": "npm run build && npm run smoke:prod && npm run audit:security",
     "autofix:risk-gate": "node scripts/autofix-risk-gate.mjs",
-    "check:release-governance": "node scripts/check-release-governance.mjs"
+    "check:release-governance": "node scripts/check-release-governance.mjs",
+    "check:versioning": "node scripts/check-versioning-local.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

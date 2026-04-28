@@ -20,6 +20,18 @@ function fail(msg) {
   process.exit(1);
 }
 
+function parseSemver(value) {
+  const m = String(value || "").trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+}
+
+function compareSemver(a, b) {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
 if (eventName !== "pull_request") {
   console.log("Release governance check skipped (not a pull request event).");
   process.exit(0);
@@ -35,12 +47,40 @@ if (!compareBase) {
 const changedRaw = run(`git diff --name-only ${compareBase}...HEAD`, "");
 const changed = changedRaw ? changedRaw.split(/\r?\n/).filter(Boolean) : [];
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const parsedCurrent = parseSemver(pkg.version);
+if (!parsedCurrent) {
+  fail(`Release governance failed: package.json version "${pkg.version}" must be strict SemVer (x.y.z).`);
+}
 const mainPkgRaw = run("git show origin/main:package.json", "");
 const mainPkg = mainPkgRaw ? JSON.parse(mainPkgRaw) : null;
+const parsedMain = parseSemver(mainPkg?.version || "");
+if (mainPkg && !parsedMain) {
+  fail(`Release governance failed: origin/main package.json version "${mainPkg.version}" is invalid SemVer.`);
+}
 
 const requiresReleaseMetaChanges = !mainPkg || String(mainPkg.version || "") !== String(pkg.version || "");
 if (baseBranch === "develop") {
-  if (isReleaseBranch || isHotfixBranch) {
+  if (isReleaseBranch) {
+    const declared = headRef.replace(/^release\//, "").trim();
+    if (pkg.version !== declared) {
+      fail(`Release governance failed: release branch (${declared}) must match package.json version (${pkg.version}).`);
+    }
+    const parsedDeclared = parseSemver(declared);
+    if (!parsedDeclared) {
+      fail(`Release governance failed: release branch name "${declared}" must be strict SemVer (x.y.z).`);
+    }
+    console.log("Release governance check passed (release branch into develop).");
+    process.exit(0);
+  }
+  if (isHotfixBranch) {
+    const declared = headRef.replace(/^hotfix\//, "").trim();
+    if (pkg.version !== declared) {
+      fail(`Release governance failed: hotfix branch (${declared}) must match package.json version (${pkg.version}).`);
+    }
+    const parsedDeclared = parseSemver(declared);
+    if (!parsedDeclared) {
+      fail(`Release governance failed: hotfix branch name "${declared}" must be strict SemVer (x.y.z).`);
+    }
     console.log("Release governance check passed (release/hotfix branch into develop).");
     process.exit(0);
   }
@@ -72,6 +112,21 @@ if (isReleaseBranch) {
   const declared = headRef.replace(/^release\//, "").trim();
   if (pkg.version !== declared) {
     fail(`Release governance failed: release branch (${declared}) must match package.json version (${pkg.version}).`);
+  }
+}
+
+if (isHotfixBranch) {
+  const declared = headRef.replace(/^hotfix\//, "").trim();
+  if (pkg.version !== declared) {
+    fail(`Release governance failed: hotfix branch (${declared}) must match package.json version (${pkg.version}).`);
+  }
+}
+
+if (parsedMain) {
+  if (compareSemver(parsedCurrent, parsedMain) <= 0) {
+    fail(
+      `Release governance failed: package.json version (${pkg.version}) must be greater than origin/main (${mainPkg.version}) for release/hotfix PRs.`
+    );
   }
 }
 
