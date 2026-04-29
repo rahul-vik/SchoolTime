@@ -54,7 +54,7 @@
 
 ## Versioning Commands
 
-- Release prep (pre-resolve generated-doc conflicts): `npm run release:prepare`
+- Release prep (pre-sync `main` + `develop` and pre-resolve generated-doc conflicts): `npm run release:prepare`
 - Local validation: `npm run check:versioning`
 - PR governance validation: `npm run check:release-governance`
 - Full policy: `docs/VERSIONING.md`

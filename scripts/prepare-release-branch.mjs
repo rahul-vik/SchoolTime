@@ -28,9 +28,17 @@ if (!(branch.startsWith("release/") || branch.startsWith("hotfix/"))) {
 
 console.log(`[release-prepare] Branch: ${branch}`);
 run("git fetch origin");
-console.log("[release-prepare] Merging origin/main to pre-resolve generated-doc conflicts...");
-run("git merge origin/main");
-console.log("[release-prepare] Regenerating auto docs...");
-run("npm run docs:auto");
-run("git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md");
-console.log("[release-prepare] Done. Commit if files changed, then continue release checks/push.");
+
+function mergeAndRegenerate(targetRef, label) {
+  console.log(`[release-prepare] Merging ${targetRef} to pre-resolve generated-doc conflicts (${label})...`);
+  run(`git merge ${targetRef}`);
+  console.log(`[release-prepare] Regenerating auto docs after ${label} sync...`);
+  run("npm run docs:auto");
+  run("git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md");
+}
+
+// Pre-sync with both release destinations so generated docs do not conflict at PR time.
+mergeAndRegenerate("origin/main", "prod");
+mergeAndRegenerate("origin/develop", "dev");
+
+console.log("[release-prepare] Done. Commit any staged changes, then continue release checks/push.");
