@@ -1,4 +1,5 @@
 ﻿import { UiIcon } from "../shared/uiPrimitives";
+import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
 
 /**
  * Plain-language tips when completion is below 100%, using engine report + school context.
@@ -43,10 +44,10 @@ function buildCompletionInsights({
     const where = divisionLabel(u.divisionId);
     const n = u.periodsShort || 0;
     if (n <= 0) continue;
-    bullets.push(`${where}: schedule ${n} more ${name} lesson${n === 1 ? "" : "s"} per week (you have ${u.periodsScheduled} of ${u.periodsRequired}).`);
+    bullets.push(`${where}: schedule ${n} more ${name} lesson${n === 1 ? "" : "s"} per week — ${u.periodsScheduled} of ${u.periodsRequired} scheduled.`);
   }
   if (unscheduled.length > topGaps.length) {
-    bullets.push(`Other classes are short too (${unscheduled.length} gaps in total). Open Timetable → Reports → Division completion to see every subject.`);
+    bullets.push(`Other classes are short too — ${unscheduled.length} gap${unscheduled.length === 1 ? "" : "s"}. Open Timetable → Reports → Division completion.`);
   }
 
   bullets.push("Make sure at least one teacher teaches each missing subject in the correct medium, and is allowed for that class under Teacher assignments.");
@@ -67,9 +68,9 @@ function buildCompletionInsights({
     bullets.push("With very few teachers, heavy timetables are harder to fill. Add teachers or reduce weekly periods where you can.");
   }
 
-  bullets.push("If the engine never finds a free slot, try adding another teaching day or lesson period, or slightly raising max lessons per day for teachers (where your school allows it).");
+  bullets.push("If the engine never finds a free slot, try adding another teaching day or lesson period, or slightly raising max lessons per day for teachers when policy allows.");
 
-  bullets.push("If one subject simply asks for more hours than the week can hold, lower its weekly period count under Subjects (or division allocation).");
+  bullets.push("If one subject simply asks for more hours than the week can hold, lower its weekly period count under Subjects or division allocation.");
 
   return { summary, bullets: bullets.slice(0, 8) };
 }
@@ -89,6 +90,9 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
     schedulingRules,
     restrictedTeachers,
   });
+  const divisionsWithoutClassTeacher = timetable
+    ? resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers)
+    : [];
 
   return (
     <div>
@@ -131,6 +135,35 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
               <ProgressBar value={completionPct} max={100} color={completionPct > 85 ? T.success : T.warning} />
               <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textSoft }}><span>{timetable.report.totalScheduled} scheduled</span><span>{timetable.report.totalRequired} required</span></div>
               <div style={{ marginTop: 10 }}><StatusBadge status={timetable.status} /></div>
+              {divisionsWithoutClassTeacher.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: `${T.warning}12`,
+                    border: `1px solid ${T.warning}44`,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <UiIcon name="alert" size={15} stroke={T.warning} />
+                    {divisionsWithoutClassTeacher.length} class{divisionsWithoutClassTeacher.length === 1 ? "" : "es"} without a class teacher
+                  </div>
+                  <p style={{ margin: "0 0 10px", fontSize: 12, color: T.textMid, lineHeight: 1.45 }}>
+                    Assign a class teacher under Teachers → Class teacher assignment for each class below.
+                  </p>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
+                      <span key={row.divisionId} style={{ ...css.badge(T.warning), fontSize: 11 }}>
+                        {formatDivisionMissingLabel(row, standards)}
+                      </span>
+                    ))}
+                  </div>
+                  <Btn onClick={() => navigate("teachers")} size="sm" variant="ghost">
+                    Open Teachers →
+                  </Btn>
+                </div>
+              )}
               {completionPct < 100 && completionInsights.summary && (
                 <div
                   style={{

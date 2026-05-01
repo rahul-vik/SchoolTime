@@ -1,5 +1,15 @@
 ﻿import { useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+import {
+  findClassTeacherForDivision,
+  teacherFullName,
+  classTeacherDivisionLabels,
+  classTeacherPrimarySubject,
+  formatTeacherFreePeriodsShort,
+  classTeacherCtBadgeStyle,
+} from "../shared/timetableDisplayHelpers";
+import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../../shared/reportHoursLabels.js";
+import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
 
 export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, classTeacherPreferences, setClassTeacherPreferences, ui }) {
   const { T, css, Btn, ProgressBar, Modal, Select } = ui;
@@ -8,6 +18,10 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
   const activeRules = schedulingRules.filter((r) => r.isActive);
   const restrictedCount = teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length;
   const schedulingMode = classTeacherPreferences?.schedulingMode || "STRICT";
+  const missingClassTeachersAfterGen =
+    timetable && timetableStatus === "GENERATED"
+      ? resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers)
+      : [];
 
   const readiness = [
     { label: "Classes added", ok: divisions.length > 0, count: divisions.length, nav: "standards" },
@@ -46,9 +60,9 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
             value={schedulingMode}
             onChange={(v) => setClassTeacherPreferences?.((p) => ({ ...(p || {}), schedulingMode: v }))}
             options={[
-              { value: "STRICT", label: "Strict (enforce all active rules)" },
-              { value: "BEST_FIT", label: "Best Fit (allow soft relax for better coverage)" },
-              { value: "OPTIMAL", label: "Optimal (deeper search for best allocation)" },
+              { value: "STRICT", label: "Strict — all active rules" },
+              { value: "BEST_FIT", label: "Best fit — may relax soft rules for coverage" },
+              { value: "OPTIMAL", label: "Optimal — deeper search" },
             ]}
           />
         </div>
@@ -88,6 +102,16 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
               <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: T.success }}>Timetable Ready!</div><div style={{ fontSize: 12, color: T.textSoft }}>Quality score: {timetable?.score}/100</div></div>
               <Btn onClick={() => navigate("timetable")} size="sm">View →</Btn>
             </div>
+            {missingClassTeachersAfterGen.length > 0 && (
+              <div style={{ marginBottom: 14, padding: "12px 14px", background: T.warning + "10", borderRadius: 10, border: `1px solid ${T.warning}36`, fontSize: 12, color: T.textMid, lineHeight: 1.45 }}>
+                <span style={{ fontWeight: 700, color: T.warning, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <UiIcon name="alert" size={14} stroke={T.warning} />
+                  Class teachers missing
+                </span>
+                {missingClassTeachersAfterGen.length} class
+                {missingClassTeachersAfterGen.length === 1 ? " has" : "es have"} no class teacher assigned. Open Teachers to fix before relying on class-teacher rules.
+              </div>
+            )}
             <Btn onClick={() => setConfirmOpen(true)} variant="ghost" fullWidth>Create Again</Btn>
           </div>
         ) : (
@@ -112,7 +136,7 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
   );
 }
 
-export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, notify, navigate, helpers, ui }) {
+export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, notify, navigate, helpers, ui }) {
   const { T, css, Btn, EmptyState } = ui;
   const { TimetableGrid } = helpers;
   const { isMobile } = useBreakpoint();
@@ -128,6 +152,9 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const currentDiv = divisions.find((d) => d.id === selectedDivisionId);
   const currentStd = currentDiv ? standards.find((s) => s.id === currentDiv.standardId) : null;
   const selTeacher = teachers.find((t) => t.id === selectedTeacherId);
+  const classTeacherForDiv = currentDiv ? findClassTeacherForDivision(currentDiv.id, teachers) : null;
+  const teacherCtLabels = selTeacher ? classTeacherDivisionLabels(selTeacher, divisions, standards) : [];
+  const divisionsWithoutClassTeacher = resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers);
   const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
   const topRejectionReasons = Object.entries(timetable.report?.rejections || {})
     .filter(([, count]) => Number(count) > 0)
@@ -254,6 +281,24 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
           <div style={{ width: 44, height: 44, borderRadius: 12, background: (timetable.score > 85 ? T.success : T.warning) + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 900, color: timetable.score > 85 ? T.success : T.warning }}>{timetable.score}</div>
           <div><div style={{ fontSize: 13, fontWeight: 700 }}>Timetable Quality</div><div style={{ fontSize: 11, color: T.textSoft }}>{timetable.report?.totalScheduled}/{timetable.report?.totalRequired} placed</div></div>
         </div>
+        {divisionsWithoutClassTeacher.length > 0 && (
+          <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px", border: `1px solid ${T.warning}40` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              <UiIcon name="alert" size={14} stroke={T.warning} />
+              {divisionsWithoutClassTeacher.length} class{divisionsWithoutClassTeacher.length === 1 ? "" : "es"} have no class teacher
+            </div>
+            <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 8 }}>
+              Assign under Teachers → Class teacher assignment so reports and exports stay accurate.
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
+                <span key={row.divisionId} style={css.badge(T.warning)}>
+                  {formatDivisionMissingLabel(row, standards)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {timetable.report?.unscheduled?.length > 0 && (
           <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -283,20 +328,33 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
       </div>
 
       <div style={{ ...css.card, padding: isMobile ? 12 : 20, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, minWidth: 0 }}>
-            {viewMode === "division" && currentDiv ? `Std ${currentStd?.name} — Div ${currentDiv.name}` : viewMode === "teacher" && selTeacher ? `${selTeacher.firstName} ${selTeacher.lastName}` : ""}
-          </h3>
+        <div style={{ marginBottom: 12, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+              {viewMode === "division" && currentDiv ? `Std ${currentStd?.name} — Div ${currentDiv.name}` : viewMode === "teacher" && selTeacher ? `${selTeacher.firstName} ${selTeacher.lastName}` : ""}
+            </h3>
+            {viewMode === "division" && currentDiv && (
+              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 4, fontWeight: 500 }}>
+                Class teacher: {classTeacherForDiv ? <span style={{ color: T.textMid, fontWeight: 700 }}>{teacherFullName(classTeacherForDiv)}</span> : <span style={{ fontStyle: "italic" }}>Not assigned</span>}
+              </div>
+            )}
+            {viewMode === "teacher" && selTeacher && teacherCtLabels.length > 0 && (
+              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 4, fontWeight: 500 }}>
+                Class teacher of: <span style={{ color: T.info, fontWeight: 700 }}>{teacherCtLabels.join(", ")}</span>
+              </div>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {["LANGUAGE", "CORE", "NON_CORE", "EXTRA_CURRICULAR"].map((cat) => (
               <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.textSoft }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: T[cat], display: "inline-block" }} />{cat.replace(/_/g, " ")}</span>
             ))}
           </div>
         </div>
-        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} />
+        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
         {viewMode === "teacher" && hasFreeConf && (
-          <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.info, textAlign: "center" }}>
-            Teacher free periods: {selTeacher.freeMorningPeriods || 0} morning · {selTeacher.freeEveningPeriods || 0} evening per day
+          <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.textMid, textAlign: "center", lineHeight: 1.4 }}>
+            Free periods:{" "}
+            <span style={{ color: T.info, fontWeight: 700 }}>{formatTeacherFreePeriodsShort(selTeacher.freeMorningPeriods, selTeacher.freeEveningPeriods)}</span>
           </div>
         )}
       </div>
@@ -382,12 +440,12 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
         <div style={{ ...css.card, overflowX: "auto" }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700 }}>Weekly Subject Hours (Average per Division)</h3>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 500 }}>
-            <thead><tr style={{ background: T.surfaceAlt }}>{["Subject", "Category", "Required", ...standards.map((s) => `Std ${s.name}`)].map((h) => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: T.textSoft, textTransform: "uppercase", borderBottom: `1px solid ${T.surfaceBorder}` }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: T.surfaceAlt }}>{["Subject", "Cat.", "Required", ...standards.map((s) => `Std ${s.name}`)].map((h) => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: T.textSoft, textTransform: "uppercase", borderBottom: `1px solid ${T.surfaceBorder}` }}>{h}</th>)}</tr></thead>
             <tbody>
               {subjectHours.filter((sh) => Object.keys(sh.byStandard).length > 0).map((sh, i) => (
                 <tr key={sh.subject.id} style={{ borderBottom: `1px solid ${T.surfaceBorder}`, background: i % 2 === 0 ? T.surface : T.surfaceAlt + "50" }}>
-                  <td style={{ padding: "10px 14px" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: sh.subject.colorHex }} /><span style={{ fontWeight: 700 }}>{sh.subject.name}</span></div></td>
-                  <td style={{ padding: "10px 14px" }}><span style={css.badge(T[sh.subject.category] || T.CORE)}>{sh.subject.category.replace(/_/g, " ")}</span></td>
+                  <td style={{ padding: "10px 14px" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: sh.subject.colorHex }} /><span style={{ fontWeight: 700 }}>{reportSubjectHoursSubjectLabel(sh.subject)}</span></div></td>
+                  <td style={{ padding: "10px 14px" }}><span style={css.badge(T[sh.subject.category] || T.CORE)}>{reportSubjectHoursCategoryShort(sh.subject.category)}</span></td>
                   <td style={{ padding: "10px 14px", fontWeight: 800, color: T.brand }}>{sh.subject.weeklyPeriods}</td>
                   {standards.map((s) => <td key={s.id} style={{ padding: "10px 14px", textAlign: "center" }}>{sh.byStandard[s.name] != null ? <span style={{ fontWeight: 700, color: sh.byStandard[s.name] >= sh.subject.weeklyPeriods ? T.success : T.warning }}>{sh.byStandard[s.name]}</span> : <span style={{ color: T.textSoft }}>—</span>}</td>)}
                 </tr>
@@ -398,30 +456,83 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
       )}
 
       {activeReport === "teacher-workload" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {teacherWorkload.map((tw) => (
-            <div key={tw.teacher.id} style={css.card}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 14, flexShrink: 0 }}>{tw.teacher.firstName[0]}{tw.teacher.lastName[0]}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{tw.teacher.firstName} {tw.teacher.lastName}</div>
-                  <div style={{ fontSize: 11, color: T.textSoft }}>{tw.teacher.employeeCode}</div>
-                  {(tw.teacher.assignedDivisionIds || []).length > 0 && (
-                    <div style={{ fontSize: 11, color: T.brand, display: "flex", alignItems: "center", gap: 4 }}><UiIcon name="pin" size={12} stroke={T.brand} />{tw.teacher.assignedDivisionIds.length} division{tw.teacher.assignedDivisionIds.length !== 1 ? "s" : ""} assigned</div>
-                  )}
-                  {((tw.teacher.freeMorningPeriods || 0) > 0 || (tw.teacher.freeEveningPeriods || 0) > 0) && (
-                    <div style={{ fontSize: 11, color: T.info }}>{tw.teacher.freeMorningPeriods || 0}m · {tw.teacher.freeEveningPeriods || 0}e free/day</div>
-                  )}
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success }}>{tw.assigned}/{tw.max}</div>
-                  <div style={{ fontSize: 11, color: T.textSoft }}>periods/week</div>
-                </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 14 }}>
+          {teacherWorkload.map((tw) => {
+            const ctCount = (tw.teacher.classTeacherDivisionIds || []).length;
+            const wlColor = tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success;
+            const avatar = (
+              <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 14, flexShrink: 0 }}>
+                {tw.teacher.firstName[0]}
+                {tw.teacher.lastName[0]}
               </div>
-              <ProgressBar value={tw.assigned} max={tw.max} color={tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success} />
-              <div style={{ fontSize: 11, color: T.textSoft, marginTop: 6 }}>{tw.pct}% workload</div>
-            </div>
-          ))}
+            );
+            const nameBlock = (
+              <>
+                <div style={{ fontWeight: 700, fontSize: isMobile ? 15 : undefined }}>{tw.teacher.firstName} {tw.teacher.lastName}</div>
+                <div style={{ fontSize: 11, color: T.textSoft }}>{tw.teacher.employeeCode}</div>
+              </>
+            );
+            const metaBlock = (
+              <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 8 : 4 }}>
+                {(tw.teacher.assignedDivisionIds || []).length > 0 && (
+                  <div style={{ fontSize: isMobile ? 12 : 11, color: T.brand, display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.35 }}>
+                    <UiIcon name="pin" size={12} stroke={T.brand} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>Limited to teaching {tw.teacher.assignedDivisionIds.length} division{tw.teacher.assignedDivisionIds.length !== 1 ? "s" : ""}</span>
+                  </div>
+                )}
+                {(tw.teacher.classTeacherDivisionIds || []).length > 0 && (
+                  <div style={{ fontSize: isMobile ? 12 : 11, color: T.info, display: "flex", alignItems: "flex-start", gap: 6, lineHeight: 1.35 }}>
+                    <UiIcon name="school" size={12} stroke={T.info} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      Class teacher for {tw.teacher.classTeacherDivisionIds.length} class{tw.teacher.classTeacherDivisionIds.length !== 1 ? "es" : ""}
+                    </span>
+                  </div>
+                )}
+                {((tw.teacher.freeMorningPeriods || 0) > 0 || (tw.teacher.freeEveningPeriods || 0) > 0) && (
+                  <div style={{ fontSize: isMobile ? 12 : 11, color: T.textMid, lineHeight: 1.35 }}>
+                    Free periods:{" "}
+                    <span style={{ color: T.info, fontWeight: 600 }}>{formatTeacherFreePeriodsShort(tw.teacher.freeMorningPeriods, tw.teacher.freeEveningPeriods)}</span>
+                  </div>
+                )}
+              </div>
+            );
+            const statsFont = isMobile ? 20 : 18;
+            return (
+              <div key={tw.teacher.id} style={{ ...css.card, ...(isMobile ? { padding: "14px 14px 16px" } : {}) }}>
+                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 14, marginBottom: 10 }}>
+                  {avatar}
+                  <div style={{ flex: 1, minWidth: 0 }}>{nameBlock}</div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: statsFont, fontWeight: 900, color: wlColor, lineHeight: 1.2 }}>{tw.assigned}/{tw.max}</div>
+                    <div style={{ fontSize: 11, color: T.textSoft, marginTop: 2 }}>periods/week</div>
+                    {ctCount > 0 ? (
+                      <div style={{ marginTop: 8 }} title="Class teacher roles — extra duty beyond teaching periods">
+                        <span style={classTeacherCtBadgeStyle()}>CT ×{ctCount}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>{metaBlock}</div>
+                <div style={{ marginTop: isMobile ? 14 : 12, width: "100%" }}>
+                  <ProgressBar value={tw.assigned} max={tw.max} color={wlColor} />
+                </div>
+                <div style={{ fontSize: 11, color: T.textSoft, marginTop: isMobile ? 8 : 6 }}>
+                  <strong style={{ color: T.textMid }}>{tw.pct}%</strong> teaching load
+                  {ctCount === 0 ? "" : " · bar = periods only"}
+                </div>
+                {ctCount === 1 ? (
+                  <div style={{ fontSize: 10, color: T.warning, marginTop: 4, lineHeight: 1.35 }}>
+                    Also class teacher — extra duty not included in the bar above.
+                  </div>
+                ) : null}
+                {ctCount >= 2 ? (
+                  <div style={{ fontSize: 10, color: T.danger, marginTop: 4, lineHeight: 1.35 }}>
+                    Class teacher for {ctCount} classes — overall duty is higher than this teaching bar suggests.
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -432,21 +543,48 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
             const divSubjects = subjects.filter((s) => (s.standardIds || []).includes(div.standardId));
             const scheduled = divSubjects.map((sub) => ({ sub, required: sub.weeklyPeriods, got: timetable.entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length }));
             const pct = Math.round(scheduled.reduce((a, s) => a + s.got, 0) / Math.max(scheduled.reduce((a, s) => a + s.required, 0), 1) * 100);
+            const ctTeacher = findClassTeacherForDivision(div.id, teachers);
+            const ctSubject = classTeacherPrimarySubject(ctTeacher, subjects);
             return (
               <div key={div.id} style={css.card}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>Std {std?.name} — Div {div.name}</div><div style={{ fontSize: 11, color: T.textSoft }}>{divSubjects.length} subjects</div></div>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: pct > 90 ? T.success : T.warning }}>{pct}%</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, gap: 10 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>Std {std?.name} — Div {div.name}</div>
+                    <div style={{ fontSize: 11, color: T.textSoft }}>
+                      {divSubjects.length} subject{divSubjects.length !== 1 ? "s" : ""}
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textSoft, letterSpacing: "0.03em", marginBottom: 3 }}>Class Teacher</div>
+                      {ctTeacher ? (
+                        <div style={{ fontSize: 12, color: T.textMid, fontWeight: 600 }}>
+                          {teacherFullName(ctTeacher)}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: T.warning }}>Not assigned</div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: pct > 90 ? T.success : T.warning, flexShrink: 0 }}>{pct}%</div>
                 </div>
                 <ProgressBar value={pct} max={100} color={pct > 90 ? T.success : T.warning} />
                 <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 5 }}>
-                  {scheduled.map((s) => (
-                    <div key={s.sub.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.sub.colorHex || T.CORE, flexShrink: 0 }} />
-                      <span style={{ flex: 1, color: T.textMid }}>{s.sub.name}</span>
-                      <span style={{ fontWeight: 700, color: s.got >= s.required ? T.success : T.danger }}>{s.got}/{s.required}</span>
-                    </div>
-                  ))}
+                  {scheduled.map((s) => {
+                    const showCtTag = Boolean(ctTeacher && ctSubject?.id === s.sub.id);
+                    return (
+                      <div key={s.sub.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.sub.colorHex || T.CORE, flexShrink: 0 }} />
+                        <span style={{ flex: 1, color: T.textMid, display: "flex", alignItems: "baseline", gap: 4, minWidth: 0 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sub.name}</span>
+                          {showCtTag ? (
+                            <span title={`${teacherFullName(ctTeacher)} — class teacher`} style={{ fontWeight: 800, color: "#000000", flexShrink: 0 }}>
+                              CT
+                            </span>
+                          ) : null}
+                        </span>
+                        <span style={{ fontWeight: 700, color: s.got >= s.required ? T.success : T.danger, flexShrink: 0 }}>{s.got}/{s.required}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -515,6 +653,7 @@ export function ExportsPage({ exportJobs, onExport, onDownload, onRemoveExportJo
   const { isMobile } = useBreakpoint();
   const [classFormat, setClassFormat] = useState("PDF");
   const [teacherFormat, setTeacherFormat] = useState("PDF");
+  const [reportsFormat, setReportsFormat] = useState("PDF");
   if (!timetable) {
     return (
       <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
@@ -550,11 +689,11 @@ export function ExportsPage({ exportJobs, onExport, onDownload, onRemoveExportJo
       key: "reports",
       scope: "REPORTS_BUNDLE",
       label: "Summary reports",
-      desc: "Subject hours & workload.",
+      desc: "Subject hours, teacher workload, and division completion.",
       icon: "reports",
-      format: "EXCEL",
-      setFormat: null,
-      formats: ["EXCEL"],
+      format: reportsFormat,
+      setFormat: setReportsFormat,
+      formats: ["PDF", "EXCEL"],
     },
   ];
 

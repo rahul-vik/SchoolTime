@@ -18,6 +18,10 @@ server/data/*.db-wal
 .DS_Store
 Thumbs.db
 
+# Local UI/debug screenshots (not part of repo assets)
+reportUI.png
+reportUI2.png
+
 # IDE/editor — commit shared tasks; ignore other local VS Code files
 .idea/
 .vscode/*

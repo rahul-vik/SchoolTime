@@ -41,8 +41,12 @@ async function main() {
 
   const pdf = await generateExportFile({ type: "PDF", scope: "ALL_DIVISIONS", state, entries: result.entries });
   const xlsx = await generateExportFile({ type: "EXCEL", scope: "ALL_DIVISIONS", state, entries: result.entries });
+  const reportPdf = await generateExportFile({ type: "PDF", scope: "REPORTS_BUNDLE", state, entries: result.entries });
+  const reportXlsx = await generateExportFile({ type: "EXCEL", scope: "REPORTS_BUNDLE", state, entries: result.entries });
   assert(Buffer.isBuffer(pdf.buffer) && pdf.buffer.length > 512, "PDF export buffer invalid");
   assert(Buffer.isBuffer(xlsx.buffer) && xlsx.buffer.length > 512, "Excel export buffer invalid");
+  assert(Buffer.isBuffer(reportPdf.buffer) && reportPdf.buffer.length > 512, "Reports PDF export buffer invalid");
+  assert(Buffer.isBuffer(reportXlsx.buffer) && reportXlsx.buffer.length > 512, "Reports Excel export buffer invalid");
 
   console.log("Smoke checks passed.");
 }

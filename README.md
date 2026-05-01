@@ -22,6 +22,7 @@ See `LICENSE` for full text.
 
 - `src/` - React client app and feature modules
 - `server/` - API server, timetable engine, DB bootstrap, routes, services
+- `shared/` - tiny dependency-free modules shared by server + client (e.g. report hour labels)
 - `logo/` - branding assets
 - `Results/` - local output samples generated during development
 - `docs/` - architecture and operational documentation
@@ -36,7 +37,7 @@ See `LICENSE` for full text.
 - Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
 - New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
-- Timetable generation engine with completion score and unscheduled insights
+- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable)
 - Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
@@ -138,6 +139,16 @@ Based on `.env.example`:
 - `npm run health:daily` - run build + smoke + security audit health suite
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 - `npm run check:versioning` - strict local SemVer + branch/version contract validation
+- `npm run verify:push` - runs the same checks as CI (build, smoke, security audit, versioning; on `release/*` and `hotfix/*` branches also simulates release governance vs `origin/main`). Invoked automatically before each `git push` via Husky after `npm install`
+
+### Pre-push verification (Husky)
+
+- On every `git push`, `npm run verify:push` runs so local failures match CI before the remote sees your commits.
+- Skip once: `git push --no-verify`, or set environment variable `SKIP_VERIFY_PUSH=1` for that push.
+- Disable hooks for a session: `HUSKY=0 git push` (Husky convention).
+- Release/hotfix governance still requires a **SemVer bump above `origin/main`** and `CHANGELOG.md` updates on those branches; hooks cannot infer the next version for you—use `npm run release:prepare` on release/hotfix branches when merging latest main/develop.
+- Auto-generated `docs/AUTO_*.md` files are updated on push to `develop`/`main` by GitHub Actions (`.github/workflows/auto-docs-rules.yml`), not on every local push, to avoid noisy timestamp-only diffs.
+- **Merge conflicts on `docs/AUTO_CHANGELOG.md` or `docs/AUTO_RULES_INTELLIGENCE.md`:** both sides regenerated these files—do not resolve by hand. Run **`npm run docs:auto`**, **`git add`** both paths, then **`git commit`** (merge completion). Pre-push **`verify:push`** intentionally skips `docs:auto` so it does not leave uncommitted changes after a push hook.
 
 ## One-Click Dev Launcher (Windows)
 
@@ -167,12 +178,16 @@ Based on `.env.example`:
 
 ## Exports
 
-- PDF and Excel exports are downloaded through `/api/timetable/download`
+- PDF and Excel exports are downloaded through `/api/timetable/download` (filenames like `SchoolTime-class-timetables-YYYY-MM-DD.pdf`, `SchoolTime-teacher-timetables-YYYY-MM-DD.xlsx`, `SchoolTime-summary-reports-YYYY-MM-DD.xlsx`)
 - Visual style includes:
   - Full slot grid (lesson + break + lunch)
   - Category legend
   - Subject accent cards
   - Free-period style
+- **Print banner:** School **name**, **academic year**, and **logo** from setup appear top-left on timetable PDF/Excel pages, with a divider before the grid.
+- **Class teacher:** In-app and visual exports (class and teacher timetables), when the slot teacher is that division’s class teacher, **CT** appears on the **right** side of the subject row with the subject code on the left (same layout in PDF and Excel). **CT** uses **black** text so it stays readable on tinted lesson cells.
+- **Teacher timetable:** Below **`Std …-Div`** (in-app, PDF, Excel), the division’s **medium code** prints on its own line in **black** when the medium record has a **code** (see Setup → Mediums).
+- **Summary reports** (`REPORTS_BUNDLE`): Excel has **Subject Hours**, **Teacher Workload**, and **Division Completion** sheets; PDF is portrait A4 with the same three sections and matching table styling. School banner on each sheet. **Weekly Subject Hours** uses short category labels (e.g. **Lang**) and **subject codes** for language subjects so rows stay compact; **Division Completion** prints **CT** inline after the subject name (black).
 - If export download returns HTML/JSON, check `VITE_API_BASE_URL` and backend availability
 
 ## Deployment Notes
@@ -223,7 +238,7 @@ Based on `.env.example`:
 - Backend sets secure headers using Helmet.
 - Use PM2 (`ecosystem.config.cjs`) or systemd for process supervision.
 - Use `.github/workflows/ci.yml` checks before merging to `main`.
-- CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`).
+- CI verifies build + smoke + security audit (`npm run build`, `npm run smoke:prod`, `npm run audit:security`) and release governance on PRs. The same suite runs locally before each push via `npm run verify:push` (see **Pre-push verification** above). CI also runs on pushes to `release/**` and `hotfix/**` branches.
 - Daily automated checks: `.github/workflows/daily-health-autofix.yml` (scheduled health scan + safe dependency autofix PR + issue on failure).
 - Manual release automation: `.github/workflows/release.yml` (version bump + changelog + tag + GitHub release).
 - Run periodic DB backups with `scripts/backup-db.ps1`.

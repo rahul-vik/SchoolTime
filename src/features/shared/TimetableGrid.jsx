@@ -1,7 +1,8 @@
 ﻿import { useState } from "react";
 import { T, EmptyState, useBreakpoint } from "./uiPrimitives";
+import { teacherFullName, isClassTeacherLesson } from "./timetableDisplayHelpers";
 
-export function TimetableGrid({ timetable, divisions, teachers, subjects, periodSlots, workingDays, viewMode, selectedId, onCellClick, isEditable, pendingSwap, standards }) {
+export function TimetableGrid({ timetable, divisions, teachers, subjects, periodSlots, workingDays, viewMode, selectedId, onCellClick, isEditable, pendingSwap, standards, mediums = [] }) {
   const bp = useBreakpoint();
   const [activeDay, setActiveDay] = useState(0);
 
@@ -27,15 +28,63 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
     const div = divisions.find((d) => d.id === entry.divisionId);
     const color = sub?.colorHex || T.CORE;
     const isPending = pendingSwap && pendingSwap.divisionId === entry.divisionId && pendingSwap.dayOfWeek === entry.dayOfWeek && pendingSwap.slotNumber === entry.slotNumber;
+    const showCt = isClassTeacherLesson(entry, teachers);
 
     return (
       <div
         onClick={() => isEditable && onCellClick && onCellClick(entry)}
         style={{ height: cellH, borderRadius: 6, padding: "6px 7px", cursor: isEditable ? "pointer" : "default", background: color + "18", border: `1px solid ${color}35`, borderLeft: `3px solid ${color}`, boxShadow: isPending ? `0 0 0 2px ${T.gold}` : "none", transition: "all 0.15s", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
       >
-        <span style={{ fontSize: bp.isMobile ? 10 : 11, fontWeight: 800, color, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub?.code || "?"}</span>
-        {!bp.isMobile && viewMode === "division" && tch && <span style={{ fontSize: 9, color: T.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tch.firstName[0]}. {tch.lastName}</span>}
-        {!bp.isMobile && viewMode === "teacher" && div && (() => { const std = (standards || []).find((s) => s.id === div.standardId); return <span style={{ fontSize: 9, color: T.textMid }}>Std {std?.name}-{div.name}</span>; })()}
+        <div style={{ minWidth: 0 }}>
+          {showCt ? (
+            <div
+              title="Class teacher period"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: 8,
+                fontSize: bp.isMobile ? 10 : 11,
+                fontWeight: 800,
+                lineHeight: 1.25,
+                minWidth: 0,
+              }}
+            >
+              <span style={{ color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                {sub?.code || "?"}
+              </span>
+              <span style={{ color: "#000000", fontWeight: 800, flexShrink: 0 }}>CT</span>
+            </div>
+          ) : (
+            <span
+              style={{ fontSize: bp.isMobile ? 10 : 11, fontWeight: 800, color, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}
+            >
+              {sub?.code || "?"}
+            </span>
+          )}
+        </div>
+        {viewMode === "division" && tch && (
+          <span style={{ fontSize: bp.isMobile ? 9 : 10, color: T.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+            {teacherFullName(tch)}
+          </span>
+        )}
+        {viewMode === "teacher" && div && (() => {
+          const std = (standards || []).find((s) => s.id === div.standardId);
+          const med = (mediums || []).find((m) => m.id === div.mediumId);
+          const medCode = String(med?.code || "").trim();
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+              <span style={{ fontSize: bp.isMobile ? 9 : 10, color: T.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Std {std?.name}-{div.name}
+              </span>
+              {medCode ? (
+                <span style={{ fontSize: bp.isMobile ? 8 : 9, color: "#000000", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {medCode}
+                </span>
+              ) : null}
+            </div>
+          );
+        })()}
       </div>
     );
   };

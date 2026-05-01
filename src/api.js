@@ -256,8 +256,28 @@ function parseFileNameFromDisposition(value) {
   if (!value) return null;
   const utf8 = value.match(/filename\*=UTF-8''([^;]+)/i);
   if (utf8?.[1]) return decodeURIComponent(utf8[1]);
-  const plain = value.match(/filename="?([^";]+)"?/i);
+  const quoted = value.match(/filename="([^"]+)"/i);
+  if (quoted?.[1]) return quoted[1];
+  const plain = value.match(/filename=([^;\s]+)/i);
   return plain?.[1] || null;
+}
+
+/** Mirrors server `buildExportFilename` when Content-Disposition is not exposed (e.g. older CORS). */
+function defaultTimetableExportFilename(type, scope) {
+  const s = String(scope ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/-/g, "_")
+    .replace(/\s+/g, "_");
+  const date = new Date().toISOString().slice(0, 10);
+  const kind =
+    s === "ALL_TEACHERS"
+      ? "teacher-timetables"
+      : s === "ALL_DIVISIONS"
+        ? "class-timetables"
+        : "summary-reports";
+  const ext = String(type).trim().toUpperCase() === "PDF" ? "pdf" : "xlsx";
+  return `SchoolTime-${kind}-${date}.${ext}`;
 }
 
 function bytesLookLikePdf(buf) {
@@ -334,7 +354,9 @@ export async function downloadTimetableExport(type, scope) {
       ? "application/pdf"
       : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const blob = new Blob([buf], { type: mime });
-  const name = parseFileNameFromDisposition(res.headers.get("content-disposition")) || `schooltime-export.${type === "PDF" ? "pdf" : "xlsx"}`;
+  const name =
+    parseFileNameFromDisposition(res.headers.get("content-disposition")) ||
+    defaultTimetableExportFilename(type, scope);
   const blobUrl = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = blobUrl;

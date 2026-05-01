@@ -5,7 +5,7 @@ alwaysApply: true
 
 # SchoolTime Core Standards
 
-- Preserve app architecture: frontend in `src/`, backend in `server/`, SQLite in `server/data/app.db`.
+- Preserve app architecture: frontend in `src/`, backend in `server/`, SQLite in `server/data/app.db`; optional dependency-free helpers in `shared/` when both sides need the same constants/strings.
 - Keep changes minimal, focused, and backward-compatible unless explicitly requested.
 - Never commit secrets; use `.env` locally and keep `.env.example` updated when config changes.
 - Follow project naming style: clear, domain-driven names (`timetable`, `division`, `subject`, `teacher`).
