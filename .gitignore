@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.vite/
+SchoolTime-workspace.zip
 
 # Environment and secrets
 .env
@@ -16,7 +18,9 @@ server/data/*.db-wal
 .DS_Store
 Thumbs.db
 
-# IDE/editor
-.vscode/
+# IDE/editor — commit shared tasks; ignore other local VS Code files
 .idea/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
 
