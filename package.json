@@ -25,7 +25,9 @@
     "health:daily": "npm run build && npm run smoke:prod && npm run audit:security",
     "autofix:risk-gate": "node scripts/autofix-risk-gate.mjs",
     "check:release-governance": "node scripts/check-release-governance.mjs",
-    "check:versioning": "node scripts/check-versioning-local.mjs"
+    "check:versioning": "node scripts/check-versioning-local.mjs",
+    "verify:push": "node scripts/verify-before-push.mjs",
+    "prepare": "husky"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -47,6 +49,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
     "vite": "^5.4.10"
   }
 }

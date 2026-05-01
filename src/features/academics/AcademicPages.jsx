@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+import { formatTeacherFreePeriodsShort } from "../shared/timetableDisplayHelpers";
 
 export function SubjectsPage({ subjects, setSubjects, standards, mediums, notify, ui }) {
   const { T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field } = ui;
@@ -241,8 +242,9 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
               )}
 
               {hasFree && (
-                <div style={{ marginTop: 6, padding: "5px 8px", background: T.info + "12", borderRadius: 6, fontSize: 11, color: T.info, display: "flex", gap: 12 }}>
-                  <span>Free: {t.freeMorningPeriods || 0} morning · {t.freeEveningPeriods || 0} evening /day</span>
+                <div style={{ marginTop: 6, padding: "5px 8px", background: T.info + "12", borderRadius: 6, fontSize: 11, color: T.textMid, lineHeight: 1.35 }}>
+                  Free periods:{" "}
+                  <span style={{ color: T.info, fontWeight: 600 }}>{formatTeacherFreePeriodsShort(t.freeMorningPeriods, t.freeEveningPeriods)}</span>
                 </div>
               )}
             </div>

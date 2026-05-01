@@ -2,7 +2,17 @@
 import { randomUUID } from "node:crypto";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
 import { runTimetableEngine } from "../engine.js";
-import { generateExportFile } from "../services/exportService.js";
+import { generateExportFile, normalizeExportScope } from "../services/exportService.js";
+
+/** Express may give `string | string[]` for duplicate keys; take first stable value. */
+function firstQueryParam(value) {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function normalizeExportQueryType(type) {
+  return String(type ?? "").trim().toUpperCase();
+}
 
 export function createTimetableRoutes(db) {
   const router = Router();
@@ -71,8 +81,8 @@ export function createTimetableRoutes(db) {
   });
 
   async function handleTimetableExportDownload(req, res) {
-    const type = String(req.query.type || "").toUpperCase();
-    const scope = String(req.query.scope || "").toUpperCase();
+    const type = normalizeExportQueryType(firstQueryParam(req.query.type));
+    const scope = normalizeExportScope(firstQueryParam(req.query.scope));
     if (!["PDF", "EXCEL"].includes(type)) return res.status(400).json({ error: "Invalid export type" });
     if (!["ALL_DIVISIONS", "ALL_TEACHERS", "REPORTS_BUNDLE"].includes(scope)) return res.status(400).json({ error: "Invalid export scope" });
 

@@ -1,6 +1,6 @@
 ---
 description: Export fidelity rules for PDF and Excel timetable outputs
-globs: server/services/exportService.js
+globs: server/services/exportService.js,shared/reportHoursLabels.js
 alwaysApply: false
 ---
 
@@ -14,8 +14,19 @@ alwaysApply: false
 - Do not regress teacher/division labeling in lesson cells.
 - Keep worksheet and filename generation deterministic and collision-safe.
 
+## Timetable grids (class + teacher)
+
+- **CT** when the teacher is class teacher for that division: subject/code on the **left**, **CT** on the **right**, **black** text (PDF + Excel + app grid).
+- **Teacher view:** below **Std …-Division**, render medium **code** only on its own line in **black** when `medium.code` exists.
+
+## Reports bundle (`REPORTS_BUNDLE`)
+
+- Weekly Subject Hours: short category labels + language subjects as **codes** (`shared/reportHoursLabels.js` — keep server + UI in sync).
+- Division Completion: **CT** immediately after subject name (black), not a separate pill column.
+
 ## Export Verification
 
 - Smoke-test one division and one teacher export for both PDF and Excel.
 - Confirm files open in common viewers and data matches generated timetable.
+- After report-label or export layout changes, run `npm run docs:auto` when updating governance docs.
 

@@ -559,6 +559,13 @@ export function runTimetableEngine(data) {
   );
   const totalScheduled = entries.filter((e) => e.subjectId && !e.isFreePeriod).length;
   const score = totalRequired > 0 ? Math.round((totalScheduled / totalRequired) * 100) : 100;
+  const divisionsMissingClassTeacher = divisions
+    .filter((div) => !(teachers || []).some((t) => (t.classTeacherDivisionIds || []).includes(div.id)))
+    .map((div) => ({
+      divisionId: div.id,
+      divisionName: div.name || "",
+      standardId: div.standardId,
+    }));
   return {
     entries,
     score,
@@ -567,6 +574,7 @@ export function runTimetableEngine(data) {
       totalRequired,
       totalScheduled,
       unscheduled,
+      divisionsMissingClassTeacher,
       classTeacherRules: classTeacherRuleStats,
       optimization: optimizationStats,
       rejections: rejectionStats,

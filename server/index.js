@@ -45,6 +45,7 @@ app.use(cors({
     if (CORS_ORIGINS.includes(origin)) return callback(null, true);
     return callback(new Error("Not allowed by CORS"));
   },
+  exposedHeaders: ["Content-Disposition"],
 }));
 app.use(express.json({ limit: "2mb" }));
 app.use(rateLimit({ windowMs: 60 * 1000, max: RATE_LIMIT_MAX, standardHeaders: true, legacyHeaders: false }));
