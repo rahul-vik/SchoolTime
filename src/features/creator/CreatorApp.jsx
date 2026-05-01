@@ -273,7 +273,7 @@ export function CreatorApp() {
     }
     const packs = Number(creditPacksTen);
     if (!Number.isFinite(packs) || packs === 0 || !Number.isInteger(packs)) {
-      notify("Enter a whole number of 10-credit packs (e.g. 3 for +30, -2 for −20).", "warning");
+      notify("Enter a whole number of 10-credit packs.", "warning");
       return;
     }
     const delta = packs * 10;
@@ -294,7 +294,7 @@ export function CreatorApp() {
     if (!orgCreditModal) return;
     const packs = Number(orgCreditPacks);
     if (!Number.isFinite(packs) || packs === 0 || !Number.isInteger(packs)) {
-      notify("Enter a whole number of 10-credit packs (e.g. 5 adds 50 credits).", "warning");
+      notify("Enter a whole number of 10-credit packs.", "warning");
       return;
     }
     const delta = packs * 10;
@@ -611,7 +611,7 @@ export function CreatorApp() {
         {tab === "orgs" && orgs && (
           <div>
             <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
-              Credits belong to the <strong>organization</strong> (school). Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. You can still use <strong>Add credits</strong> for manual adjustments. <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
+              Credits belong to each <strong>organization</strong>. Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. Use <strong>Add credits</strong> for manual adjustments. <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
             </p>
             <div style={{ ...pt.toolRow, marginBottom: 12 }}>
               <div style={{ ...pt.inlineField, minWidth: 180 }}>
@@ -943,7 +943,7 @@ export function CreatorApp() {
             </form>
             <div style={{ ...css.card, marginBottom: 20 }}>
               <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Adjust credits (by organization)</h3>
-              <p style={{ margin: "0 0 12px", fontSize: 12, color: T.textMid }}>Amount must be a multiple of 10. Enter <strong>packs of 10</strong> (e.g. 6 → +60 credits, −1 → −10).</p>
+              <p style={{ margin: "0 0 12px", fontSize: 12, color: T.textMid }}>Amount must be a multiple of 10. Enter whole <strong>packs of 10</strong>; positive adds credits, negative removes.</p>
               <form onSubmit={handleAdjustCredits} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
                 <div style={{ ...pt.inlineField, flex: "1 1 200px", minWidth: 0 }}>
                   <label style={pt.inlineLabel} htmlFor="credit-adjust-org-id">Organization ID</label>
@@ -968,7 +968,7 @@ export function CreatorApp() {
                   />
                 </div>
                 <div style={{ ...pt.inlineField, flex: "1 1 200px", minWidth: 0 }}>
-                  <label style={pt.inlineLabel} htmlFor="credit-adjust-reason">Reason (audit)</label>
+                  <label style={pt.inlineLabel} htmlFor="credit-adjust-reason">Audit reason</label>
                   <input
                     id="credit-adjust-reason"
                     type="text"
@@ -1060,11 +1060,11 @@ export function CreatorApp() {
           <form onSubmit={handleSaveSettings} style={{ ...css.card, maxWidth: 480 }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Defaults (live)</h3>
             <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
-              New self-serve signups receive <strong>signup initial credits</strong>. The in-app purchase screen uses <strong>credit pack size</strong> per pack; schools request packs and the portal approves. Price is stored for future billing (not charged in-app yet).
+              New self-serve signups receive <strong>signup initial credits</strong>. The in-app purchase screen uses <strong>credit pack size</strong> per pack; schools request packs and you approve here. Pack price is informational for future billing.
             </p>
             <Input label="Signup initial credits" value={settingsDraft.signup_initial_credits} onChange={(v) => setSettingsDraft((d) => ({ ...d, signup_initial_credits: v }))} />
-            <Input label="Credit pack size (purchase button)" value={settingsDraft.credit_pack_size} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_size: v }))} />
-            <Input label="Pack price (cents, informational)" value={settingsDraft.credit_pack_price_cents} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_price_cents: v }))} />
+            <Input label="Credit pack size · purchase flow" value={settingsDraft.credit_pack_size} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_size: v }))} />
+            <Input label="Pack price · cents · reference" value={settingsDraft.credit_pack_price_cents} onChange={(v) => setSettingsDraft((d) => ({ ...d, credit_pack_price_cents: v }))} />
             <div style={pt.modalActions}>
               <Btn type="submit" iconOnly ariaLabel="Save settings" disabled={busy}>
                 <UiIcon name="check" size={18} stroke="currentColor" />

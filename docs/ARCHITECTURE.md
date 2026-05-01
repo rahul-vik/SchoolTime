@@ -69,12 +69,18 @@ Core tables in `server/db.js`:
 
 ## Export Pipeline
 
-Exports are generated server-side:
+Exports are generated server-side in `server/services/exportService.js`:
 
-- PDF: visual pages with legends and styled timetable cells
-- Excel: visual worksheets mirroring timetable card style
+- PDF: PDFKit — visual timetable pages (class + teacher), summary reports bundle (subject hours, workload, division completion)
+- Excel: ExcelJS — visual timetable sheets plus report worksheets for `REPORTS_BUNDLE`
 
-Run-specific export consistency is supported by using `timetable_runs.state_json` when available.
+Shared pure strings for report tables live in `shared/reportHoursLabels.js` (used by the export service and the React Reports UI).
+
+Run-specific consistency uses `timetable_runs.state_json` when available (falls back to `tenant_state`).
+
+**Timetable cells (visual exports):** Subject code left; **CT** (class-teacher period) right in black on one row; teacher view adds **`Std …-Div`** then medium **code** on the next line (black) when configured.
+
+**Reports bundle:** Weekly Subject Hours uses short category labels and language subject **codes**; Division Completion prints **CT** inline after the subject name (black).
 
 ## Security Notes
 

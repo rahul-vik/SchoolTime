@@ -1,5 +1,9 @@
+import { divisionsMissingClassTeacher } from "../shared/classTeacherCoverage";
+
 export function generateTimetableFlow({
   payload,
+  divisions,
+  teachers,
   apiGenerateTimetable,
   setTimetableStatus,
   setGeneratingProgress,
@@ -26,6 +30,15 @@ export function generateTimetableFlow({
       setTimetableStatus("GENERATED");
       await onSuccess?.(resp);
       notify(`Timetable generated — Score: ${resp.timetable.score}/100`, "success");
+      const missingCt = Array.isArray(resp.timetable.report?.divisionsMissingClassTeacher)
+        ? resp.timetable.report.divisionsMissingClassTeacher
+        : divisionsMissingClassTeacher(divisions, teachers);
+      if (missingCt.length > 0) {
+        notify(
+          `${missingCt.length} class${missingCt.length === 1 ? " has" : "es have"} no class teacher assigned. Open Teachers and set Class teacher assignment.`,
+          "warning",
+        );
+      }
       navigate("timetable");
     } catch (err) {
       setTimetableStatus("FAILED");

@@ -55,6 +55,7 @@
 ## Versioning Commands
 
 - Release prep (pre-sync `main` + `develop` and pre-resolve generated-doc conflicts): `npm run release:prepare`
+- Merge conflicts limited to **`docs/AUTO_CHANGELOG.md`** / **`docs/AUTO_RULES_INTELLIGENCE.md`**: run **`npm run docs:auto`**, stage both files, commit—never merge conflict markers by hand (see `README.md` Pre-push note).
 - Local validation: `npm run check:versioning`
 - PR governance validation: `npm run check:release-governance`
 - Full policy: `docs/VERSIONING.md`

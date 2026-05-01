@@ -40,7 +40,7 @@ Auth:
 
 - `POST /timetable/generate` — requires `canConfigureTimetable`
 - `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
-- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`
+- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`; duplicate query keys use the first value; summary-report aliases such as `reports-bundle`, `SUMMARY`, or `SUMMARY_REPORTS` normalize to `REPORTS_BUNDLE`. Binary PDF/XLSX from `server/services/exportService.js`; visual layout details (CT placement, teacher medium code line, report bundle labeling) are documented in `README.md` → **Exports** and `docs/ARCHITECTURE.md` → **Export Pipeline**.
 
 ## Settings/Admin
 
@@ -103,7 +103,7 @@ Unhandled errors that reach the Express error handler are persisted to `platform
   - `entries`
   - `score`
   - `status`
-  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `classTeacherRules`, `optimization`, `rejections`, `durationMs`)
+  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization`, `rejections`, `durationMs`)
 
 ## Client Integration
 

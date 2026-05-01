@@ -2,6 +2,12 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.6] - 2026-05-01
+
+- Timetable PDF/Excel and grid: **CT** for class-teacher periods (black, subject left / CT right); teacher exports show division **medium code** under Std–Div when configured.
+- Summary reports bundle: division completion **CT** inline after subject name; weekly subject hours use short category labels and language **codes**; shared `shared/reportHoursLabels.js` kept in sync with exports and Reports UI.
+- Pre-push CI parity via Husky (`npm run verify:push`); docs/rules/README updates; export helper cleanup.
+
 ## [1.0.5] - 2026-04-30
 
 - Fixed PostgreSQL compatibility for usage analytics (`/api/usage`) by avoiding `GROUP BY` on the reserved alias `day`; responses keep the same `{ day, count }` shape.

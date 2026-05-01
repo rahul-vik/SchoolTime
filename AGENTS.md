@@ -12,6 +12,7 @@ Build a reliable, practical school timetable system with clear UX, predictable e
    - Frontend: `src/`
    - Backend: `server/`
    - Docs: `docs/`
+   - Shared minimal helpers: `shared/` (importable by server and Vite client when dependency-free)
 2. Do not break core flows:
    - Auth/session
    - Timetable generation
@@ -33,6 +34,8 @@ Build a reliable, practical school timetable system with clear UX, predictable e
 - Maintain parity between in-app timetable intent and PDF/Excel visuals.
 - Use shared schedule context when possible.
 - Preserve break/lunch/free and category styling semantics.
+- Class-teacher **CT** is black, subject row: code left / CT right; teacher exports add medium **code** under **Std …-Div** when set.
+- Report bundle subject-hour labels stay aligned via `shared/reportHoursLabels.js`.
 
 ## Data/DB Safety
 
