@@ -54,6 +54,8 @@ See `LICENSE` for full text.
 - Node.js 18+ (recommended 20+)
 - npm 9+
 
+**Cursor / VS Code:** use **Terminal → Run Build Task** for a root `npm install`, or **Terminal → Run Task…** → **SchoolTime: Run dev stack (API + Web)** to start API + Vite in parallel (see `.vscode/tasks.json`).
+
 ## Quick Start (Local)
 
 1. Install dependencies:

@@ -1,0 +1,37 @@
+---
+description: Fresh clone / Cursor workspace bootstrap and dev stack for SchoolTime
+alwaysApply: true
+---
+
+# Workspace Bootstrap (SchoolTime)
+
+This repo is a **single-root Node.js** app: React + Vite in `src/`, Express API in `server/`, SQLite at `server/data/app.db`. There is no Flutter, Python app server, or pnpm workspace—only **npm** at the repository root.
+
+## Before running, testing, or claiming the app works
+
+1. **Install (same as default build task)**  
+   - Working directory: `${workspaceFolder}` (repo root)  
+   - Command: `npm install`  
+   - If `npm` is missing, tell the user to install **Node.js 18+** (LTS 20+ recommended) from nodejs.org so `node` and `npm` are on PATH—do not pretend the install succeeded.
+
+2. **Environment**  
+   - Copy `.env.example` → `.env` at repo root if `.env` is missing.  
+   - Do not commit secrets; keep local values in `.env` only.
+
+3. **Dev servers (match human workflow)**  
+   Prefer the VS Code / Cursor compound task **“SchoolTime: Run dev stack (API + Web)”**, which starts in parallel:  
+   - API: `npm run dev:server` (from root; listens on port from `PORT`, default **8787**)  
+   - Web: `npm run dev` (Vite; often **5173**, may pick another if busy)  
+   Alternative one-liner already in `package.json`: `npm start` / `npm run dev:all` (runs both via `concurrently`).
+
+4. **Sanity check**  
+   - After API is up: `GET http://localhost:8787/api/health` (or your `PORT` from `.env`).
+
+## Human shortcuts (VS Code / Cursor)
+
+- **Terminal → Run Build Task** — runs **SchoolTime: Install dependencies** (default build).  
+- **Terminal → Run Task…** — pick **SchoolTime: Run dev stack (API + Web)** for local full stack.
+
+## Missing CLIs
+
+If required tooling is absent (no `node`/`npm`, etc.), state what to install and stop—do not claim the app ran.

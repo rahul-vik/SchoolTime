@@ -2,6 +2,10 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.5] - 2026-04-30
+
+- Fixed PostgreSQL compatibility for usage analytics (`/api/usage`) by avoiding `GROUP BY` on the reserved alias `day`; responses keep the same `{ day, count }` shape.
+
 ## [1.0.4] - 2026-04-29
 
 - Added class-teacher uniqueness enforcement so a class can be assigned as class teacher to only one teacher at a time.
