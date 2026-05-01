@@ -9,3 +9,20 @@ alwaysApply: true
 - Keep `.github/workflows/auto-docs-rules.yml` healthy so push events update docs automatically.
 - Use `docs/AUTO_RULES_INTELLIGENCE.md` suggestions to decide whether `.cursor/rules/*.mdc` needs manual updates.
 - Never hand-edit generated auto docs; regenerate instead.
+
+## Git merge conflicts on `AUTO_*` files (why this hits PRs)
+
+- **Cause:** Both your branch **and** `main`/`develop` changed those files—often because **`npm run docs:auto`** or CI regenerated them with different commit snapshots / timestamps. Git cannot merge line-by-line safely.
+- **`verify:push` does not run `docs:auto`** on purpose: it would dirty the working tree after checks without committing, and it **cannot prevent** conflicts when GitHub merges two branches that each committed different `AUTO_*` output.
+
+### Resolve conflicts (always regenerate—never paste manually)
+
+From your branch after `git merge origin/main` (or GitHub “Update branch”) reports conflicts:
+
+```bash
+npm run docs:auto
+git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md
+git commit   # completes the merge / conflict resolution
+```
+
+Then push again.

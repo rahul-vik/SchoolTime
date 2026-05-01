@@ -3,6 +3,12 @@
 - What changed:
 - Why this is needed:
 
+### If GitHub reports conflicts only on auto-docs (`docs/AUTO_CHANGELOG.md`, `docs/AUTO_RULES_INTELLIGENCE.md`)
+
+Regenerate—do not edit conflict markers by hand:
+
+`npm run docs:auto` → `git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md` → commit (finish merge).
+
 ## Scope
 
 - [ ] Frontend (`src/`)

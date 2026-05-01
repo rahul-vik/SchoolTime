@@ -148,6 +148,7 @@ Based on `.env.example`:
 - Disable hooks for a session: `HUSKY=0 git push` (Husky convention).
 - Release/hotfix governance still requires a **SemVer bump above `origin/main`** and `CHANGELOG.md` updates on those branches; hooks cannot infer the next version for you—use `npm run release:prepare` on release/hotfix branches when merging latest main/develop.
 - Auto-generated `docs/AUTO_*.md` files are updated on push to `develop`/`main` by GitHub Actions (`.github/workflows/auto-docs-rules.yml`), not on every local push, to avoid noisy timestamp-only diffs.
+- **Merge conflicts on `docs/AUTO_CHANGELOG.md` or `docs/AUTO_RULES_INTELLIGENCE.md`:** both sides regenerated these files—do not resolve by hand. Run **`npm run docs:auto`**, **`git add`** both paths, then **`git commit`** (merge completion). Pre-push **`verify:push`** intentionally skips `docs:auto` so it does not leave uncommitted changes after a push hook.
 
 ## One-Click Dev Launcher (Windows)
 
