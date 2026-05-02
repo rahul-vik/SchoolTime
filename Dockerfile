@@ -14,6 +14,7 @@ COPY package*.json ./
 COPY scripts/husky-prepare.mjs ./scripts/husky-prepare.mjs
 RUN npm ci --omit=dev
 COPY server ./server
+COPY shared ./shared
 COPY --from=build /app/dist ./dist
 COPY index.html ./index.html
 COPY vite.config.js ./vite.config.js
