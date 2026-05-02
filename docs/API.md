@@ -11,7 +11,12 @@ Auth:
 
 ## Health
 
-- `GET /health`
+- `GET /health` (mounted as **`GET /api/health`** under the app’s API prefix)
+
+Response includes:
+
+- `ok`, `env`, `uptimeSec`, `now`
+- **`release`** — `{ version, buildNumber, buildSha, releaseLabel }` for the **deployed web bundle** (from `dist/schooltime-release.json` when present, else `package.json` + optional `APP_BUILD_NUMBER` / `RENDER_GIT_COMMIT`). The browser compares this to its baked-in build (`__APP_VERSION__` / `__APP_BUILD_NUMBER__` from Vite) to show an “update available” strip in production.
 
 ## Authentication
 
