@@ -25,6 +25,19 @@
 
 const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL);
 
+/** Public `GET /health` — no auth; used for app update detection in production. */
+export async function getPublicHealth() {
+  const url = `${API_BASE}/health`;
+  let res;
+  try {
+    res = await fetch(url, { method: "GET", cache: "no-store" });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
 /** Decode JWT payload (no signature verify) — used only to reject platform tokens stored as school session. */
 function decodeJwtPayload(token) {
   if (!token || typeof token !== "string") return null;

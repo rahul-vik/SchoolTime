@@ -23,6 +23,7 @@ import { createCreatorRoutes } from "./routes/creatorRoutes.js";
 import { insertPlatformError } from "./services/platformErrorLog.js";
 import { ensurePlatformSettingsDefaults } from "./services/platformSettings.js";
 import { ENV } from "./config/env.js";
+import { getAppReleaseMeta } from "./services/appReleaseMeta.js";
 
 await initDb();
 await ensurePlatformSettingsDefaults(db);
@@ -51,11 +52,18 @@ app.use(express.json({ limit: "2mb" }));
 app.use(rateLimit({ windowMs: 60 * 1000, max: RATE_LIMIT_MAX, standardHeaders: true, legacyHeaders: false }));
 
 app.get("/api/health", (_req, res) => {
+  const release = getAppReleaseMeta();
   res.json({
     ok: true,
     env: NODE_ENV,
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     now: new Date().toISOString(),
+    release: {
+      version: release.version,
+      buildNumber: release.buildNumber,
+      buildSha: release.buildSha,
+      releaseLabel: release.releaseLabel,
+    },
   });
 });
 
