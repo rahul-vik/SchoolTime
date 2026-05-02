@@ -27,7 +27,7 @@
     "check:release-governance": "node scripts/check-release-governance.mjs",
     "check:versioning": "node scripts/check-versioning-local.mjs",
     "verify:push": "node scripts/verify-before-push.mjs",
-    "prepare": "husky"
+    "prepare": "node scripts/husky-prepare.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
