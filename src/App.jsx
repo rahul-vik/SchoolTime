@@ -15,6 +15,7 @@ import {
   register as apiRegister,
   saveState as apiSaveState,
   downloadTimetableExport,
+  getPublicHealth,
 } from "./api";
 import schoolTimeLogo from "../logo/SchoolTime_logo.png";
 import { AuthScreen } from "./features/auth/AuthScreen";
@@ -32,9 +33,12 @@ import { TimetableGrid } from "./features/shared/TimetableGrid";
 import { getSlotMeta, parseDivisionInput } from "./features/shared/schedulingHelpers";
 import { SEED } from "./features/timetable/clientEngine";
 import { applyTenantStateWithFallback, buildTenantState } from "./features/timetable/tenantState";
+import { AppUpdateBanner } from "./features/shared/AppUpdateBanner";
+import { getClientReleaseSnapshot, serverReleaseIsNewer } from "./features/shared/appUpdateUtils";
 
 /** Sidebar app-title row and main top bar use the same height so they align edge-to-edge. */
 const APP_HEADER_STRIP_HEIGHT = 76;
+const APP_UPDATE_POLL_MS = 5 * 60 * 1000;
 const APP_VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
 const APP_BUILD_NUMBER = typeof __APP_BUILD_NUMBER__ !== "undefined" ? __APP_BUILD_NUMBER__ : "0";
 const APP_RELEASE_LABEL = typeof __APP_RELEASE_LABEL__ !== "undefined" ? __APP_RELEASE_LABEL__ : `V${APP_VERSION} (${APP_BUILD_NUMBER})`;
@@ -103,6 +107,7 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const notifyTimerRef = useRef(null);
+  const [appUpdateAvailable, setAppUpdateAvailable] = useState(false);
 
   const [school, setSchool] = useState(SEED.school);
   const [mediums, setMediums] = useState(SEED.mediums);
@@ -182,6 +187,34 @@ export default function App() {
     window.addEventListener("schooltime:auth-expired", onAuthExpired);
     return () => window.removeEventListener("schooltime:auth-expired", onAuthExpired);
   }, [notify]);
+
+  useEffect(() => {
+    if (!import.meta.env.PROD) return;
+    const client = getClientReleaseSnapshot();
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const data = await getPublicHealth();
+        if (cancelled || !data?.release) return;
+        setAppUpdateAvailable(serverReleaseIsNewer(data.release, client));
+      } catch {
+        if (!cancelled) setAppUpdateAvailable(false);
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, APP_UPDATE_POLL_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -455,12 +488,26 @@ export default function App() {
     setPage("settings");
   }, []);
 
+  const appUpdateStrip = import.meta.env.PROD && appUpdateAvailable ? <AppUpdateBanner /> : null;
+
   if (authLoading) {
-    return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: T.textMid }}>Loading your school dashboard...</div>;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.surfaceAlt, color: T.text }}>
+        {appUpdateStrip}
+        <div style={{ flex: 1, minHeight: 0, display: "grid", placeItems: "center", color: T.textMid }}>Loading your school dashboard...</div>
+      </div>
+    );
   }
 
   if (!user) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn, Field, css }} branding={{ BRAND_FONT, schoolTimeLogo }} />;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", minHeight: 0, background: T.surfaceAlt, color: T.text }}>
+        {appUpdateStrip}
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} ui={{ T, Input, Btn, Field, css }} branding={{ BRAND_FONT, schoolTimeLogo }} />
+        </div>
+      </div>
+    );
   }
 
   const activeRulesCount = schedulingRules.filter(r => r.isActive).length;
@@ -532,7 +579,9 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: T.surfaceAlt, color: T.text }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.surfaceAlt, color: T.text }}>
+      {appUpdateStrip}
+      <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>
       {notification && <Toast msg={notification.msg} type={notification.type} onDismiss={dismissNotification} />}
 
       {/* Desktop Sidebar */}
@@ -797,6 +846,7 @@ export default function App() {
         ::-webkit-scrollbar { width:5px;height:5px }
         ::-webkit-scrollbar-thumb { background:${T.surfaceBorder};border-radius:3px }
       `}</style>
+      </div>
     </div>
   );
 }

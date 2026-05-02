@@ -2,6 +2,8 @@
 import react from "@vitejs/plugin-react";
 import pkg from "./package.json" assert { type: "json" };
 import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 function safeGit(command, fallback = "unknown") {
   try {
@@ -17,8 +19,27 @@ const buildNumber = safeGit("git rev-list --count HEAD", "0");
 const buildTime = new Date().toISOString();
 const releaseLabel = `V${pkg.version} (${buildNumber})`;
 
+function schooltimeReleaseJsonPlugin() {
+  const meta = {
+    version: pkg.version,
+    buildNumber,
+    buildSha,
+    buildBranch,
+    buildTime,
+    releaseLabel,
+  };
+  return {
+    name: "schooltime-release-json",
+    closeBundle() {
+      const outDir = path.resolve("dist");
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, "schooltime-release.json"), `${JSON.stringify(meta)}\n`, "utf8");
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), schooltimeReleaseJsonPlugin()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_BUILD_NUMBER__: JSON.stringify(buildNumber),
