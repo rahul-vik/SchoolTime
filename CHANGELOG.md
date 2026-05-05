@@ -2,10 +2,11 @@
 
 All notable changes to SchoolTime are documented in this file.
 
-## [1.0.8] - 2026-05-05
+## [1.0.9] - 2026-05-05
 
 - Enforced single-teacher lock for each division-subject during generation so one division cannot receive the same subject from multiple teachers in a run.
 - Updated docs and core rules to clarify deterministic division-subject teacher assignment expectations.
+- Captured session resume activity via refresh-token flow so creator "Last activity" reflects reopen/resume usage.
 
 ## [1.0.7] - 2026-05-05
 
