@@ -12,6 +12,8 @@ alwaysApply: true
 - Prefer small pure helper functions for reusable logic; avoid deeply nested inline logic.
 - Any behavior change must include docs updates in `README.md` or `docs/*`.
 - For user-facing changes, keep wording simple and practical.
+- For admin/creator activity timestamps, use true activity-derived fields (audit/session signals), not entity creation time fallbacks.
+- Capture session-resume activity through audit logging when refresh-token flows represent real user app reopen/resume behavior.
 - Keep exports and scheduling behavior deterministic and reproducible from persisted state.
 - Keep teacher allocation deterministic per run: for the same division+subject, avoid mixing multiple teachers unless explicitly requested as a team-teaching feature.
 - Do not break `npm run dev:all`, `npm run build`, or API compatibility without explicit approval.

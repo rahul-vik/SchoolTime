@@ -901,6 +901,7 @@ export function CreatorApp() {
                       <div style={{ marginTop: 4, fontSize: 12, color: T.textMid }}>{u.email}</div>
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>{u.org_name}</div>
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Created: {formatDateTime(u.created_at)}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Last activity: {formatDateTime(u.last_activity_at, "No activity yet")}</div>
                       <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-end" }}>
                         <Btn size="sm" variant="ghost" iconOnly ariaLabel={`Edit ${u.full_name}`} onClick={() => openEditUser(u)} disabled={busy}><UiIcon name="preferences" size={16} stroke="currentColor" /></Btn>
                         <Btn size="sm" variant="ghost" iconOnly ariaLabel={u.is_active ? `Deactivate ${u.full_name}` : `Activate ${u.full_name}`} onClick={() => toggleUserActive(u)} disabled={busy}><UiIcon name={u.is_active ? "pause" : "play"} size={16} stroke="currentColor" /></Btn>
@@ -919,6 +920,7 @@ export function CreatorApp() {
                     <th style={pt.th}>Org</th>
                     <th style={pt.th}>Active</th>
                     <th style={pt.th}>Created</th>
+                    <th style={pt.th}>Last activity</th>
                     <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
                   </tr>
                 </thead>
@@ -931,6 +933,7 @@ export function CreatorApp() {
                       <td style={pt.td}>{u.org_name}</td>
                       <td style={pt.td}>{u.is_active ? "Yes" : "No"}</td>
                       <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.created_at)}</td>
+                      <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.last_activity_at, "No activity yet")}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
                           <Btn

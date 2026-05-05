@@ -115,7 +115,8 @@ export function createCreatorRoutes(db) {
     }
     const totalRow = await db.get(`SELECT COUNT(*) AS c FROM users u JOIN organizations o ON o.id = u.org_id ${where}`, ...args);
     const rows = await db.all(
-      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name,
+        (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id = u.id) AS last_activity_at
        FROM users u
        JOIN organizations o ON o.id = u.org_id
        ${where}
@@ -303,7 +304,11 @@ export function createCreatorRoutes(db) {
       roleChanged: parsed.data.role !== undefined,
     });
     const row = await db.get(
-      "SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.id = ?",
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name,
+        (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id = u.id) AS last_activity_at
+       FROM users u
+       JOIN organizations o ON o.id = u.org_id
+       WHERE u.id = ?`,
       userId,
     );
     res.json({ ok: true, user: row });

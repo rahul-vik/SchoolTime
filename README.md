@@ -30,6 +30,7 @@ See `LICENSE` for full text.
 ## Features
 
 - Authentication (register/login/refresh/logout/password reset)
+- Session resume activity is captured on token refresh so "Last activity" reflects reopen/resume usage too
 - Role-based access (`owner`, `admin`, etc.)
 - School setup: mediums, standards, divisions
 - Academic setup: subjects, teachers, teacher-division mapping, class-teacher assignment (single class teacher class)
@@ -52,6 +53,7 @@ See `LICENSE` for full text.
   - Visual Excel timetable sheets
 - Usage, licensing credits (schools **request** extra credits from the app; a platform operator **approves** them in `/creator`), API key management, audit logs
 - Optional platform operator portal (`/creator`) for cross-tenant credits, purchase approvals, enrollment, settings, and error logs when server env is configured
+- Platform portal user list includes activity-accurate **Last activity** (derived from user audit actions, not creation time)
 
 ## Prerequisites
 

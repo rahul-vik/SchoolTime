@@ -43,6 +43,7 @@ const SECTION_LABELS = {
 const ACTION_LABELS = {
   ORG_REGISTERED: "Organization account created",
   USER_LOGIN: "User signed in",
+  USER_SESSION_REFRESHED: "Session resumed",
   USER_LOGOUT: "User signed out",
   USER_CREATED: "Team member added",
   USER_UPDATED: "Team member updated",

@@ -16,6 +16,8 @@ Use it for onboarding, daily development, and release decisions.
 - Preserve deterministic timetable/export behavior across runs.
 - Preserve deterministic teacher assignment within a run: do not mix multiple teachers for the same division-subject unless explicitly introducing and documenting a team-teaching rule.
 - Keep user-facing language simple and action-oriented.
+- For operational timestamps shown in admin/creator views (for example "Last activity"), source from real activity records (audit/session actions) rather than creation timestamps.
+- Session refresh/resume should be auditable when it materially represents user activity (for example refresh-token driven app reopen).
 
 ## 2) Branch Model And Workflow
 
