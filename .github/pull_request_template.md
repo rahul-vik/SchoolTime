@@ -3,6 +3,10 @@
 - What changed:
 - Why this is needed:
 
+### Before merging **`develop` → `main`**
+
+On branch **`develop`**, run **`npm run release:sync-develop`** (then commit/push) so auto-generated docs stay aligned with **`main`** and PRs do not stall on `AUTO_*` conflicts. Details: `docs/VERSIONING.md`.
+
 ### If GitHub reports conflicts only on auto-docs (`docs/AUTO_CHANGELOG.md`, `docs/AUTO_RULES_INTELLIGENCE.md`)
 
 Regenerate—do not edit conflict markers by hand:

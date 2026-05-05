@@ -8,6 +8,7 @@ alwaysApply: true
 - When adding features or architecture changes, ensure `npm run docs:auto` still runs successfully.
 - Keep `.github/workflows/auto-docs-rules.yml` healthy so push events update docs automatically.
 - Use `docs/AUTO_RULES_INTELLIGENCE.md` suggestions to decide whether `.cursor/rules/*.mdc` needs manual updates.
+- Keep core manual docs in sync when behavior changes: `README.md`, `docs/BRANCH_POLICY.md`, `docs/VERSIONING.md`, and `docs/AUTONOMOUS_AUTOFIX_POLICY.md`.
 - Never hand-edit generated auto docs; regenerate instead.
 
 ## Git merge conflicts on `AUTO_*` files (why this hits PRs)
@@ -26,3 +27,7 @@ git commit   # completes the merge / conflict resolution
 ```
 
 Then push again.
+
+### Proactive: before `develop` → `main`
+
+On **`develop`**, run **`npm run release:sync-develop`** to merge **`origin/main`** and regenerate `AUTO_*` *before* opening the production PR, so GitHub is less likely to show conflicts. See `docs/VERSIONING.md` and `scripts/sync-develop-with-main.mjs`.

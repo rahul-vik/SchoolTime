@@ -11,6 +11,7 @@ Source branch: `release/x.y.z`
 
 ## Required Validation
 
+- [ ] On `develop`: ran `npm run release:sync-develop` (or merged `main` + `npm run docs:auto`) before opening **`develop` → `main`** so `AUTO_*` files do not conflict (see `docs/VERSIONING.md`)
 - [ ] `npm ci`
 - [ ] `npm run build`
 - [ ] `npm run smoke:prod`
