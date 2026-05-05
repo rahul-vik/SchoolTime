@@ -2,6 +2,11 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.8] - 2026-05-05
+
+- Enforced single-teacher lock for each division-subject during generation so one division cannot receive the same subject from multiple teachers in a run.
+- Updated docs and core rules to clarify deterministic division-subject teacher assignment expectations.
+
 ## [1.0.7] - 2026-05-05
 
 - Added automated post-generation timetable validation with structured findings, safe low-risk auto-fixes, approval-gated handling for higher-risk findings, and audit trail events.
