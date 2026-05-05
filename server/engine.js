@@ -154,6 +154,7 @@ export function runTimetableEngine(data) {
   const teacherWeeklyCount = new Map();
   const subjectWeeklyCount = new Map();
   const subjectDailyCount = new Map();
+  const divisionSubjectTeacherLock = new Map();
   const classTeacherRuleStats = {
     firstPeriodRequested: 0,
     firstPeriodPlaced: 0,
@@ -175,6 +176,7 @@ export function runTimetableEngine(data) {
     SLOT_RULE_BLOCKED: 0,
     SUBJECT_WEEKLY_TARGET_REACHED: 0,
     SUBJECT_MAX_PER_DAY: 0,
+    TEACHER_SUBJECT_LOCK_MISMATCH: 0,
     TEACHER_SLOT_TAKEN: 0,
     TEACHER_FREE_PERIOD_RULE: 0,
     TEACHER_DAILY_CAPACITY: 0,
@@ -192,6 +194,7 @@ export function runTimetableEngine(data) {
   const tWeekKey = (tId) => `${tId}:WEEK`;
   const subWKey = (dId, subId) => `${dId}:${subId}`;
   const subDKey = (dId, subId, day) => `${dId}:${subId}:${day}`;
+  const subTeacherLockKey = (dId, subId) => `${dId}:${subId}`;
 
   const { firstAfterLunch } = getSlotMeta(periodSlots);
   const { firstMorning } = getSlotMeta(periodSlots);
@@ -328,6 +331,8 @@ export function runTimetableEngine(data) {
       if (subWeekCount >= (required || 0)) return { ok: false, reason: "SUBJECT_WEEKLY_TARGET_REACHED" };
       if (subDayCount >= (maxPerDay || 2)) return { ok: false, reason: "SUBJECT_MAX_PER_DAY" };
     }
+    const lockedTeacherId = divisionSubjectTeacherLock.get(subTeacherLockKey(divisionId, subjectId));
+    if (lockedTeacherId && lockedTeacherId !== teacher.id) return { ok: false, reason: "TEACHER_SUBJECT_LOCK_MISMATCH" };
     const teacherSlotCheck = canAssignTeacherForSlot(teacher, day, slotNumber);
     if (!teacherSlotCheck.ok) return teacherSlotCheck;
     if (violatesContinuityLimits(teacher, divisionId, day, slotNumber, subjectId)) return { ok: false, reason: "CONTINUITY_LIMIT" };
@@ -356,6 +361,10 @@ export function runTimetableEngine(data) {
       candidates = explicit.filter(
         (t) => (t.mediumIds || []).includes(div.mediumId) && teacherAllowedInDivision(t, divisionId) && teacherSubjectAllowedInDivision(t, subjectId, divisionId)
       );
+    }
+    const lockedTeacherId = divisionSubjectTeacherLock.get(subTeacherLockKey(divisionId, subjectId));
+    if (lockedTeacherId) {
+      candidates = candidates.filter((t) => t.id === lockedTeacherId);
     }
 
     const rankedCandidates = [...candidates].sort((a, b) => {
@@ -392,6 +401,9 @@ export function runTimetableEngine(data) {
     teacherWeeklyCount.set(tWeekKey(teacherId), (teacherWeeklyCount.get(tWeekKey(teacherId)) || 0) + 1);
     subjectWeeklyCount.set(subWKey(divisionId, subjectId), (subjectWeeklyCount.get(subWKey(divisionId, subjectId)) || 0) + 1);
     subjectDailyCount.set(subDKey(divisionId, subjectId, day), (subjectDailyCount.get(subDKey(divisionId, subjectId, day)) || 0) + 1);
+    if (!divisionSubjectTeacherLock.has(subTeacherLockKey(divisionId, subjectId))) {
+      divisionSubjectTeacherLock.set(subTeacherLockKey(divisionId, subjectId), teacherId);
+    }
   }
 
   function getEligibleSubjectsForTeacherDivision(teacher, divisionId) {

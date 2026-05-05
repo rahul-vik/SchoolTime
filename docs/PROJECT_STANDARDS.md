@@ -14,6 +14,7 @@ Use it for onboarding, daily development, and release decisions.
 - Keep changes minimal, focused, and backward-compatible unless explicitly approved.
 - Never commit secrets. Use `.env` locally and keep `.env.example` current.
 - Preserve deterministic timetable/export behavior across runs.
+- Preserve deterministic teacher assignment within a run: do not mix multiple teachers for the same division-subject unless explicitly introducing and documenting a team-teaching rule.
 - Keep user-facing language simple and action-oriented.
 
 ## 2) Branch Model And Workflow
