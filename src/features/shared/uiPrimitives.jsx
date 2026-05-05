@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export const T = {
   brand: "#1a1a2e", brandMid: "#16213e", accent: "#0f3460",
@@ -141,15 +141,20 @@ export function Select({ label, value, onChange, options, placeholder, error, di
   );
 }
 
-export function Modal({ title, children, onClose, width = 560 }) {
+export function Modal({ title, children, onClose, width = 560, scrollToTopKey }) {
+  const scrollRef = useRef(null);
   useEffect(() => {
     const h = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTo({ top: 0, behavior: "auto" });
+  }, [scrollToTopKey]);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 2000, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 12px", boxSizing: "border-box" }} onClick={onClose}>
-      <div style={{ background: T.surface, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: `min(${typeof width === "number" ? `${width}px` : width}, calc(100vw - 24px))`, maxHeight: "92vh", overflow: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)", animation: "slideUp 0.25s ease", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={scrollRef} style={{ background: T.surface, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: `min(${typeof width === "number" ? `${width}px` : width}, calc(100vw - 24px))`, maxHeight: "92vh", overflow: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)", animation: "slideUp 0.25s ease", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 16px 14px", borderBottom: `1px solid ${T.surfaceBorder}`, position: "sticky", top: 0, background: T.surface, zIndex: 1 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, minWidth: 0, flex: 1 }}>{title}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: T.surfaceAlt, border: "none", cursor: "pointer", color: T.textMid, width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><UiIcon name="close" size={15} stroke={T.textMid} /></button>

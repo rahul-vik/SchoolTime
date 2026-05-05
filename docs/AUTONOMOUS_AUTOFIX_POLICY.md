@@ -45,6 +45,9 @@ Reduce human effort without risking production integrity.
 3. High-risk or oversized change sets are blocked and converted into issues.
 4. All autonomous changes must pass build, smoke, and security checks.
 5. Human-reviewed merge remains mandatory for blocked/high-risk cases.
+6. Timetable validation auto-fix must use strict safe-rule allow-list only.
+7. Medium/high findings must never be auto-applied; they require explicit approval flow.
+8. Auto-fix actions must log before/after deltas in audit metadata for traceability.
 
 ## Workflow Enforcement
 

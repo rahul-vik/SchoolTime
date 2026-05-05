@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { updateMe } from "../../api";
-import { ApiKeysPage, AuditLogsPage, UsageDashboardPage, UsersPage } from "../admin/AdminPages";
+import { ApiKeysPage, AuditLogsPage, UsageDashboardPage, UsersPage, ValidationFindingsPage } from "../admin/AdminPages";
 import { PurchaseCreditsPage } from "../billing/PurchaseCreditsPage";
 import { useBreakpoint } from "../shared/uiPrimitives";
 
@@ -84,6 +84,7 @@ export function SettingsPage({
     { id: "usage", label: "Usage" },
     ...(canManageApiKeys ? [{ id: "api-keys", label: "API Keys" }] : []),
     ...(canViewAudit ? [{ id: "audit", label: "Audit Logs" }] : []),
+    ...(canViewAudit ? [{ id: "validation-findings", label: "Auto Fixing" }] : []),
   ];
   useEffect(() => {
     if (!tabs.some((t) => t.id === settingsTab)) setSettingsTab("profile");
@@ -129,6 +130,7 @@ export function SettingsPage({
       )}
       {settingsTab === "api-keys" && canManageApiKeys && <ApiKeysPage apiKeys={apiKeys} onRefresh={onRefresh} notify={notify} ui={ui} />}
       {settingsTab === "audit" && canViewAudit && <AuditLogsPage logs={logs} setLogs={setLogs} notify={notify} ui={ui} />}
+      {settingsTab === "validation-findings" && canViewAudit && <ValidationFindingsPage notify={notify} ui={ui} />}
     </div>
   );
 }

@@ -24,6 +24,10 @@
 }
 
 const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL);
+const SESSION_REFRESH_SKEW_MS = 2 * 60 * 1000; // refresh 2 minutes before token expiry
+const SESSION_REFRESH_MIN_DELAY_MS = 30 * 1000;
+let sessionRefreshTimer = null;
+let refreshInFlight = null;
 
 /** Public `GET /health` — no auth; used for app update detection in production. */
 export async function getPublicHealth() {
@@ -76,13 +80,41 @@ function getRefreshToken() {
   return localStorage.getItem("tt_refresh_token");
 }
 
+function getTokenExpiryMs(token) {
+  const payload = decodeJwtPayload(token);
+  const expSeconds = Number(payload?.exp || 0);
+  return expSeconds > 0 ? expSeconds * 1000 : null;
+}
+
+function clearSessionRefreshTimer() {
+  if (sessionRefreshTimer) {
+    window.clearTimeout(sessionRefreshTimer);
+    sessionRefreshTimer = null;
+  }
+}
+
+function scheduleSessionRefresh() {
+  clearSessionRefreshTimer();
+  const token = getToken();
+  const refreshToken = getRefreshToken();
+  if (!token || !refreshToken) return;
+  const expiryAtMs = getTokenExpiryMs(token);
+  if (!expiryAtMs) return;
+  const delayMs = Math.max(SESSION_REFRESH_MIN_DELAY_MS, expiryAtMs - Date.now() - SESSION_REFRESH_SKEW_MS);
+  sessionRefreshTimer = window.setTimeout(() => {
+    refreshSession().catch(() => null);
+  }, delayMs);
+}
+
 function setTokens(accessToken, refreshToken) {
   localStorage.setItem("tt_token", accessToken);
   if (refreshToken) localStorage.setItem("tt_refresh_token", refreshToken);
+  scheduleSessionRefresh();
 }
 
 export function clearToken() {
   clearStoredSession();
+  clearSessionRefreshTimer();
 }
 
 function forceLogoutToAuth() {
@@ -111,6 +143,8 @@ async function rawRequest(path, options = {}) {
 }
 
 async function refreshSession() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   const { res, data } = await fetch(`${API_BASE}/auth/refresh`, {
@@ -125,6 +159,12 @@ async function refreshSession() {
   }
   setTokens(data.token, data.refreshToken);
   return true;
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 }
 
 async function request(path, options = {}) {
@@ -200,6 +240,11 @@ export function hasStoredSession() {
   return Boolean(getToken());
 }
 
+// Keep session alive across long-running active usage.
+if (typeof window !== "undefined" && getToken() && getRefreshToken()) {
+  scheduleSessionRefresh();
+}
+
 export function getMe() { return request("/me"); }
 export function updateMe(payload) { return request("/me", { method: "PATCH", body: JSON.stringify(payload) }); }
 export function loadState() { return request("/state"); }
@@ -233,6 +278,19 @@ export function getUsers() { return request("/users", { suppressAutoLogout: true
 export function createUser(payload) { return request("/users", { method: "POST", body: JSON.stringify(payload) }); }
 export function updateUser(id, payload) { return request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); }
 export function getAuditLogs() { return request("/audit-logs", { suppressAutoLogout: true }); }
+export function getValidationFindings(params = {}) {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v) !== "") q.set(k, String(v));
+  });
+  return request(`/validation/findings?${q.toString()}`, { suppressAutoLogout: true });
+}
+export function approveApplyValidationFinding(findingId, runId) {
+  return request(`/validation/findings/${encodeURIComponent(findingId)}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ runId }),
+  });
+}
 export function getAuditLogsFiltered(params = {}) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -324,11 +382,12 @@ function sniffWrongDocumentResponse(buf, contentType) {
   return null;
 }
 
-export async function downloadTimetableExport(type, scope) {
+export async function downloadTimetableExport(type, scope, runId) {
   if (!getToken() && !getRefreshToken()) throw new Error("Not authenticated");
-  const q = new URLSearchParams({ type, scope });
+  const q = new URLSearchParams({ type, scope, t: String(Date.now()) });
+  if (runId) q.set("runId", String(runId));
   const downloadUrl = `${API_BASE}/timetable/download?${q.toString()}`;
-  const res = await fetchWithAuthRetry(downloadUrl, { method: "GET" });
+  const res = await fetchWithAuthRetry(downloadUrl, { method: "GET", cache: "no-store" });
   const contentType = res.headers.get("content-type") || "";
   const buf = await res.arrayBuffer();
 

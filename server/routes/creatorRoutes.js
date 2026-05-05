@@ -437,5 +437,38 @@ export function createCreatorRoutes(db) {
     res.json({ logs: rows });
   });
 
+  router.get("/validation-findings", async (req, res) => {
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100));
+    const orgId = String(req.query.orgId || "").trim() || null;
+    let where = "WHERE a.action = 'TIMETABLE_VALIDATED' AND a.entity_type = 'timetable_run'";
+    const args = [];
+    if (orgId) {
+      where += " AND a.org_id = ?";
+      args.push(orgId);
+    }
+    const rows = await db.all(
+      `SELECT a.entity_id, a.metadata_json, a.created_at, o.name AS org_name, a.org_id
+       FROM audit_logs a
+       JOIN organizations o ON o.id = a.org_id
+       ${where}
+       ORDER BY a.created_at DESC
+       LIMIT ?`,
+      ...args,
+      limit,
+    );
+    const findings = [];
+    for (const row of rows) {
+      let meta = null;
+      try {
+        meta = row.metadata_json ? JSON.parse(row.metadata_json) : null;
+      } catch {
+        meta = null;
+      }
+      const list = Array.isArray(meta?.findings) ? meta.findings : [];
+      for (const f of list) findings.push({ ...f, runId: row.entity_id, orgId: row.org_id, orgName: row.org_name, validationLoggedAt: row.created_at });
+    }
+    res.json({ findings, total: findings.length });
+  });
+
   return router;
 }

@@ -41,6 +41,8 @@
 
 ## Release Checklist
 
+Before merging **`develop` into `main`**, run **`npm run release:sync-develop`** on **`develop`** (or merge `main` and run `npm run docs:auto` on `docs/AUTO_*`) so generated docs do not block the PR. See `docs/VERSIONING.md` → *Integrating develop into main*.
+
 1. Create `release/x.y.z` from `develop`
 2. Set `package.json` version to `x.y.z` and update `CHANGELOG.md`
 3. Stabilize with bug fixes only
@@ -65,7 +67,7 @@
 When team members say "push to prod" or "release to prod", the expected workflow is:
 
 1. Prepare/update `release/x.y.z` (or `hotfix/x.y.z`) branch.
-2. Run release checks (`npm run check:versioning`, `npm run build`, `npm run smoke:prod`, docs/rules update).
+2. Run release checks (`npm run check:versioning`, `npm run test:backend:validation`, `npm run build`, `npm run smoke:prod`, docs/rules update).
    - Include `npm run release:prepare` before pushing release/hotfix branches.
 3. Commit and push the release/hotfix branch.
 4. Raise and merge PR to `main` (no direct push to `main`).

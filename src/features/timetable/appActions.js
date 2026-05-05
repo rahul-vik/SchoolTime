@@ -14,6 +14,7 @@ export function generateTimetableFlow({
   navigate,
   onSuccess,
 }) {
+  setTimetable(null);
   setTimetableStatus("GENERATING");
   setGeneratingProgress(0);
   const iv = setInterval(
@@ -25,7 +26,13 @@ export function generateTimetableFlow({
     try {
       const resp = await apiGenerateTimetable(payload);
       setGeneratingProgress(100);
-      setTimetable(resp.timetable);
+      setTimetable({
+        ...resp.timetable,
+        runId: resp.timetable?.runId || resp.runId || null,
+        generatedAt: resp.timetable?.generatedAt || resp.createdAt || null,
+        sourceState: resp.timetable?.sourceState || payload,
+        manualEdits: [],
+      });
       setCreditsRemaining(resp.license?.creditsRemaining ?? creditsRemaining);
       setTimetableStatus("GENERATED");
       await onSuccess?.(resp);
@@ -70,6 +77,9 @@ export function swapTimetableCells({
     return;
   }
   setTimetable((prev) => {
+    if (!prev?.entries) return prev;
+    const fromEntry = pendingSwap;
+    const toEntry = entry;
     const newEntries = prev.entries.map((e) => {
       if (
         e.divisionId === pendingSwap.divisionId &&
@@ -83,10 +93,36 @@ export function swapTimetableCells({
       ) return { ...e, subjectId: pendingSwap.subjectId, teacherId: pendingSwap.teacherId };
       return e;
     });
-    return { ...prev, entries: newEntries };
+    const now = new Date().toISOString();
+    const nextEdit = {
+      id: `edit-${Date.now()}`,
+      type: "SWAP",
+      editedAt: now,
+      from: {
+        divisionId: fromEntry.divisionId,
+        dayOfWeek: fromEntry.dayOfWeek,
+        slotNumber: fromEntry.slotNumber,
+        subjectId: fromEntry.subjectId || null,
+        teacherId: fromEntry.teacherId || null,
+      },
+      to: {
+        divisionId: toEntry.divisionId,
+        dayOfWeek: toEntry.dayOfWeek,
+        slotNumber: toEntry.slotNumber,
+        subjectId: toEntry.subjectId || null,
+        teacherId: toEntry.teacherId || null,
+      },
+    };
+    const manualEdits = [...(prev.manualEdits || []), nextEdit];
+    const nextReport = {
+      ...(prev.report || {}),
+      manualEditCount: manualEdits.length,
+      lastManualEditAt: now,
+    };
+    return { ...prev, entries: newEntries, manualEdits, report: nextReport };
   });
   setPendingSwap(null);
-  notify("Slots swapped");
+  notify("Slots swapped and logged");
 }
 
 export async function queueExportFlow({ type, scope, setExportJobs, notify, downloadExport }) {

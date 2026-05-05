@@ -18,19 +18,42 @@ export function parseDivisionInput(input) {
   const results = [];
   const errors = [];
   lines.forEach((line, i) => {
-    const parts = line.split(/\s+/);
-    const standardName = parts[0];
+    const normalizedLine = String(line)
+      .replace(/\s*-\s*/g, "-")
+      .replace(/\s*,\s*/g, ",")
+      .replace(/\s+/g, " ")
+      .trim();
+    let parts = normalizedLine.split(" ");
+    let standardName = parts[0];
+    let spec = parts.slice(1).join("");
+    // Support compact forms like "4A-C" (standard + division spec without space).
+    if (!spec) {
+      const compact = standardName.match(/^(\d+)([A-Za-z].*)$/);
+      if (compact) {
+        standardName = compact[1];
+        spec = compact[2];
+      }
+    }
     if (!standardName) { errors.push({ line, lineNumber: i + 1, message: "Missing standard name" }); return; }
     let divs = ["A"];
-    if (parts[1]) {
-      const spec = parts[1];
-      if (spec.includes("-")) {
-        const [s, e] = spec.split("-");
-        if (s && e) divs = Array.from({ length: e.charCodeAt(0) - s.charCodeAt(0) + 1 }, (_, j) => String.fromCharCode(s.charCodeAt(0) + j));
-      } else if (spec.includes(",")) {
-        divs = spec.split(",").map((d) => d.trim()).filter(Boolean);
+    if (spec) {
+      const upperSpec = spec.toUpperCase();
+      if (upperSpec.includes("-")) {
+        const [s, e] = upperSpec.split("-");
+        if (s && e) {
+          const start = s.charCodeAt(0);
+          const end = e.charCodeAt(0);
+          if (end >= start) {
+            divs = Array.from({ length: end - start + 1 }, (_, j) => String.fromCharCode(start + j));
+          } else {
+            errors.push({ line, lineNumber: i + 1, message: "Invalid division range" });
+            return;
+          }
+        }
+      } else if (upperSpec.includes(",")) {
+        divs = upperSpec.split(",").map((d) => d.trim()).filter(Boolean);
       } else {
-        divs = [spec];
+        divs = [upperSpec];
       }
     }
     results.push({ standardName, divisions: divs });

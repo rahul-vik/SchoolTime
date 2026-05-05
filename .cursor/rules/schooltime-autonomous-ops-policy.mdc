@@ -8,4 +8,6 @@ alwaysApply: true
 - Never auto-apply high-risk fixes in auth, billing, DB, migration, or deploy-critical files.
 - Require PR-based delivery for all autonomous fixes; never direct-push risky logic.
 - If risk is medium/high, auto-open an issue with context and request human review.
+- For timetable validation findings, allow auto-apply only for explicit safe-rule allow-list checks.
+- Never auto-apply medium/high timetable findings; require explicit approval path and audit trail.
 - Keep `docs/AUTONOMOUS_AUTOFIX_POLICY.md` aligned with workflow guardrails and risk logic.

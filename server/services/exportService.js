@@ -625,7 +625,7 @@ async function createPdfReportsExport(state, entries) {
     const cells = [
       reportSubjectHoursSubjectLabel(sh.sub),
       reportSubjectHoursCategoryShort(sh.sub.category),
-      String(sh.sub.weeklyPeriods ?? ""),
+      String(sh.requiredLabel ?? sh.sub.weeklyPeriods ?? ""),
       ...standards.map((s) => (sh.byStd[s.name] != null ? String(sh.byStd[s.name]) : "—")),
     ];
     cells.forEach((cell, i) => {
@@ -1160,20 +1160,55 @@ function buildReportRows(state, entries) {
   const divisions = state.divisions || [];
   const standards = state.standards || [];
   const teachers = state.teachers || [];
+  const subjectAppliesToDivision = (sub, div) => {
+    if (!sub || !div) return false;
+    if (!(sub.standardIds || []).includes(div.standardId)) return false;
+    if (!(sub.mediumIds || []).includes(div.mediumId)) return false;
+    const scopeMode = sub.divisionScopeMode === "CUSTOM_DIVISION_OVERRIDES" ? "CUSTOM_DIVISION_OVERRIDES" : "ALL_IN_SELECTED_CLASSES";
+    if (scopeMode === "ALL_IN_SELECTED_CLASSES") return true;
+    const includeIds = sub.divisionIncludeIds || [];
+    const excludeIds = sub.divisionExcludeIds || [];
+    if (includeIds.length > 0) return includeIds.includes(div.id);
+    if (excludeIds.length > 0) return !excludeIds.includes(div.id);
+    return true;
+  };
+  const getDivisionRequiredWeekly = (sub, divisionId) => {
+    const limit = (sub.divisionLimits || []).find((dl) => dl.divisionId === divisionId);
+    return limit?.weeklyPeriods !== undefined ? Math.max(1, Number(limit.weeklyPeriods) || 1) : Math.max(1, Number(sub.weeklyPeriods) || 1);
+  };
 
   const subjectHours = subjects.map((sub) => {
     const byStd = {};
+    const reqByStd = {};
+    let totalRequiredAll = 0;
+    let eligibleDivCountAll = 0;
     standards.forEach((std) => {
-      const divs = divisions.filter((d) => d.standardId === std.id);
-      const total = divs.reduce((acc, div) => acc + entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length, 0);
-      if (total > 0) byStd[std.name] = Math.round(total / Math.max(divs.length, 1));
+      const eligibleDivs = divisions.filter((d) => d.standardId === std.id && subjectAppliesToDivision(sub, d));
+      if (eligibleDivs.length === 0) return;
+      const totalGot = eligibleDivs.reduce((acc, div) => acc + entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length, 0);
+      const totalReq = eligibleDivs.reduce((acc, div) => acc + getDivisionRequiredWeekly(sub, div.id), 0);
+      byStd[std.name] = Math.round(totalGot / Math.max(eligibleDivs.length, 1));
+      reqByStd[std.name] = Math.round(totalReq / Math.max(eligibleDivs.length, 1));
+      totalRequiredAll += totalReq;
+      eligibleDivCountAll += eligibleDivs.length;
     });
-    return { sub, byStd };
+    const requiredAvg = eligibleDivCountAll > 0 ? Math.round(totalRequiredAll / eligibleDivCountAll) : Math.max(1, Number(sub.weeklyPeriods) || 1);
+    const requiredLabel = (sub.divisionLimits || []).length > 0 ? `${requiredAvg} avg` : String(requiredAvg);
+    return { sub, byStd, reqByStd, requiredAvg, requiredLabel };
   });
 
   const teacherWorkload = teachers.map((t) => {
     const assigned = entries.filter((e) => e.teacherId === t.id).length;
-    const max = t.maxPerWeek || 30;
+    const lessonSlots = (state.periodSlots || []).filter((s) => s.slotType === "LESSON");
+    const lunchNums = (state.periodSlots || []).filter((s) => s.slotType === "LUNCH").map((s) => s.slotNumber);
+    const firstAfterLunch = lunchNums.length > 0
+      ? lessonSlots.filter((s) => s.slotNumber > Math.max(...lunchNums)).sort((a, b) => a.slotNumber - b.slotNumber)[0]?.slotNumber ?? null
+      : null;
+    const morningLessonCount = lessonSlots.filter((s) => (firstAfterLunch ? s.slotNumber < firstAfterLunch : s.slotNumber <= Math.ceil(lessonSlots.length / 2))).length;
+    const eveningLessonCount = lessonSlots.length - morningLessonCount;
+    const derivedMaxPerDay = Math.max(0, Math.min(lessonSlots.length, Math.max(0, morningLessonCount - Number(t.freeMorningPeriods || 0)) + Math.max(0, eveningLessonCount - Number(t.freeEveningPeriods || 0))));
+    const derivedMaxPerWeek = Math.max(30, derivedMaxPerDay * ((state.workingDays || []).length || 0));
+    const max = Math.max(1, Number(t.maxPerWeek || 0) > 0 ? Number(t.maxPerWeek) : derivedMaxPerWeek);
     const pct = Math.round((assigned / max) * 100);
     const ctCount = (t.classTeacherDivisionIds || []).length;
     return { t, assigned, max, pct, ctCount };
@@ -1181,13 +1216,13 @@ function buildReportRows(state, entries) {
 
   const divisionCompletion = divisions.map((div) => {
     const std = standards.find((s) => s.id === div.standardId);
-    const divSubjects = subjects.filter((s) => (s.standardIds || []).includes(div.standardId));
+    const divSubjects = subjects.filter((s) => subjectAppliesToDivision(s, div));
     const ctTeacher = classTeacherForDivision(state, div.id);
     const ctSubject = classTeacherPrimarySubject(ctTeacher, subjects);
     const ctPrimaryId = ctSubject?.id ?? null;
     const scheduled = divSubjects.map((sub) => ({
       sub,
-      required: sub.weeklyPeriods,
+      required: getDivisionRequiredWeekly(sub, div.id),
       got: entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length,
       showCtBadge: Boolean(ctPrimaryId && ctPrimaryId === sub.id),
     }));
@@ -1288,12 +1323,12 @@ async function createExcelExport(scope, state, entries) {
       cell.border = hBorder;
       cell.alignment = { vertical: "middle", horizontal: "left" };
     });
-    subFiltered.forEach(({ sub, byStd }, idx) => {
+    subFiltered.forEach(({ sub, byStd, reqByStd, requiredLabel, requiredAvg }, idx) => {
       const row = subjectSheet.getRow(4 + idx);
       row.values = [
         reportSubjectHoursSubjectLabel(sub),
         reportSubjectHoursCategoryShort(sub.category),
-        sub.weeklyPeriods,
+        requiredLabel,
         ...standards.map((s) => (byStd[s.name] != null ? byStd[s.name] : "")),
       ];
       const fill = zebra[idx % 2];
@@ -1302,7 +1337,8 @@ async function createExcelExport(scope, state, entries) {
         cell.border = cellBorder;
         cell.font = { name: "Calibri", size: 10, color: { argb: "FF4A4A6A" } };
         if (colNumber >= 4) {
-          const req = Number(sub.weeklyPeriods) || 0;
+          const stdName = standards[colNumber - 4]?.name;
+          const req = Number((stdName && reqByStd?.[stdName] != null) ? reqByStd[stdName] : requiredAvg) || 0;
           const v = cell.value;
           const n = v === "" || v == null ? null : Number(v);
           if (n != null && !Number.isNaN(n)) {

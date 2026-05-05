@@ -2,6 +2,41 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+const subjectScopeModeSchema = z.enum(["ALL_IN_SELECTED_CLASSES", "CUSTOM_DIVISION_OVERRIDES"]);
+const subjectSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  code: z.string().min(1),
+  category: z.string().min(1),
+  weeklyPeriods: z.number().int().min(1).max(20),
+  maxPerDay: z.number().int().min(1).max(10).nullable().optional(),
+  priorityWeight: z.number().int().min(1).max(10),
+  colorHex: z.string().min(1).optional(),
+  mediumIds: z.array(z.string().min(1)),
+  standardIds: z.array(z.string().min(1)),
+  divisionScopeMode: subjectScopeModeSchema.optional(),
+  divisionIncludeIds: z.array(z.string().min(1)).optional(),
+  divisionExcludeIds: z.array(z.string().min(1)).optional(),
+  divisionLimits: z
+    .array(
+      z.object({
+        divisionId: z.string().min(1),
+        weeklyPeriods: z.number().int().min(1).max(20).optional(),
+        maxPerDay: z.number().int().min(1).max(10).optional(),
+      })
+    )
+    .optional(),
+  isActive: z.boolean().optional(),
+});
+
+const classTeacherPreferencesSchema = z.object({
+  enabled: z.boolean().optional(),
+  dailyPrimaryMinPeriods: z.number().int().min(0).max(2).optional(),
+  schedulingMode: z.enum(["STRICT", "BEST_FIT", "OPTIMAL"]).optional(),
+  firstPeriodMode: z.string().optional(), // backward-compatible legacy field
+  ctFirstPeriodDays: z.array(z.string().min(1)).optional(),
+});
+
 export const schemas = {
   registerSchema: z.object({ orgName: z.string().min(2), fullName: z.string().min(2), email: z.string().email(), password: z.string().min(6) }),
   loginSchema: z.object({ email: z.string().email(), password: z.string().min(1) }),
@@ -21,9 +56,9 @@ export const schemas = {
   resetConfirmSchema: z.object({ token: z.string().min(20), newPassword: z.string().min(6) }),
   apiKeyCreateSchema: z.object({ name: z.string().min(2).max(80) }),
   tenantStateSchema: z.object({
-    school: z.any(), mediums: z.array(z.any()), standards: z.array(z.any()), divisions: z.array(z.any()), subjects: z.array(z.any()),
+    school: z.any(), mediums: z.array(z.any()), standards: z.array(z.any()), divisions: z.array(z.any()), subjects: z.array(subjectSchema),
     teachers: z.array(z.any()), periodSlots: z.array(z.any()), workingDays: z.array(z.any()), schedulingRules: z.array(z.any()),
-    classTeacherPreferences: z.any().optional(),
+    classTeacherPreferences: classTeacherPreferencesSchema.optional(),
     exportJobs: z.array(z.any()).optional(),
     lastGeneratedTimetable: z.any().nullable().optional(),
     teacherSubjects: z.array(z.any()).optional(), freePeriodRules: z.array(z.any()).optional(), subjectAllocations: z.array(z.any()).optional(),

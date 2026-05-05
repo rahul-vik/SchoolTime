@@ -20,6 +20,7 @@ import { createApiKeyRoutes } from "./routes/apiKeyRoutes.js";
 import { createB2BRoutes } from "./routes/b2bRoutes.js";
 import { createCreatorAuthRoutes } from "./routes/creatorAuthRoutes.js";
 import { createCreatorRoutes } from "./routes/creatorRoutes.js";
+import { createValidationRoutes } from "./routes/validationRoutes.js";
 import { insertPlatformError } from "./services/platformErrorLog.js";
 import { ensurePlatformSettingsDefaults } from "./services/platformSettings.js";
 import { ENV } from "./config/env.js";
@@ -84,6 +85,7 @@ app.use("/api", authMiddleware, createUsageRoutes(db));
 app.use("/api", authMiddleware, requirePermission(db, "canManageCredits"), createLicenseRoutes(db));
 app.use("/api", authMiddleware, requirePermission(db, "canManageApiKeys"), createApiKeyRoutes(db));
 app.use("/api", authMiddleware, requirePermission(db, "canViewAudit"), createAuditRoutes(db));
+app.use("/api", authMiddleware, createValidationRoutes(db));
 app.use("/api", apiKeyAuthMiddleware(db), createB2BRoutes(db));
 
 app.use(async (err, req, res, next) => {

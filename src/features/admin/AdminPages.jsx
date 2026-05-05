@@ -1,6 +1,7 @@
-﻿import { useState } from "react";
-import { createApiKey, createUser, exportAuditLogsCsv, getAuditLogsFiltered, revokeApiKey, updateUser } from "../../api";
+﻿import { useEffect, useState } from "react";
+import { approveApplyValidationFinding, createApiKey, createUser, exportAuditLogsCsv, getAuditLogsFiltered, getValidationFindings, revokeApiKey, updateUser } from "../../api";
 import { useBreakpoint } from "../shared/uiPrimitives";
+import { formatDateTimeIndian } from "../shared/dateTimeFormat";
 
 const CREDIT_REASON_LABELS = {
   TRIAL_SIGNUP: "Free signup credits added",
@@ -125,7 +126,7 @@ export function UsageDashboardPage({ usageData, navigate, ui }) {
                 <span>
                   <div>{getCreditReasonLabel(l.reason)}</div>
                   <div style={{ fontSize: 11, color: T.textSoft, marginTop: 2 }}>
-                    {l.created_at ? new Date(l.created_at).toLocaleString() : ""}
+                    {formatDateTimeIndian(l.created_at, "")}
                   </div>
                 </span>
                 <span style={{ color: l.delta > 0 ? T.success : T.danger, fontWeight: 700 }}>{l.delta > 0 ? `+${l.delta}` : l.delta}</span>
@@ -278,7 +279,7 @@ export function ApiKeysPage({ apiKeys, onRefresh, notify, ui }) {
               <div key={k.id} style={{ background: T.surfaceAlt, borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{k.name}</div>
-                  <div style={{ fontSize: 11, color: T.textSoft }}>{k.key_prefix}... · last used: {k.last_used_at ? new Date(k.last_used_at).toLocaleString() : "never"}</div>
+                  <div style={{ fontSize: 11, color: T.textSoft }}>{k.key_prefix}... · last used: {k.last_used_at ? formatDateTimeIndian(k.last_used_at, "never") : "never"}</div>
                 </div>
                 {k.revoked_at ? <span style={css.badge(T.danger)}>Revoked</span> : <Btn variant="ghost" size="sm" onClick={() => revoke(k.id)} style={{ color: T.danger }}>Revoke</Btn>}
               </div>
@@ -354,7 +355,87 @@ export function AuditLogsPage({ logs, setLogs, notify, ui }) {
                 <div style={{ fontSize: 11, color: T.textSoft }}>{getSectionLabel(l.entity_type)}</div>
                 <div style={{ fontSize: 11, color: T.textSoft }}>{l.full_name || "System"}</div>
               </div>
-              <div style={{ fontSize: 11, color: T.textSoft, whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: T.textSoft, whiteSpace: "nowrap" }}>{formatDateTimeIndian(l.created_at)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ValidationFindingsPage({ notify, ui }) {
+  const { css, T, Btn } = ui;
+  const [busy, setBusy] = useState(false);
+  const [items, setItems] = useState([]);
+  const [filters, setFilters] = useState({ risk: "", status: "" });
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const out = await getValidationFindings({ ...filters, limit: 200 });
+      setItems(out.findings || []);
+    } catch (err) {
+      notify(err.message || "Failed to load findings", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const applyFix = async (finding) => {
+    if (!finding?.findingId || !finding?.runId) return;
+    setBusy(true);
+    try {
+      const out = await approveApplyValidationFinding(finding.findingId, finding.runId);
+      notify(out.applied ? "Approved fix applied" : "Approved; manual remediation required", out.applied ? "success" : "warning");
+      await load();
+    } catch (err) {
+      notify(err.message || "Could not apply fix", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={css.card}>
+      <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Auto Fixing</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 12 }}>
+        <select value={filters.risk} onChange={(e) => setFilters((p) => ({ ...p, risk: e.target.value }))} style={css.input}>
+          <option value="">All risks</option>
+          <option value="LOW">Low</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="HIGH">High</option>
+        </select>
+        <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} style={css.input}>
+          <option value="">All statuses</option>
+          <option value="PENDING_REVIEW">Pending review</option>
+          <option value="AUTO_APPLIED">Auto applied</option>
+        </select>
+        <Btn variant="ghost" onClick={load} disabled={busy}>{busy ? "..." : "Refresh"}</Btn>
+      </div>
+      {items.length === 0 ? (
+        <p style={{ margin: 0, fontSize: 12, color: T.textSoft }}>No auto-fixing items.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {items.map((f) => (
+            <div key={`${f.runId}-${f.findingId}`} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 8, padding: "10px 12px", background: T.surfaceAlt }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{f.title || f.code}</div>
+                  <div style={{ fontSize: 11, color: T.textSoft }}>{f.message}</div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: T.textSoft }}>Run: {f.runId}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={css.badge(f.risk === "HIGH" ? T.danger : f.risk === "MEDIUM" ? T.warning : T.info)}>{f.risk || "LOW"}</span>
+                  {(f.status === "PENDING_REVIEW" || f.status === "AUTO_APPLY_ELIGIBLE") ? (
+                    <Btn size="sm" onClick={() => applyFix(f)} disabled={busy}>Approve & Apply</Btn>
+                  ) : null}
+                </div>
+              </div>
             </div>
           ))}
         </div>

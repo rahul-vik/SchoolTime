@@ -118,7 +118,7 @@ export default function App() {
   const [periodSlots, setPeriodSlots] = useState(SEED.periodSlots);
   const [workingDays, setWorkingDays] = useState(SEED.workingDays);
   const [schedulingRules, setSchedulingRules] = useState(SEED.schedulingRules);
-  const [classTeacherPreferences, setClassTeacherPreferences] = useState(SEED.classTeacherPreferences || { enabled: false, firstPeriodMode: "DISABLED", dailyPrimaryMinPeriods: 0 });
+  const [classTeacherPreferences, setClassTeacherPreferences] = useState(SEED.classTeacherPreferences || { enabled: false, ctFirstPeriodDays: [], dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" });
   const [teacherSubjects] = useState([]);
   const [freePeriodRules] = useState([]);
   const [subjectAllocations] = useState([]);
@@ -465,18 +465,18 @@ export default function App() {
       scope,
       setExportJobs,
       notify,
-      downloadExport: downloadTimetableExport,
+      downloadExport: (exportType, exportScope) => downloadTimetableExport(exportType, exportScope, timetable?.runId),
     });
-  }, [notify]);
+  }, [notify, timetable?.runId]);
 
   const downloadExportNow = useCallback(async (type, scope) => {
     try {
-      await downloadTimetableExport(type, scope);
+      await downloadTimetableExport(type, scope, timetable?.runId);
       notify(`${type} file downloaded`);
     } catch (error) {
       notify(error.message || "Download failed", "danger");
     }
-  }, [notify]);
+  }, [notify, timetable?.runId]);
 
   const removeExportJob = useCallback((jobId) => {
     setExportJobs((prev) => prev.filter((j) => j.id !== jobId));
@@ -519,8 +519,8 @@ export default function App() {
       { id: "setup",     label: "School Setup", iconKey: "school" },
       { id: "standards", label: "Standards",   iconKey: "standards" },
       { id: "subjects",  label: "Subjects",    iconKey: "subjects" },
-      { id: "teachers",  label: "Teachers",    iconKey: "teachers" },
       { id: "periods",   label: "Periods",     iconKey: "periods" },
+      { id: "teachers",  label: "Teachers",    iconKey: "teachers" },
       { id: "rules",     label: "Preferences", iconKey: "preferences", badge: activeRulesCount },
     ] : []),
     ...(canManageConfig ? [{ id: "generate", label: "Create", iconKey: "create" }] : []),
@@ -552,7 +552,7 @@ export default function App() {
       />;
       case "setup":      return <SetupPage school={school} setSchool={setSchool} mediums={mediums} setMediums={setMediums} workingDays={workingDays} setWorkingDays={setWorkingDays} notify={notify} onConfirmSave={(nextSchool) => saveTenantStateNow({ schoolOverride: nextSchool, section: "setup" }).catch(() => null)} ui={{ T, css, Btn, Input, Select }} />;
       case "standards":  return <StandardsPage standards={standards} setStandards={setStandards} divisions={divisions} setDivisions={setDivisions} mediums={mediums} notify={notify} helpers={{ parseDivisionInput, DivisionPill }} ui={{ T, css, Btn, Input, Select, Modal, EmptyState }} />;
-      case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
+      case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} divisions={divisions} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
       case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;
       case "periods":    return <PeriodsPage periodSlots={periodSlots} setPeriodSlots={setPeriodSlots} notify={notify} ui={{ T, css, Btn, Modal, Input, Select, Field }} />;
       case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field }} />;

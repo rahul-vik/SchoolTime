@@ -53,19 +53,30 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
   const { getSlotMeta } = helpers;
   const { isMobile } = useBreakpoint();
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ subjectId: "", ruleType: "BOTH_BOUNDARY", isActive: true, note: "", slotNumber: "", dayOfWeek: "" });
+  const [form, setForm] = useState({ subjectId: "", enableExcludeSlot: true, enableExcludeDay: false, isActive: true, note: "", slotTargets: [], dayTargets: [] });
   const { firstMorning, firstAfterLunch, lastLesson, lessonSlots } = useMemo(() => getSlotMeta(periodSlots), [periodSlots, getSlotMeta]);
-
   const ruleTypeOpts = [
-    { value: "NOT_FIRST_MORNING", label: "Not first morning period" },
-    { value: "NOT_FIRST_AFTER_LUNCH", label: "Not first period after lunch" },
-    { value: "BOTH_BOUNDARY", label: "Both boundaries (not first / first-after-lunch / last)" },
-    { value: "EXCLUDE_SLOT", label: "Exclude a specific slot number" },
-    { value: "EXCLUDE_DAY", label: "Exclude a specific day" },
+    { value: "EXCLUDE_SLOT", label: "Excluded Slot Set" },
+    { value: "EXCLUDE_DAY", label: "Exclude Day" },
   ];
+
   const ruleColors = { NOT_FIRST_MORNING: T.warning, NOT_FIRST_AFTER_LUNCH: T.info, BOTH_BOUNDARY: T.gold, EXCLUDE_SLOT: T.danger, EXCLUDE_DAY: "#8b5cf6" };
 
   const ruleDesc = (rule) => {
+    const slotPresetLabel = {
+      FIRST_MORNING: `Slot ${firstMorning} (first morning)`,
+      FIRST_AFTER_LUNCH: firstAfterLunch ? `Slot ${firstAfterLunch} (first after lunch)` : "First after lunch (not available)",
+      LAST_LESSON: `Slot ${lastLesson} (last lesson)`,
+      FIRST_MORNING_AND_FIRST_AFTER_LUNCH: firstAfterLunch ? `Slot ${firstMorning} + Slot ${firstAfterLunch}` : `Slot ${firstMorning}`,
+      FIRST_MORNING_AND_LAST_LESSON: `Slot ${firstMorning} + Slot ${lastLesson}`,
+      FIRST_AFTER_LUNCH_AND_LAST_LESSON: firstAfterLunch ? `Slot ${firstAfterLunch} + Slot ${lastLesson}` : `Slot ${lastLesson}`,
+      FIRST_MORNING_AND_FIRST_AFTER_LUNCH_AND_LAST_LESSON: firstAfterLunch ? `Slot ${firstMorning} + Slot ${firstAfterLunch} + Slot ${lastLesson}` : `Slot ${firstMorning} + Slot ${lastLesson}`,
+    };
+    const slotTargetLabel = {
+      FIRST_MORNING: "First morning",
+      FIRST_AFTER_LUNCH: "First after lunch",
+      LAST_LESSON: "Last lesson",
+    };
     switch (rule.ruleType) {
       case "NOT_FIRST_MORNING": return `Cannot be placed in slot ${firstMorning} (first morning)`;
       case "NOT_FIRST_AFTER_LUNCH": return firstAfterLunch ? `Cannot be placed in slot ${firstAfterLunch} (first after lunch)` : "No lunch break found";
@@ -75,36 +86,80 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
         p.push(`Slot ${lastLesson} (last lesson)`);
         return `Excluded from: ${p.join(", ")}`;
       }
-      case "EXCLUDE_SLOT": return rule.slotNumber ? `Excluded from slot number ${rule.slotNumber}` : "No slot specified";
-      case "EXCLUDE_DAY": return rule.dayOfWeek ? `Not scheduled on ${rule.dayOfWeek}` : "No day specified";
+      case "EXCLUDE_SLOT":
+        if (Array.isArray(rule.slotTargets) && rule.slotTargets.length > 0) {
+          return `Excluded from: ${rule.slotTargets.map((s) => slotTargetLabel[s] || s).join(", ")}`;
+        }
+        if (rule.slotPreset) return `Excluded from: ${slotPresetLabel[rule.slotPreset] || rule.slotPreset}`;
+        return rule.slotNumber ? `Excluded from slot number ${rule.slotNumber}` : "No slot specified";
+      case "EXCLUDE_DAY":
+        if (Array.isArray(rule.dayOfWeekList) && rule.dayOfWeekList.length > 0) return `Not scheduled on: ${rule.dayOfWeekList.join(", ")}`;
+        return rule.dayOfWeek ? `Not scheduled on ${rule.dayOfWeek}` : "No day specified";
       default: return "";
     }
   };
 
-  const suggested = useMemo(() => subjects.filter((sub) => sub.category === "EXTRA_CURRICULAR" && !schedulingRules.some((r) => r.subjectId === sub.id && (r.ruleType === "BOTH_BOUNDARY" || r.ruleType === "NOT_FIRST_MORNING") && r.isActive)), [subjects, schedulingRules]);
+  const suggested = [];
+  const openCombinedPreferenceModal = (subjectId) => {
+    const existingSlot = schedulingRules.find((r) => r.subjectId === subjectId && r.ruleType === "EXCLUDE_SLOT");
+    const existingDay = schedulingRules.find((r) => r.subjectId === subjectId && r.ruleType === "EXCLUDE_DAY");
+    setForm({
+      subjectId: subjectId || subjects[0]?.id || "",
+      enableExcludeSlot: Boolean(existingSlot),
+      enableExcludeDay: Boolean(existingDay),
+      isActive: (existingSlot?.isActive ?? existingDay?.isActive) !== false,
+      note: existingSlot?.note || existingDay?.note || "",
+      slotTargets: Array.isArray(existingSlot?.slotTargets)
+        ? existingSlot.slotTargets
+        : existingSlot?.slotPreset
+          ? existingSlot.slotPreset.split("_AND_")
+          : [],
+      dayTargets: Array.isArray(existingDay?.dayOfWeekList)
+        ? existingDay.dayOfWeekList
+        : existingDay?.dayOfWeek
+          ? [existingDay.dayOfWeek]
+          : [],
+    });
+    setModal(existingSlot || existingDay ? "edit" : "add");
+  };
   const addRule = () => {
-    if (!form.subjectId || !form.ruleType) return;
-    if (modal === "add" && schedulingRules.some((r) => r.subjectId === form.subjectId && r.ruleType === form.ruleType)) { notify("A rule of this type already exists for this subject", "warning"); return; }
-    const nr = { id: `r${Date.now()}`, subjectId: form.subjectId, ruleType: form.ruleType, isActive: form.isActive, note: form.note };
-    if (form.ruleType === "EXCLUDE_SLOT" && form.slotNumber) nr.slotNumber = Number(form.slotNumber);
-    if (form.ruleType === "EXCLUDE_DAY" && form.dayOfWeek) nr.dayOfWeek = form.dayOfWeek;
-    if (modal === "edit") { setSchedulingRules((p) => p.map((r) => r.id === form.id ? { ...r, ...nr, id: r.id } : r)); notify("Rule updated"); }
-    else { setSchedulingRules((p) => [...p, nr]); notify("Rule added"); }
+    if (!form.subjectId) return;
+    if (!form.enableExcludeSlot && !form.enableExcludeDay) { notify("Select at least one preference type", "warning"); return; }
+    if (form.enableExcludeSlot && (!Array.isArray(form.slotTargets) || form.slotTargets.length === 0)) { notify("Select at least one slot", "warning"); return; }
+    if (form.enableExcludeDay && (!Array.isArray(form.dayTargets) || form.dayTargets.length === 0)) { notify("Select at least one day", "warning"); return; }
+    setSchedulingRules((prev) => {
+      let next = [...prev];
+      const upsert = (ruleType, payload) => {
+        const idx = next.findIndex((r) => r.subjectId === form.subjectId && r.ruleType === ruleType);
+        if (idx >= 0) next[idx] = { ...next[idx], ...payload, ruleType, subjectId: form.subjectId };
+        else next.push({ id: `r${Date.now()}-${ruleType}`, subjectId: form.subjectId, ruleType, ...payload });
+      };
+      const remove = (ruleType) => {
+        next = next.filter((r) => !(r.subjectId === form.subjectId && r.ruleType === ruleType));
+      };
+      if (form.enableExcludeSlot) upsert("EXCLUDE_SLOT", { isActive: form.isActive, note: form.note, slotTargets: form.slotTargets, slotPreset: undefined, dayOfWeek: undefined });
+      else remove("EXCLUDE_SLOT");
+      if (form.enableExcludeDay) upsert("EXCLUDE_DAY", { isActive: form.isActive, note: form.note, dayOfWeekList: form.dayTargets, dayOfWeek: undefined, slotPreset: undefined });
+      else remove("EXCLUDE_DAY");
+      return next;
+    });
+    notify("Preference updated");
     setModal(null);
   };
-  const quickAdd = (sub) => { setSchedulingRules((p) => [...p, { id: `r${Date.now()}`, subjectId: sub.id, ruleType: "BOTH_BOUNDARY", isActive: true, note: `${sub.name} should not be at period boundaries` }]); notify(`Boundary rule added for ${sub.name}`); };
+  const quickAdd = () => {};
   const toggleRule = (id) => setSchedulingRules((p) => p.map((r) => r.id === id ? { ...r, isActive: !r.isActive } : r));
   const deleteRule = (id) => { setSchedulingRules((p) => p.filter((r) => r.id !== id)); notify("Rule removed"); };
   const activeCount = schedulingRules.filter((r) => r.isActive).length;
-  const classTeacherPrefs = classTeacherPreferences || { enabled: false, firstPeriodMode: "ALL_DAYS_PRIMARY_ONLY", dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" };
+  const classTeacherPrefs = classTeacherPreferences || { enabled: false, ctFirstPeriodDays: [], dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" };
   const classTeacherRulesEnabled = classTeacherPrefs.enabled !== false;
+  const selectedCtDays = Array.isArray(classTeacherPrefs.ctFirstPeriodDays) ? classTeacherPrefs.ctFirstPeriodDays : [];
   const grouped = useMemo(() => { const m = new Map(); schedulingRules.forEach((r) => { if (!m.has(r.subjectId)) m.set(r.subjectId, []); m.get(r.subjectId).push(r); }); return m; }, [schedulingRules]);
 
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 20 }}>
         <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 17 : 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><UiIcon name="preferences" size={18} stroke={T.text} />Placement Preferences<span style={{ ...css.badge(T.gold), fontSize: 12 }}>{activeCount} active</span></h2><p style={{ margin: "4px 0 0", fontSize: 12, color: T.textSoft }}>These are applied automatically when creating timetables</p></div>
-        <Btn onClick={() => { setForm({ subjectId: subjects[0]?.id || "", ruleType: "BOTH_BOUNDARY", isActive: true, note: "", slotNumber: "", dayOfWeek: "" }); setModal("add"); }} size="sm" fullWidth={isMobile}>+ Add Preference</Btn>
+        <Btn onClick={() => openCombinedPreferenceModal(subjects[0]?.id || "")} size="sm" fullWidth={isMobile}>+ Add Preference</Btn>
       </div>
 
       <div style={{ ...css.card, marginBottom: 18, background: T.brand + "08", border: `1px solid ${T.brand + "25"}` }}>
@@ -134,49 +189,48 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
             <span style={{ fontSize: 14, color: T.textMid, fontWeight: 600 }}>Enable class teacher placement rules</span>
           </label>
         </Field>
-        <Select
-          label="First Period Rule"
-          value={classTeacherPrefs.firstPeriodMode || "ALL_DAYS_PRIMARY_ONLY"}
-          onChange={(v) => setClassTeacherPreferences((p) => ({ ...(p || {}), firstPeriodMode: v }))}
-          options={[
-            { value: "ALL_DAYS_PRIMARY_ONLY", label: "All days - primary class only" },
-            { value: "FIRST_DAY_PRIMARY_ONLY", label: "First day only - primary class only" },
-          ]}
-          disabled={!classTeacherRulesEnabled}
-        />
-        <Field label="Primary Class Daily Minimum Periods">
-          <input
-            type="number"
-            min={0}
-            max={2}
-            value={classTeacherPrefs.dailyPrimaryMinPeriods ?? 0}
-            onChange={(e) => setClassTeacherPreferences((p) => ({ ...(p || {}), dailyPrimaryMinPeriods: Math.max(0, Math.min(2, Number(e.target.value) || 0)) }))}
-            style={{ ...css.input, opacity: classTeacherRulesEnabled ? 1 : 0.6, cursor: classTeacherRulesEnabled ? "text" : "not-allowed" }}
-            disabled={!classTeacherRulesEnabled}
-          />
+        <Field label="First Period Priority Days">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {workingDays.map((day) => {
+              const checked = selectedCtDays.includes(day);
+              return (
+                <button
+                  key={day}
+                  onClick={() => {
+                    if (!classTeacherRulesEnabled) return;
+                    setClassTeacherPreferences((p) => {
+                      const current = Array.isArray(p?.ctFirstPeriodDays) ? p.ctFirstPeriodDays : [];
+                      const next = checked ? current.filter((d) => d !== day) : [...current, day];
+                      return { ...(p || {}), ctFirstPeriodDays: next };
+                    });
+                  }}
+                  disabled={!classTeacherRulesEnabled}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${checked ? T.info : T.surfaceBorder}`,
+                    background: checked ? T.info + "12" : T.surface,
+                    color: checked ? T.info : T.textMid,
+                    opacity: classTeacherRulesEnabled ? 1 : 0.6,
+                    cursor: classTeacherRulesEnabled ? "pointer" : "not-allowed",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
         </Field>
         <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
-          Daily minimum applies to each teacher's primary class teacher class and is not limited to first period.
+          Selected days apply first-period class teacher priority for the assigned class teacher class.
         </p>
       </div>
 
-      {suggested.length > 0 && (
-        <div style={{ ...css.card, marginBottom: 18, border: `1px solid ${T.warning + "40"}`, background: T.warning + "06" }}>
-          <h4 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 700, color: T.warning }}>Suggested Preferences</h4>
-          <p style={{ fontSize: 12, color: T.textMid, margin: "0 0 12px" }}>These extra-curricular subjects don't have a boundary rule yet:</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {suggested.map((sub) => (
-              <div key={sub.id} style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 10 : 0, padding: "10px 14px", background: T.surface, borderRadius: 8, border: `1px solid ${T.surfaceBorder}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: sub.colorHex || T.EXTRA_CURRICULAR }} /><span style={{ fontWeight: 700, fontSize: 13 }}>{sub.name}</span><span style={{ ...css.badge(T.EXTRA_CURRICULAR), fontSize: 11 }}>Extra Curricular</span></div>
-                <Btn onClick={() => quickAdd(sub)} variant="warning" size="sm" fullWidth={isMobile}>+ Add Boundary Preference</Btn>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {schedulingRules.length === 0
-        ? <EmptyState iconKey="preferences" title="No preferences added" desc="Add preferences to control when subjects are placed." action={<Btn onClick={() => { setForm({ subjectId: subjects[0]?.id || "", ruleType: "BOTH_BOUNDARY", isActive: true, note: "", slotNumber: "", dayOfWeek: "" }); setModal("add"); }}>Add First Preference</Btn>} />
+        ? <EmptyState iconKey="preferences" title="No preferences added" desc="Add preferences to control when subjects are placed." action={<Btn onClick={() => openCombinedPreferenceModal(subjects[0]?.id || "")}>Add First Preference</Btn>} />
         : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[...grouped.entries()].map(([subjectId, rules]) => {
@@ -195,7 +249,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                         </div>
                         <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", width: isMobile ? "100%" : undefined, justifyContent: isMobile ? "flex-end" : undefined }}>
                           <button onClick={() => toggleRule(rule.id)} style={{ background: rule.isActive ? T.success + "18" : T.surfaceAlt, border: `1px solid ${rule.isActive ? T.success + "40" : T.surfaceBorder}`, borderRadius: 6, cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 700, color: rule.isActive ? T.success : T.textSoft }}>{rule.isActive ? "ON" : "OFF"}</button>
-                          <Btn onClick={() => { setForm({ ...rule, slotNumber: rule.slotNumber || "", dayOfWeek: rule.dayOfWeek || "" }); setModal("edit"); }} variant="ghost" size="sm">Edit</Btn>
+                          <Btn onClick={() => openCombinedPreferenceModal(rule.subjectId)} variant="ghost" size="sm">Edit</Btn>
                           <Btn onClick={() => deleteRule(rule.id)} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
                         </div>
                       </div>
@@ -210,16 +264,48 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
       {modal && (
         <Modal title={modal === "add" ? "Add Placement Preference" : "Edit Placement Preference"} onClose={() => setModal(null)} width={520}>
           <Select label="Subject" value={form.subjectId} onChange={(v) => setForm((p) => ({ ...p, subjectId: v }))} options={subjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code})` }))} placeholder="Select subject" />
-          <Select label="Preference Type" value={form.ruleType} onChange={(v) => setForm((p) => ({ ...p, ruleType: v }))} options={ruleTypeOpts} />
-          <div style={{ padding: "10px 14px", background: (ruleColors[form.ruleType] || T.brand) + "10", borderRadius: 8, marginBottom: 16, border: `1px solid ${(ruleColors[form.ruleType] || T.brand) + "30"}`, fontSize: 12, color: T.textMid }}>
-            {form.ruleType === "NOT_FIRST_MORNING" && `Won't be placed in slot ${firstMorning} (${periodSlots.find((s) => s.slotNumber === firstMorning)?.startTime}).`}
-            {form.ruleType === "NOT_FIRST_AFTER_LUNCH" && (firstAfterLunch ? `Won't be placed in slot ${firstAfterLunch} (first after lunch).` : "No lunch break detected.")}
-            {form.ruleType === "BOTH_BOUNDARY" && `Best for PE, Art & Craft — prevents slot ${firstMorning}${firstAfterLunch ? `, ${firstAfterLunch}` : ""},${lastLesson}.`}
-            {form.ruleType === "EXCLUDE_SLOT" && "Subject will never be placed in the slot you choose below."}
-            {form.ruleType === "EXCLUDE_DAY" && "Subject will not be scheduled on the day you choose below."}
-          </div>
-          {form.ruleType === "EXCLUDE_SLOT" && <Select label="Excluded Slot" value={form.slotNumber || ""} onChange={(v) => setForm((p) => ({ ...p, slotNumber: v }))} options={lessonSlots.map((s) => ({ value: String(s.slotNumber), label: `Slot ${s.slotNumber} — ${s.label} (${s.startTime})` }))} placeholder="Select slot" />}
-          {form.ruleType === "EXCLUDE_DAY" && <Select label="Excluded Day" value={form.dayOfWeek || ""} onChange={(v) => setForm((p) => ({ ...p, dayOfWeek: v }))} options={workingDays.map((d) => ({ value: d, label: d }))} placeholder="Select day" />}
+          <Field label="">
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.enableExcludeSlot !== false} onChange={(e) => setForm((p) => ({ ...p, enableExcludeSlot: e.target.checked }))} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 14, color: T.textMid, fontWeight: 600 }}>Exclude Slot Set</span>
+            </label>
+          </Field>
+          {form.enableExcludeSlot && (
+            <Field label="Excluded Slots">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {[{ id: "FIRST_MORNING", label: "First morning" }, { id: "FIRST_AFTER_LUNCH", label: "First after lunch" }, { id: "LAST_LESSON", label: "Last lesson" }]
+                  .filter((s) => firstAfterLunch || s.id !== "FIRST_AFTER_LUNCH")
+                  .map((slot) => {
+                    const selected = (form.slotTargets || []).includes(slot.id);
+                    return (
+                      <button key={slot.id} onClick={() => setForm((p) => ({ ...p, slotTargets: selected ? (p.slotTargets || []).filter((x) => x !== slot.id) : [...(p.slotTargets || []), slot.id] }))} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${selected ? T.info : T.surfaceBorder}`, background: selected ? T.info + "12" : T.surface, color: selected ? T.info : T.textMid, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                        {slot.label}
+                      </button>
+                    );
+                  })}
+              </div>
+            </Field>
+          )}
+          <Field label="">
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.enableExcludeDay === true} onChange={(e) => setForm((p) => ({ ...p, enableExcludeDay: e.target.checked }))} style={{ width: 18, height: 18, cursor: "pointer" }} />
+              <span style={{ fontSize: 14, color: T.textMid, fontWeight: 600 }}>Exclude Day</span>
+            </label>
+          </Field>
+          {form.enableExcludeDay && (
+            <Field label="Excluded Days">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {workingDays.map((day) => {
+                  const selected = (form.dayTargets || []).includes(day);
+                  return (
+                    <button key={day} onClick={() => setForm((p) => ({ ...p, dayTargets: selected ? (p.dayTargets || []).filter((x) => x !== day) : [...(p.dayTargets || []), day] }))} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${selected ? T.warning : T.surfaceBorder}`, background: selected ? T.warning + "12" : T.surface, color: selected ? T.warning : T.textMid, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
           <Input label="Note (optional)" value={form.note || ""} onChange={(v) => setForm((p) => ({ ...p, note: v }))} placeholder="e.g. PE should not be right after assembly" />
           <Field label=""><label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}><input type="checkbox" checked={form.isActive !== false} onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.checked }))} style={{ width: 18, height: 18, cursor: "pointer" }} /><span style={{ fontSize: 14, color: T.textMid, fontWeight: 500 }}>Preference is active</span></label></Field>
           <div style={{ display: "flex", gap: 10 }}><Btn onClick={addRule}>Save Preference</Btn><Btn onClick={() => setModal(null)} variant="ghost">Cancel</Btn></div>

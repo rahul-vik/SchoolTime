@@ -16,6 +16,7 @@ import {
   creatorListOrgPurges,
   creatorListOrgs,
   creatorListUsers,
+  creatorListValidationFindings,
   creatorLogin,
   creatorLogout,
   creatorPatchPlatformSettings,
@@ -25,7 +26,8 @@ import {
   creatorSetUserActive,
   getCreatorToken,
 } from "./creatorApi";
-import { Btn, Input, Modal, T, UiIcon, css } from "../shared/uiPrimitives";
+import { Btn, Input, Modal, T, UiIcon, css, useBreakpoint } from "../shared/uiPrimitives";
+import { formatDateTimeIndian } from "../shared/dateTimeFormat";
 
 const tabs = [
   { id: "overview", label: "Overview" },
@@ -34,17 +36,13 @@ const tabs = [
   { id: "credits", label: "Credit ledger" },
   { id: "audit", label: "Audit" },
   { id: "errors", label: "Error logs" },
+  { id: "validation-findings", label: "Auto Fixing" },
   { id: "settings", label: "Pricing & credits" },
   { id: "role-access", label: "Role access" },
   { id: "register", label: "Register org" },
 ];
 
-function formatDateTime(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString();
-}
+const formatDateTime = formatDateTimeIndian;
 
 function EyeIcon({ off = false }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
@@ -58,6 +56,7 @@ function EyeIcon({ off = false }) {
 }
 
 export function CreatorApp() {
+  const { isMobile } = useBreakpoint();
   const [token, setTokenState] = useState(() => getCreatorToken());
   const [loginPassword, setLoginPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -72,6 +71,7 @@ export function CreatorApp() {
   const [ledger, setLedger] = useState(null);
   const [audit, setAudit] = useState(null);
   const [errors, setErrors] = useState(null);
+  const [validationFindings, setValidationFindings] = useState(null);
   const [settings, setSettings] = useState(null);
   const [roleAccessPolicy, setRoleAccessPolicy] = useState({ roles: [] });
   const [newRoleKey, setNewRoleKey] = useState("");
@@ -135,6 +135,7 @@ export function CreatorApp() {
       if (tab === "credits") setLedger(await creatorListCreditLedger({ limit: 120, orgId: creditOrgId.trim() || undefined }));
       if (tab === "audit") setAudit(await creatorListAuditLogs({ limit: 120 }));
       if (tab === "errors") setErrors(await creatorListErrorLogs({ limit: 120 }));
+      if (tab === "validation-findings") setValidationFindings(await creatorListValidationFindings({ limit: 200 }));
       if (tab === "settings") {
         const s = await creatorGetPlatformSettings();
         setSettings(s.settings);
@@ -519,9 +520,9 @@ export function CreatorApp() {
     inlineField: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
     inlineLabel: { fontSize: 11, fontWeight: 700, color: T.textMid, textTransform: "uppercase", letterSpacing: "0.06em", lineHeight: 1.2 },
     inlineInput: { ...css.input, height: 39, padding: "8px 12px", boxSizing: "border-box" },
-    /** Single-line control + icon button (input and button share 39px height). */
+    /** Single-line control + action button (input and button share 39px height). */
     controlWithIconRow: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
-    iconSq39: { height: 39, width: 39, padding: 0, flexShrink: 0, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+    iconSq39: { height: 39, padding: "0 12px", flexShrink: 0, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center" },
     rowActions: { display: "inline-flex", gap: 8, flexWrap: "nowrap", justifyContent: "flex-end", alignItems: "center", whiteSpace: "nowrap" },
   };
 
@@ -565,33 +566,53 @@ export function CreatorApp() {
         </div>
       </header>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "12px 16px", borderBottom: `1px solid ${T.surfaceBorder}`, background: T.surface }}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 8,
-              border: tab === t.id ? `2px solid ${T.brand}` : `1px solid ${T.surfaceBorder}`,
-              background: tab === t.id ? `${T.brand}12` : "transparent",
-              color: tab === t.id ? T.brand : T.textMid,
-              fontWeight: tab === t.id ? 700 : 600,
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-        <Btn type="button" variant="ghost" size="sm" iconOnly ariaLabel={busy ? "Loading" : "Refresh"} title={busy ? "Loading…" : "Refresh"} onClick={refreshTab} disabled={busy} style={{ marginLeft: "auto" }}>
-          <UiIcon name="refresh" size={18} stroke="currentColor" />
-        </Btn>
-      </div>
+      <div style={{ display: "flex", minHeight: "calc(100vh - 74px)" }}>
+        <aside
+          style={{
+            width: isMobile ? "100%" : 248,
+            borderRight: isMobile ? "none" : `1px solid ${T.surfaceBorder}`,
+            borderBottom: isMobile ? `1px solid ${T.surfaceBorder}` : "none",
+            background: T.surface,
+            padding: isMobile ? "10px 12px" : "14px 12px",
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, flexDirection: isMobile ? "row" : "column", overflowX: isMobile ? "auto" : "visible", paddingBottom: isMobile ? 4 : 0 }}>
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: tab === t.id ? `1px solid ${T.brand}` : `1px solid ${T.surfaceBorder}`,
+                  background: tab === t.id ? `${T.brand}14` : "transparent",
+                  color: tab === t.id ? T.brand : T.textMid,
+                  fontWeight: tab === t.id ? 700 : 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  textAlign: "left",
+                  minWidth: isMobile ? "max-content" : "auto",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {!isMobile && (
+            <div style={{ marginTop: 12 }}>
+              <Btn type="button" variant="ghost" size="sm" fullWidth onClick={refreshTab} disabled={busy}>
+                <UiIcon name="refresh" size={16} stroke="currentColor" />
+                {busy ? "Refreshing..." : "Refresh"}
+              </Btn>
+            </div>
+          )}
+        </aside>
 
-      <main style={{ padding: 20, maxWidth: 1280, margin: "0", width: "100%" }}>
+        <main style={{ padding: 20, maxWidth: 1280, margin: "0", width: "100%", boxSizing: "border-box" }}>
         {tab === "overview" && overview && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
             {[
@@ -645,6 +666,23 @@ export function CreatorApp() {
                   <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Pending credit purchase requests</h3>
                   <p style={{ margin: "8px 0 0", fontSize: 12, color: T.textMid }}>Approve to add credits to the license balance, or reject with an optional note.</p>
                 </div>
+                {isMobile ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
+                    {creditPurchasePending.requests.map((r) => (
+                      <div key={r.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: "10px 12px", background: T.surface }}>
+                        <div style={{ fontSize: 12, color: T.textSoft }}>{formatDateTime(r.created_at)}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>{r.org_name}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, color: T.textMid }}>{r.requester_name} · {r.requester_email}</div>
+                        <div style={{ marginTop: 6, fontSize: 12, color: T.textMid }}>Packs: <b>{r.pack_count}</b> · Credits: <b>{r.credits_total}</b></div>
+                        <div style={{ marginTop: 6, fontSize: 12, color: T.textSoft }}>{r.requester_note || "No note"}</div>
+                        <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                          <Btn size="sm" iconOnly ariaLabel="Approve request" onClick={() => approveCreditPurchase(r.id)} disabled={busy}><UiIcon name="check" size={16} stroke="currentColor" /></Btn>
+                          <Btn size="sm" variant="danger" iconOnly ariaLabel="Reject request" onClick={() => rejectCreditPurchase(r.id)} disabled={busy}><UiIcon name="close" size={16} stroke="#fff" /></Btn>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
                 <table style={pt.table}>
                   <thead>
                     <tr>
@@ -660,7 +698,7 @@ export function CreatorApp() {
                   <tbody>
                     {creditPurchasePending.requests.map((r) => (
                       <tr key={r.id}>
-                        <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{r.created_at}</td>
+                        <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(r.created_at)}</td>
                         <td style={pt.td}>{r.org_name}</td>
                         <td style={pt.td}><span style={{ fontSize: 12 }}>{r.requester_name}</span><br /><span style={{ fontSize: 11, color: T.textMid }}>{r.requester_email}</span></td>
                         <td style={pt.td}>{r.pack_count}</td>
@@ -680,6 +718,7 @@ export function CreatorApp() {
                     ))}
                   </tbody>
                 </table>
+                )}
               </div>
             )}
             {orgCreditModal && (
@@ -728,14 +767,32 @@ export function CreatorApp() {
                     <Btn type="button" variant="ghost" iconOnly ariaLabel="Cancel" onClick={() => { setOrgDeleteModal(null); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }} disabled={busy}>
                       <UiIcon name="close" size={18} stroke="currentColor" />
                     </Btn>
-                    <Btn type="submit" variant="danger" iconOnly ariaLabel="Remove organization" disabled={busy}>
-                      <UiIcon name="trash" size={18} stroke="#fff" />
-                    </Btn>
+                    <Btn type="submit" variant="danger" disabled={busy}>Remove organization</Btn>
                   </div>
                 </form>
               </Modal>
             )}
             <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              {isMobile ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
+                  {orgs.orgs.map((o) => (
+                    <div key={o.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: "10px 12px", background: T.surface }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{o.name}</div>
+                        <span style={css.badge(T.brand)}>{o.credits_remaining} credits</span>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 12, color: T.textMid }}>Users: {o.user_count}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Created: {formatDateTime(o.created_at)}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Last activity: {formatDateTime(o.last_activity_at)}</div>
+                      <div style={{ marginTop: 8, fontFamily: "ui-monospace, monospace", fontSize: 11, color: T.textSoft, wordBreak: "break-all" }}>{o.id}</div>
+                      <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <Btn size="sm" iconOnly ariaLabel={`Add credits — ${o.name}`} onClick={() => { setOrgCreditModal(o); setOrgCreditPacks(""); setOrgCreditReason("Operator adjustment"); }} disabled={busy}><UiIcon name="create" size={16} stroke="currentColor" /></Btn>
+                        <Btn size="sm" variant="danger" iconOnly ariaLabel={`Remove organization — ${o.name}`} onClick={() => { setOrgDeleteModal(o); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }} disabled={busy}><UiIcon name="trash" size={16} stroke="#fff" /></Btn>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <table style={pt.table}>
                 <thead>
                   <tr>
@@ -771,6 +828,7 @@ export function CreatorApp() {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
             <div style={{ padding: "10px 4px 0", fontSize: 12, color: T.textMid }}>Total organizations: {orgs.total}</div>
 
@@ -781,7 +839,7 @@ export function CreatorApp() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {orgPurges.purges.map((p) => (
                     <div key={p.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: "10px 12px", fontSize: 12 }}>
-                      <div style={{ fontWeight: 700, color: T.text }}>{p.orgName} <span style={{ fontWeight: 500, color: T.textMid }}>({p.createdAt})</span></div>
+                      <div style={{ fontWeight: 700, color: T.text }}>{p.orgName} <span style={{ fontWeight: 500, color: T.textMid }}>({formatDateTime(p.createdAt)})</span></div>
                       {p.summary && (
                         <div style={{ marginTop: 6, color: T.textMid, lineHeight: 1.5 }}>
                           Users removed: {p.summary.userCount} · Runs: {p.summary.timetableRunCount} · Credit rows: {p.summary.creditLedgerRowCount} · API keys: {p.summary.apiKeyCount}
@@ -832,6 +890,26 @@ export function CreatorApp() {
               </div>
             </div>
             <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+              {isMobile ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
+                  {users.users.filter((u) => roleVisibility[String(u.role || "").toLowerCase()] ?? true).map((u) => (
+                    <div key={u.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: "10px 12px", background: T.surface }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{u.full_name}</div>
+                        <span style={css.badge(u.role === "owner" ? T.brand : u.role === "admin" ? T.warning : T.textSoft)}>{u.role}</span>
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: T.textMid }}>{u.email}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>{u.org_name}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Created: {formatDateTime(u.created_at)}</div>
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <Btn size="sm" variant="ghost" iconOnly ariaLabel={`Edit ${u.full_name}`} onClick={() => openEditUser(u)} disabled={busy}><UiIcon name="preferences" size={16} stroke="currentColor" /></Btn>
+                        <Btn size="sm" variant="ghost" iconOnly ariaLabel={u.is_active ? `Deactivate ${u.full_name}` : `Activate ${u.full_name}`} onClick={() => toggleUserActive(u)} disabled={busy}><UiIcon name={u.is_active ? "pause" : "play"} size={16} stroke="currentColor" /></Btn>
+                        <Btn size="sm" variant="danger" iconOnly ariaLabel={`Delete user ${u.full_name}`} onClick={() => removeUser(u)} disabled={busy}><UiIcon name="trash" size={16} stroke="#fff" /></Btn>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <table style={pt.table}>
                 <thead>
                   <tr>
@@ -884,6 +962,7 @@ export function CreatorApp() {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
             {userEditModal && (
               <Modal title={`Edit user — ${userEditModal.full_name}`} onClose={() => setUserEditModal(null)}>
@@ -998,7 +1077,7 @@ export function CreatorApp() {
                 <tbody>
                   {ledger.entries.map((r) => (
                     <tr key={r.id}>
-                      <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{r.created_at}</td>
+                      <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{formatDateTime(r.created_at)}</td>
                       <td style={pt.tdSm}>{r.org_name}</td>
                       <td style={{ ...pt.tdSm, textAlign: "right", fontWeight: 700, color: r.delta < 0 ? T.danger : T.success }}>{r.delta}</td>
                       <td style={pt.tdSm}>{r.reason}</td>
@@ -1025,7 +1104,7 @@ export function CreatorApp() {
               <tbody>
                 {audit.logs.map((r) => (
                   <tr key={r.id}>
-                    <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{r.created_at}</td>
+                    <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{formatDateTime(r.created_at)}</td>
                     <td style={pt.tdSm}>{r.org_name}</td>
                     <td style={pt.tdSm}>{r.action}</td>
                     <td style={pt.tdSm}>{r.entity_type}</td>
@@ -1042,7 +1121,7 @@ export function CreatorApp() {
             {errors.logs.length === 0 && <p style={{ color: T.textMid }}>No errors recorded yet. Unhandled server exceptions are logged here.</p>}
             {errors.logs.map((r) => (
               <div key={r.id} style={{ ...css.card, padding: 14 }}>
-                <div style={{ fontSize: 12, color: T.textMid }}>{r.created_at} · {r.method} {r.route}</div>
+                <div style={{ fontSize: 12, color: T.textMid }}>{formatDateTime(r.created_at)} · {r.method} {r.route}</div>
                 <div style={{ fontWeight: 700, marginTop: 6 }}>{r.message}</div>
                 {r.detail_text && <pre style={{ margin: "8px 0 0", fontSize: 11, whiteSpace: "pre-wrap", color: T.textMid }}>{r.detail_text}</pre>}
                 {r.stack_text && (
@@ -1053,6 +1132,35 @@ export function CreatorApp() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {tab === "validation-findings" && validationFindings && (
+          <div style={{ ...css.card, padding: 0, overflow: "auto" }}>
+            <table style={pt.tableSm}>
+              <thead>
+                <tr>
+                  <th style={pt.thSm}>When</th>
+                  <th style={pt.thSm}>School</th>
+                  <th style={pt.thSm}>Run</th>
+                  <th style={pt.thSm}>Code</th>
+                  <th style={pt.thSm}>Risk</th>
+                  <th style={pt.thSm}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validationFindings.findings.map((r) => (
+                  <tr key={`${r.runId}-${r.findingId}`}>
+                    <td style={{ ...pt.tdSm, whiteSpace: "nowrap" }}>{formatDateTime(r.validationLoggedAt)}</td>
+                    <td style={pt.tdSm}>{r.orgName}</td>
+                    <td style={pt.tdSm}>{r.runId}</td>
+                    <td style={pt.tdSm}>{r.code}</td>
+                    <td style={pt.tdSm}>{r.risk}</td>
+                    <td style={pt.tdSm}>{r.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -1147,7 +1255,8 @@ export function CreatorApp() {
             </div>
           </form>
         )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
