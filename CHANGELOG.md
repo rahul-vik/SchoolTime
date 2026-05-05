@@ -2,6 +2,12 @@
 
 All notable changes to SchoolTime are documented in this file.
 
+## [1.0.7] - 2026-05-05
+
+- Added automated post-generation timetable validation with structured findings, safe low-risk auto-fixes, approval-gated handling for higher-risk findings, and audit trail events.
+- Added new school and creator portal Auto Fixing views/APIs to list findings and trigger approved apply actions, with improved mobile-adaptive creator UX and sidebar navigation.
+- Added tenant state migration/backfill tooling, IST timestamp consistency improvements, and release governance/docs updates including backend validation unit coverage.
+
 ## [1.0.6] - 2026-05-01
 
 - Timetable PDF/Excel and grid: **CT** for class-teacher periods (black, subject left / CT right); teacher exports show division **medium code** under Std–Div when configured.
