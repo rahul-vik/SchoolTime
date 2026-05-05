@@ -32,8 +32,9 @@ See `LICENSE` for full text.
 - Authentication (register/login/refresh/logout/password reset)
 - Role-based access (`owner`, `admin`, etc.)
 - School setup: mediums, standards, divisions
-- Academic setup: subjects, teachers, teacher-division mapping, class-teacher class assignment (including primary class)
-- Scheduling setup: period slots, working days, subject preferences, class-teacher first-period/daily-minimum rules
+- Academic setup: subjects, teachers, teacher-division mapping, class-teacher assignment (single class teacher class)
+- Subject applicability controls: class-level scope with optional division include/exclude overrides
+- Scheduling setup: period slots, working days, subject preferences, class-teacher first-period weekday selection
 - Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
 - New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
@@ -44,6 +45,7 @@ See `LICENSE` for full text.
   - Subject hours
   - Teacher workload
   - Division completion
+- Automated post-generation validation findings with controlled low-risk auto-fix and approval workflow for higher-risk findings
 - Export bundle:
   - Visual PDF timetable pages
   - Visual Excel timetable sheets
@@ -136,9 +138,11 @@ Based on `.env.example`:
 - `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
 - `npm run docs:auto` - auto-generate changelog + rules intelligence docs
 - `npm run release:prepare` - pre-merge `origin/main` and `origin/develop` + regenerate auto docs on release/hotfix branches
+- `npm run release:sync-develop` - merge `origin/main` into **`develop`** + `docs:auto` so **`develop` → `main`** PRs do not conflict on `docs/AUTO_*.md` (run before that PR)
 - `npm run health:daily` - run build + smoke + security audit health suite
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 - `npm run check:versioning` - strict local SemVer + branch/version contract validation
+- `npm run test:backend:validation` - rule-level backend unit tests for timetable validation + auto-fix safety
 - `npm run verify:push` - runs the same checks as CI (build, smoke, security audit, versioning; on `release/*` and `hotfix/*` branches also simulates release governance vs `origin/main`). Invoked automatically before each `git push` via Husky after `npm install`
 
 ### Pre-push verification (Husky)
@@ -149,6 +153,7 @@ Based on `.env.example`:
 - Release/hotfix governance still requires a **SemVer bump above `origin/main`** and `CHANGELOG.md` updates on those branches; hooks cannot infer the next version for you—use `npm run release:prepare` on release/hotfix branches when merging latest main/develop.
 - Auto-generated `docs/AUTO_*.md` files are updated on push to `develop`/`main` by GitHub Actions (`.github/workflows/auto-docs-rules.yml`), not on every local push, to avoid noisy timestamp-only diffs.
 - **Merge conflicts on `docs/AUTO_CHANGELOG.md` or `docs/AUTO_RULES_INTELLIGENCE.md`:** both sides regenerated these files—do not resolve by hand. Run **`npm run docs:auto`**, **`git add`** both paths, then **`git commit`** (merge completion). Pre-push **`verify:push`** intentionally skips `docs:auto` so it does not leave uncommitted changes after a push hook.
+- **Before merging `develop` → `main`:** prefer **`npm run release:sync-develop`** on `develop` first (see **`docs/VERSIONING.md`**).
 
 ## One-Click Dev Launcher (Windows)
 
@@ -173,7 +178,7 @@ Based on `.env.example`:
 - Default local DB file (SQLite): `server/data/app.db`
 - Production-ready DB option: Postgres via `DB_CLIENT=postgres` + `DATABASE_URL`
 - Tenant configuration state saved in `tenant_state`
-- `tenant_state` persists `classTeacherPreferences`, `exportJobs` (latest 3), and `lastGeneratedTimetable` for post-login continuity
+- `tenant_state` persists `classTeacherPreferences`, `subjects` (including class/division applicability scope), `exportJobs` (latest 3), and `lastGeneratedTimetable` for post-login continuity
 - Timetable run snapshots also persist `state_json` in `timetable_runs` so exports can reproduce the generated run accurately
 
 ## Exports

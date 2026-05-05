@@ -41,6 +41,8 @@ This makes local/staging/prod builds immediately distinguishable.
 
 - Local check before push:
   - `npm run check:versioning`
+- Validation/auto-fix safety unit checks:
+  - `npm run test:backend:validation`
 - CI governance check on PR:
   - `npm run check:release-governance`
 
@@ -51,3 +53,23 @@ This makes local/staging/prod builds immediately distinguishable.
 3. Set `package.json` to `x.y.z`, update `CHANGELOG.md`.
 4. Merge release PR into `main`.
 5. Back-merge release branch into `develop`.
+
+## Integrating `develop` into `main` (avoid `AUTO_*` merge conflicts)
+
+`docs/AUTO_CHANGELOG.md` and `docs/AUTO_RULES_INTELLIGENCE.md` are **generated**. If `main` and `develop` each updated them (for example via `[skip ci]` chores), GitHub will show conflicts on a **`develop` → `main`** PR.
+
+**Before you open or finalize that PR**, sync `develop` with `main` and regenerate:
+
+```bash
+git checkout develop
+git pull origin develop
+npm run release:sync-develop
+```
+
+Review `git status`, then commit (if anything changed) and `git push origin develop`. After this, the merge into `main` should proceed without hand-editing conflict markers.
+
+If conflicts remain only in those two files mid-merge, finish with:
+
+`npm run docs:auto` → `git add docs/AUTO_CHANGELOG.md docs/AUTO_RULES_INTELLIGENCE.md` → commit — **never** paste conflict markers manually.
+
+Release branches already run a similar pre-sync via `npm run release:prepare` (merges `origin/main` and `origin/develop`, then `docs:auto`).
