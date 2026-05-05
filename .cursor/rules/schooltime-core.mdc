@@ -13,6 +13,7 @@ alwaysApply: true
 - Any behavior change must include docs updates in `README.md` or `docs/*`.
 - For user-facing changes, keep wording simple and practical.
 - Keep exports and scheduling behavior deterministic and reproducible from persisted state.
+- Keep teacher allocation deterministic per run: for the same division+subject, avoid mixing multiple teachers unless explicitly requested as a team-teaching feature.
 - Do not break `npm run dev:all`, `npm run build`, or API compatibility without explicit approval.
 
 ## Quality Gate
