@@ -37,6 +37,7 @@ See `LICENSE` for full text.
 - Scheduling setup: period slots, working days, subject preferences, class-teacher first-period weekday selection
 - Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
+- Division-subject teacher consistency lock: once a teacher is chosen for a subject in a division during generation, subsequent placements for that same division-subject stay with the same teacher
 - New registrations start with demo-ready tenant data covering all subject categories and key scheduling options
 - Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable)
 - Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
