@@ -1,15 +1,63 @@
+function normalizeClassTeacherPreferences(rawPrefs, seedPrefs, workingDays) {
+  const seed = seedPrefs || {};
+  const next = rawPrefs || {};
+  const allowedDays = new Set((workingDays || []).map((d) => String(d)));
+  const fallbackDays = (seed.ctFirstPeriodDays || workingDays || []).filter((d) => allowedDays.has(d));
+  const normalizedDays = Array.isArray(next.ctFirstPeriodDays)
+    ? [...new Set(next.ctFirstPeriodDays.map((d) => String(d)).filter((d) => allowedDays.has(d)))]
+    : [];
+  return {
+    enabled: next.enabled !== false,
+    dailyPrimaryMinPeriods: Math.max(0, Math.min(2, Number(next.dailyPrimaryMinPeriods || 0))),
+    schedulingMode: next.schedulingMode === "OPTIMAL" ? "OPTIMAL" : next.schedulingMode === "BEST_FIT" ? "BEST_FIT" : "STRICT",
+    ctFirstPeriodDays: normalizedDays.length > 0 ? normalizedDays : fallbackDays,
+  };
+}
+
+function normalizeSubjects(subjects, standards, divisions) {
+  const standardIds = (standards || []).map((s) => s.id);
+  const allowedDivisionIds = new Set((divisions || []).map((d) => d.id));
+  return (subjects || []).map((sub) => {
+    const nextStandardIds = Array.isArray(sub.standardIds) && sub.standardIds.length > 0 ? sub.standardIds : standardIds;
+    const scopeMode = sub.divisionScopeMode === "CUSTOM_DIVISION_OVERRIDES" ? "CUSTOM_DIVISION_OVERRIDES" : "ALL_IN_SELECTED_CLASSES";
+    const divisionIncludeIds = Array.isArray(sub.divisionIncludeIds) ? [...new Set(sub.divisionIncludeIds.filter((id) => allowedDivisionIds.has(id)))] : [];
+    const divisionExcludeIds = Array.isArray(sub.divisionExcludeIds) ? [...new Set(sub.divisionExcludeIds.filter((id) => allowedDivisionIds.has(id)))] : [];
+    const divisionLimits = Array.isArray(sub.divisionLimits)
+      ? sub.divisionLimits
+          .filter((dl) => allowedDivisionIds.has(dl.divisionId))
+          .map((dl) => ({
+            divisionId: dl.divisionId,
+            ...(dl.weeklyPeriods !== undefined ? { weeklyPeriods: Math.max(1, Number(dl.weeklyPeriods) || 1) } : {}),
+            ...(dl.maxPerDay !== undefined ? { maxPerDay: Math.max(1, Number(dl.maxPerDay) || 1) } : {}),
+          }))
+          .filter((dl) => dl.weeklyPeriods !== undefined || dl.maxPerDay !== undefined)
+      : [];
+    return {
+      ...sub,
+      standardIds: nextStandardIds,
+      divisionScopeMode: scopeMode,
+      divisionIncludeIds,
+      divisionExcludeIds: divisionExcludeIds.filter((id) => !divisionIncludeIds.includes(id)),
+      divisionLimits,
+    };
+  });
+}
+
 export function applyTenantStateWithFallback(state, seed, setters) {
   if (!state) return;
   setters.setSchool(state.school || seed.school);
   setters.setMediums(state.mediums || seed.mediums);
   setters.setStandards(state.standards || seed.standards);
-  setters.setDivisions(state.divisions || seed.divisions);
-  setters.setSubjects(state.subjects || seed.subjects);
+  const nextDivisions = state.divisions || seed.divisions;
+  const nextStandards = state.standards || seed.standards;
+  setters.setDivisions(nextDivisions);
+  setters.setSubjects(normalizeSubjects(state.subjects || seed.subjects, nextStandards, nextDivisions));
   setters.setTeachers(state.teachers || seed.teachers);
   setters.setPeriodSlots(state.periodSlots || seed.periodSlots);
-  setters.setWorkingDays(state.workingDays || seed.workingDays);
+  const nextWorkingDays = state.workingDays || seed.workingDays;
+  setters.setWorkingDays(nextWorkingDays);
   setters.setSchedulingRules(state.schedulingRules || seed.schedulingRules);
-  setters.setClassTeacherPreferences(state.classTeacherPreferences || seed.classTeacherPreferences || { enabled: false, firstPeriodMode: "ALL_DAYS_PRIMARY_ONLY", dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" });
+  setters.setClassTeacherPreferences(normalizeClassTeacherPreferences(state.classTeacherPreferences, seed.classTeacherPreferences, nextWorkingDays));
   if (setters.setExportJobs) setters.setExportJobs(state.exportJobs || []);
   if (setters.setTimetable) {
     const restored = state.lastGeneratedTimetable || null;

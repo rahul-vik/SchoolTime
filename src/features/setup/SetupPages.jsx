@@ -140,34 +140,66 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
   const { parseDivisionInput, DivisionPill } = helpers;
   const { isMobile } = useBreakpoint();
 
-  const [parserInput, setParserInput] = useState("4 A-C\n5 A-B\n6 A\n7 A\n8 A");
+  const parserSample = "4 A-C\n5 A-B\n6 A\n7 A\n8 A";
+  const [parserInput, setParserInput] = useState(parserSample);
+  const [parserPrimed, setParserPrimed] = useState(false);
   const [parseResult, setParseResult] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [addDivModal, setAddDivModal] = useState(null);
   const [newDiv, setNewDiv] = useState({ name: "", mediumId: "" });
   const getPrimary = () => mediums.find((m) => m.isPrimary) || mediums[0];
+  const normDivName = (name) => String(name || "").trim().toUpperCase();
+  const resetQuickAdd = () => {
+    setParserInput(parserSample);
+    setParserPrimed(false);
+    setParseResult(null);
+  };
+  const openQuickAdd = () => {
+    resetQuickAdd();
+    setShowImport(true);
+  };
+  const closeQuickAdd = () => {
+    resetQuickAdd();
+    setShowImport(false);
+  };
 
   const applyParsed = () => {
     if (!parseResult?.data) return;
     const pm = getPrimary();
     const newStds = [];
     const newDivs = [];
+    const existingDivKeySet = new Set(divisions.map((d) => `${d.standardId}:${normDivName(d.name)}`));
+    const addedDivKeySet = new Set();
     parseResult.data.forEach((item, i) => {
       const ex = standards.find((s) => s.name === item.standardName);
       const std = ex || { id: `s${Date.now()}-${i}`, name: item.standardName, sortOrder: standards.length + i + 1 };
       if (!ex) newStds.push(std);
-      item.divisions.forEach((dn, j) => newDivs.push({ id: `d${Date.now()}-${i}-${j}`, standardId: std.id, mediumId: pm?.id || "m1", name: dn }));
+      item.divisions.forEach((dn, j) => {
+        const normalizedName = normDivName(dn);
+        if (!normalizedName) return;
+        const key = `${std.id}:${normalizedName}`;
+        if (existingDivKeySet.has(key) || addedDivKeySet.has(key)) return;
+        newDivs.push({ id: `d${Date.now()}-${i}-${j}`, standardId: std.id, mediumId: pm?.id || "m1", name: normalizedName });
+        addedDivKeySet.add(key);
+      });
     });
     setStandards((p) => [...p, ...newStds]);
     setDivisions((p) => [...p, ...newDivs]);
-    setShowImport(false);
+    closeQuickAdd();
     notify(`Added ${newStds.length} standards, ${newDivs.length} divisions`);
   };
 
   const addDivision = () => {
     if (!newDiv.name || !addDivModal) return;
+    const normalizedName = normDivName(newDiv.name);
+    if (!normalizedName) return;
+    const alreadyExists = divisions.some((d) => d.standardId === addDivModal && normDivName(d.name) === normalizedName);
+    if (alreadyExists) {
+      notify(`Division ${normalizedName} already exists for this standard`, "warning");
+      return;
+    }
     const pm = getPrimary();
-    setDivisions((p) => [...p, { id: `d${Date.now()}`, standardId: addDivModal, mediumId: newDiv.mediumId || pm?.id, name: newDiv.name.toUpperCase() }]);
+    setDivisions((p) => [...p, { id: `d${Date.now()}`, standardId: addDivModal, mediumId: newDiv.mediumId || pm?.id, name: normalizedName }]);
     setNewDiv({ name: "", mediumId: "" });
     setAddDivModal(null);
     notify("Division added");
@@ -179,7 +211,7 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 18 }}>
         <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Standards & Divisions</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{standards.length} standards · {divisions.length} divisions</p></div>
-        <Btn onClick={() => setShowImport(true)} size="sm" fullWidth={isMobile}>+ Quick Add</Btn>
+        <Btn onClick={openQuickAdd} size="sm" fullWidth={isMobile}>+ Quick Add</Btn>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: stdGrid, gap: 14 }}>
@@ -213,17 +245,27 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
           );
         })}
       </div>
-      {standards.length === 0 && <EmptyState iconKey="school" title="No standards yet" desc={'Use Quick Add. Try "4 A-C" format.'} action={<Btn onClick={() => setShowImport(true)}>Quick Add</Btn>} />}
+      {standards.length === 0 && <EmptyState iconKey="school" title="No standards yet" desc={'Use Quick Add. Try "4 A-C" format.'} action={<Btn onClick={openQuickAdd}>Quick Add</Btn>} />}
 
       {showImport && (
-        <Modal title="Quick Add — Standards & Divisions" onClose={() => setShowImport(false)} width={540}>
+        <Modal title="Quick Add — Standards & Divisions" onClose={closeQuickAdd} width={540}>
           <div style={{ background: T.surfaceAlt, padding: 12, borderRadius: 8, marginBottom: 14, fontSize: 12, color: T.textMid, fontFamily: "monospace", lineHeight: 1.8 }}>
             <div>4 A-C → Standard 4, divisions A, B, C</div>
             <div>5 A-B → Standard 5, divisions A, B</div>
             <div>7 &nbsp;&nbsp;&nbsp;→ Standard 7, division A (default)</div>
           </div>
           <div style={{ padding: "8px 12px", background: T.brand + "08", borderRadius: 8, marginBottom: 12, fontSize: 12, color: T.textMid }}>Default medium: <strong>{getPrimary()?.name || "None"}</strong>. You can change it for each division later.</div>
-          <textarea value={parserInput} onChange={(e) => setParserInput(e.target.value)} rows={7} style={{ ...css.input, fontFamily: "monospace", resize: "vertical" }} />
+          <textarea
+            value={parserInput}
+            onFocus={() => {
+              if (parserPrimed) return;
+              setParserInput("");
+              setParserPrimed(true);
+            }}
+            onChange={(e) => setParserInput(e.target.value)}
+            rows={7}
+            style={{ ...css.input, fontFamily: "monospace", resize: "vertical" }}
+          />
           {parseResult && (
             <div style={{ marginTop: 10, padding: 12, background: parseResult.success ? T.success + "14" : T.danger + "14", borderRadius: 8 }}>
               {parseResult.success

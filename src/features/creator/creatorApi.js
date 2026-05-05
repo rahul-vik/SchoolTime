@@ -176,3 +176,10 @@ export function creatorListAuditLogs(params = {}) {
   if (params.q) q.set("q", params.q);
   return creatorRequest(`/audit-logs?${q.toString()}`);
 }
+
+export function creatorListValidationFindings(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.orgId) q.set("orgId", params.orgId);
+  return creatorRequest(`/validation-findings?${q.toString()}`);
+}

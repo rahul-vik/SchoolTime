@@ -107,15 +107,16 @@ export function createAuthRoutes(db) {
     const user = await db.get("SELECT id, org_id FROM users WHERE email = ?", emailNorm);
     if (!user) return res.json({ ok: true });
     const rawToken = makeOpaqueToken();
+    const expiresAtIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     await db.run(
       "INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
       randomUUID(),
       user.id,
       hashOpaqueToken(rawToken),
-      new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      expiresAtIso,
       nowIso(),
     );
-    const emailOut = await sendPasswordResetEmail(emailNorm, rawToken);
+    const emailOut = await sendPasswordResetEmail(emailNorm, rawToken, expiresAtIso);
     if (!emailOut.sent && process.env.NODE_ENV !== "production") {
       console.warn("[password-reset] SMTP not configured. Reset email skipped for:", emailNorm);
     }
