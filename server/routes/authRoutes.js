@@ -118,10 +118,17 @@ export function createAuthRoutes(db) {
       nowIso(),
     );
     const emailOut = await sendPasswordResetEmail(emailNorm, rawToken, expiresAtIso);
-    if (!emailOut.sent && process.env.NODE_ENV !== "production") {
-      console.warn("[password-reset] SMTP not configured. Reset email skipped for:", emailNorm);
+    if (!emailOut.sent) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[password-reset] email not dispatched:", emailOut.reason, emailOut.message || "");
+      } else {
+        console.warn("[password-reset] email not dispatched:", emailOut.reason);
+      }
     }
-    await logAudit(db, user.org_id, user.id, "PASSWORD_RESET_REQUESTED", "user", user.id);
+    await logAudit(db, user.org_id, user.id, "PASSWORD_RESET_REQUESTED", "user", user.id, {
+      emailSent: Boolean(emailOut.sent),
+      ...(emailOut.sent ? {} : { emailFailureReason: emailOut.reason }),
+    });
     res.json({ ok: true });
   });
 

@@ -24,7 +24,7 @@ Response includes:
 - `POST /auth/login`
 - `POST /auth/refresh`
 - `POST /auth/logout`
-- `POST /auth/password-reset/request` — body `{ "email": string }`; creates token and sends reset link via SMTP when configured; always returns generic success for privacy
+- `POST /auth/password-reset/request` — body `{ "email": string }`; creates token and sends reset link via SMTP when configured; always returns `{ "ok": true }` for privacy (even if SMTP fails or user is unknown). Audit metadata may include `emailSent` / `emailFailureReason` when SMTP is configured.
 - `POST /auth/password-reset/confirm` — body `{ "token": string, "newPassword": string }`
 
 ## Session/User
@@ -44,7 +44,7 @@ Response includes:
 ### Period slots and scheduling rules
 
 - Each `periodSlots[]` item may include **`activeWeekdays`**: a subset of the tenant’s working days. Empty or omitted means the slot runs on **all** working days (backward compatible).
-- On load/persist, the server runs **`migrateTenantState`** (`server/services/tenantStateMigration.js`): normalizes `activeWeekdays` per slot, migrates **`periodSlots` before `schedulingRules`**, and prunes **`INCLUDE_ONLY` / `CUSTOM` / `allowedCells`** entries that reference a slot on a weekday when that slot is off—so stored rules stay consistent with the engine and `server/engine.js`.
+- On load/persist, the server runs **`migrateTenantState`** (`server/services/tenantStateMigration.js`): normalizes `activeWeekdays` per slot, migrates **`periodSlots` before `schedulingRules`**, and prunes **`INCLUDE_ONLY` / `CUSTOM` / `allowedCells`** entries that reference a slot on a weekday when that slot is off—so stored rules stay consistent with the engine and `server/engine.js`. The same migration is applied to **every** `tenant_state` row **on API process startup** (including production) via `server/services/tenantStateMigrationRunner.js`, so the database stays upgraded without relying on the next `GET /state` per org.
 - **`PUT /state`** should send coherent `periodSlots` + `schedulingRules`; clients that hydrate from `GET /state` receive already-migrated payloads.
 
 ## Timetable

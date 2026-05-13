@@ -31,6 +31,18 @@ If you are preparing Render Postgres, run Phase 1 migration first:
 - Frontend API calls use **`VITE_API_BASE_URL`** (see `.env.example`). For static hosting, that must point at a reachable **`/api`** (same host reverse-proxy, or full URL with CORS allowing the Pages origin).
 - Deep link **`…/creator`**: ensure the host serves **`index.html`** for unknown paths (GitHub Actions workflow copies `dist/index.html` to `dist/404.html` for this).
 
+### SMTP (password reset)
+
+Nodemailer connects from the **API container** to **`SMTP_HOST:SMTP_PORT`**. A logged **`Connection timeout`** almost always means the TCP path or TLS mode is wrong for your provider, or the host blocks outbound SMTP.
+
+- **Port vs TLS:** **`SMTP_PORT=587`** → set **`SMTP_SECURE=false`** (STARTTLS). **`SMTP_PORT=465`** → set **`SMTP_SECURE=true`** (implicit TLS). Mixing these is a common cause of hangs or timeouts.
+- **Firewall / platform:** Some PaaS providers block outbound **25** or restrict SMTP; confirm your host allows outbound to your mail provider on the port you use.
+- **IPv6:** If the provider resolves to IPv6 but your network cannot route it, set **`SMTP_FORCE_IPV4=1`**.
+- **Timeouts:** Tune **`SMTP_CONNECTION_TIMEOUT_MS`** (default 45000) and **`SMTP_SOCKET_TIMEOUT_MS`** (default 120000) if the provider is slow; raising them does not fix a blocked port.
+- **`SMTP_REQUIRE_TLS`:** default **`auto`** enables `requireTLS` for typical 587+STARTTLS. Set **`off`** only if your provider documents that requirement.
+
+When SMTP send fails after a token is created, the API still returns **`{ ok: true }`** but logs **`[password-reset] SMTP send failed`** and records audit metadata (`emailSent: false`, `emailFailureReason`). Operators should check server logs and fix SMTP env; users may need a **new** reset request after SMTP is fixed.
+
 ## 3) Install And Build
 
 ```bash
@@ -110,9 +122,9 @@ chmod +x scripts/backup-db.sh scripts/restore-db.sh
 
 ### Tenant state upgrades (existing schools)
 
-Tenant configuration is JSON in `tenant_state.state_json`. Newer fields (for example per-period `activeWeekdays`) do not require a separate SQL migration for SQLite; the API runs **`migrateTenantState`** when tenant state is loaded and persists when the normalized payload differs from what was stored.
+Tenant configuration is JSON in `tenant_state.state_json`. Newer fields (for example per-period `activeWeekdays`) do not require a separate SQL migration for SQLite; the API runs **`migrateTenantState`** when tenant state is loaded, on save, on generate/export paths, and **on every API process startup** (including production): all `tenant_state` rows are scanned and updated when migration changes the payload—same logic as the backfill script below.
 
-Optional one-time backfill after a release (dry-run first, then apply):
+Optional manual backfill (dry-run first, then apply)—for example if you need to migrate the DB file **without** starting the API, or to verify counts before deploy:
 
 ```bash
 npm run migrate:tenant-state:backfill

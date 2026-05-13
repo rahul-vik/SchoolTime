@@ -183,7 +183,7 @@ Based on `.env.example`:
 
 - Default local DB file (SQLite): `server/data/app.db`
 - Production-ready DB option: Postgres via `DB_CLIENT=postgres` + `DATABASE_URL`
-- Tenant configuration state saved in `tenant_state` (lazy `migrateTenantState` on load; optional `npm run migrate:tenant-state:backfill` — see `docs/DEPLOYMENT.md`)
+- Tenant configuration state saved in `tenant_state` (`migrateTenantState` on load/save/generate/export, **plus full DB backfill on API startup** in all environments; optional `npm run migrate:tenant-state:backfill` — see `docs/DEPLOYMENT.md`)
 - `tenant_state` persists `classTeacherPreferences`, `subjects` (including class/division applicability scope), `exportJobs` (latest 3), and `lastGeneratedTimetable` for post-login continuity
 - Timetable run snapshots also persist `state_json` in `timetable_runs` so exports can reproduce the generated run accurately
 

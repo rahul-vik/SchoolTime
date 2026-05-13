@@ -254,10 +254,32 @@ function pruneSlotTargetsForFixedLesson(slotTargets, slotNumber, firstMorning, f
 }
 
 /**
- * Keeps exclude-day / exclude-slot / fixed-day&period consistent.
- * - Fixed days cannot stay on an excluded day; if that would empty fixed days, excluded days yield first.
- * - Fixed lesson cannot stay on an excluded preset slot; moves to first allowed lesson slot.
- * - Exclude-slot presets that only block the chosen fixed lesson are removed (fixed lesson choice wins).
+ * Returns a user-facing error if fixed placement contradicts exclude-day or exclude-slot for this subject.
+ * Contradictions are blocked in the UI and on save (not silently auto-fixed).
+ */
+function getSubjectPreferenceContradictionMessage(draft, meta) {
+  const { firstMorning, firstAfterLunch, lastLesson } = meta;
+  if (!draft.enableIncludeOnly) return null;
+  const incDays = Array.isArray(draft.includeWeekdays) ? draft.includeWeekdays : [];
+  const incSlot = draft.includeSlotNumber;
+  if (draft.enableExcludeDay) {
+    const exDays = Array.isArray(draft.dayTargets) ? draft.dayTargets : [];
+    if (incDays.some((d) => exDays.includes(d))) {
+      return "Fixed day & period cannot use a weekday you also marked as excluded. Remove the overlap or turn off one of these options.";
+    }
+  }
+  if (draft.enableExcludeSlot && incSlot !== "" && incSlot != null && !Number.isNaN(Number(incSlot))) {
+    const excluded = slotNumbersExcludedBySlotTargets(draft.slotTargets || [], firstMorning, firstAfterLunch, lastLesson);
+    if (excluded.has(Number(incSlot))) {
+      return "Fixed day & period cannot use a lesson slot you marked as excluded (first morning / first after lunch / last lesson). Change the fixed slot or remove that exclusion.";
+    }
+  }
+  return null;
+}
+
+/**
+ * Keeps exclude-day / exclude-slot / fixed-day&period consistent when loading or adjusting combined form.
+ * Used mainly when opening the editor for legacy data; chip toggles block new contradictions.
  */
 function applyRuleContradictionGuards(draft, meta) {
   const { firstMorning, firstAfterLunch, lastLesson, lessonSlots, workingDays } = meta;
@@ -325,6 +347,10 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     () => ({ firstMorning, firstAfterLunch, lastLesson, lessonSlots, workingDays }),
     [firstMorning, firstAfterLunch, lastLesson, lessonSlots, workingDays]
   );
+  const preferenceContradiction = useMemo(() => {
+    if (!modal) return null;
+    return getSubjectPreferenceContradictionMessage(form, ruleMeta);
+  }, [modal, form, ruleMeta]);
   const ruleTypeOpts = [
     { value: "EXCLUDE_SLOT", label: "Excluded Slot Set" },
     { value: "EXCLUDE_DAY", label: "Exclude Day" },
@@ -450,6 +476,11 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
   };
   const addRule = () => {
     if (!form.subjectId) return;
+    const contradiction = getSubjectPreferenceContradictionMessage(form, ruleMeta);
+    if (contradiction) {
+      notify(contradiction, "danger");
+      return;
+    }
     const f = applyRuleContradictionGuards({ ...form }, ruleMeta);
     const aligned =
       JSON.stringify([form.dayTargets, form.slotTargets, form.includeWeekdays, form.includeSlotNumber]) !==
@@ -710,6 +741,16 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                         onClick={() =>
                           setForm((p) => {
                             const slotTargets = selected ? (p.slotTargets || []).filter((x) => x !== slot.id) : [...(p.slotTargets || []), slot.id];
+                            if (!selected && p.enableIncludeOnly) {
+                              const ex = slotNumbersExcludedBySlotTargets(slotTargets, firstMorning, firstAfterLunch, lastLesson);
+                              if (ex.has(Number(p.includeSlotNumber))) {
+                                notify(
+                                  "Cannot exclude this slot: fixed placement uses it. Change the fixed lesson slot first or turn off fixed placement.",
+                                  "warning",
+                                );
+                                return p;
+                              }
+                            }
                             return applyRuleContradictionGuards({ ...p, slotTargets }, ruleMeta);
                           })
                         }
@@ -721,7 +762,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                   })}
               </div>
               <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
-                If fixed placement uses a boundary period, selecting that preset here moves the fixed lesson to the next allowed slot.
+                You cannot exclude a boundary slot that fixed placement already uses—change the fixed lesson slot or turn off fixed placement first.
               </p>
             </Field>
           )}
@@ -752,7 +793,11 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                           if (selected) dayTargets = dayTargets.filter((x) => x !== day);
                           else {
                             if (p.enableIncludeOnly && includeWeekdays.includes(day)) {
-                              includeWeekdays = includeWeekdays.filter((x) => x !== day);
+                              notify(
+                                "Cannot exclude this day: fixed placement uses it. Remove it from fixed days first or turn off fixed placement.",
+                                "warning",
+                              );
+                              return p;
                             }
                             dayTargets = [...dayTargets, day];
                           }
@@ -774,7 +819,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                 })}
               </div>
               <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
-                Days you exclude here cannot stay selected for fixed placement; adding a fixed day removes it from this exclude list if both were set.
+                You cannot exclude a day that fixed placement uses—remove that day from fixed placement first, or turn off fixed placement.
               </p>
             </Field>
           )}
@@ -865,7 +910,11 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                             if (selected) nextDays = cur.filter((x) => x !== day);
                             else {
                               if (p.enableExcludeDay && dayTargets.includes(day)) {
-                                dayTargets = dayTargets.filter((d) => d !== day);
+                                notify(
+                                  "Cannot add this day to fixed placement: it is marked as excluded. Remove it from excluded days first or turn off exclude day.",
+                                  "warning",
+                                );
+                                return p;
                               }
                               nextDays = [...cur, day];
                             }
@@ -935,13 +984,23 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
                 </p>
               ) : null}
               <p style={{ fontSize: 11, color: T.textSoft, margin: 0 }}>
-                Each selected class gets this subject only in the chosen lesson slot on the days you tick (not elsewhere in that class timetable). One shared period number for all selected days and divisions. Excluded days and excluded boundary slots above are respected: choosing a fixed day clears that day from Exclude if needed, and choosing a fixed period drops exclude-slot presets that only block that period. Set weekly periods to at least the number of days selected, per class, or generation may not fill all slots.
+                Each selected class gets this subject only in the chosen lesson slot on the days you tick (not elsewhere in that class timetable). One shared period number for all selected days and divisions. Fixed placement cannot contradict excluded days or excluded boundary slots for the same subject—resolve overlaps in this form before saving. Set weekly periods to at least the number of days selected, per class, or generation may not fill all slots.
               </p>
             </>
           )}
           <Input label="Note (optional)" value={form.note || ""} onChange={(v) => setForm((p) => ({ ...p, note: v }))} placeholder="e.g. PE should not be right after assembly" />
           <Field label=""><label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}><input type="checkbox" checked={form.isActive !== false} onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.checked }))} style={{ width: 18, height: 18, cursor: "pointer" }} /><span style={{ fontSize: 14, color: T.textMid, fontWeight: 500 }}>Preference is active</span></label></Field>
-          <div style={{ display: "flex", gap: 10 }}><Btn onClick={addRule}>Save Preference</Btn><Btn onClick={() => setModal(null)} variant="ghost">Cancel</Btn></div>
+          {preferenceContradiction ? (
+            <p style={{ fontSize: 12, color: T.danger, margin: "0 0 10px", fontWeight: 600 }}>{preferenceContradiction}</p>
+          ) : null}
+          <div style={{ display: "flex", gap: 10 }}>
+            <Btn onClick={addRule} disabled={Boolean(preferenceContradiction)}>
+              Save Preference
+            </Btn>
+            <Btn onClick={() => setModal(null)} variant="ghost">
+              Cancel
+            </Btn>
+          </div>
         </Modal>
       )}
     </div>
