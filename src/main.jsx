@@ -36,8 +36,24 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
-const path = typeof window !== "undefined" ? (window.location.pathname.replace(/\/+$/, "") || "/") : "/";
-const isCreatorPortal = /(?:^|\/)creator(?:\/|$)/.test(path);
+/** Path after Vite `base` (e.g. `/SchoolTime/creator` → `/creator` when base is `/SchoolTime/`). */
+function stripViteBasePath(pathname, baseUrl) {
+  let path = (pathname || "/").replace(/\/+$/, "") || "/";
+  let base = String(baseUrl ?? "/").trim();
+  if (!base || base === "/") return path;
+  base = base.replace(/\/+$/, "");
+  if (!base.startsWith("/")) base = `/${base}`;
+  if (path === base) return "/";
+  const withSlash = `${base}/`;
+  if (path.startsWith(withSlash)) {
+    const rest = path.slice(base.length) || "/";
+    return rest.startsWith("/") ? rest : `/${rest}`;
+  }
+  return path;
+}
+
+const pathAfterBase = typeof window !== "undefined" ? stripViteBasePath(window.location.pathname, import.meta.env.BASE_URL) : "/";
+const isCreatorPortal = pathAfterBase === "/creator" || pathAfterBase.startsWith("/creator/");
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

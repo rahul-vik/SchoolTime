@@ -34,11 +34,13 @@ export function UiIcon({ name, size = 18, stroke = "currentColor", style }) {
     trash: (<><path d="M3 6h18" {...common} /><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6" {...common} /><path d="M19 6v12.5A2.5 2.5 0 0 1 16.5 21h-9A2.5 2.5 0 0 1 5 18.5V6" {...common} /><path d="M10 11v5M14 11v5" {...common} /></>),
     search: (<><circle cx="10.5" cy="10.5" r="6.5" {...common} /><path d="M20 20l-4.2-4.2" {...common} /></>),
     refresh: (<><path d="M23 4v6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10M1 20v-6h6M3.51 15a9 9 0 0 0 14.85 3.36L23 14" {...common} /></>),
+    copyDown: (<><rect x="8" y="5" width="11" height="9" rx="1.5" {...common} /><path d="M5 7.5H4a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 19.5h7" {...common} /><path d="M11.5 16.5V22M11.5 22l2.3-2.3M11.5 22l-2.3-2.3" {...common} /></>),
     filter: (<><path d="M4 6h16M7 12h10M10 18h4" {...common} /></>),
     logout: (<><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M15 17l5-5-5-5M20 12H9" {...common} /></>),
     pause: (<><rect x="8" y="5" width="3.2" height="14" rx="1" {...common} /><rect x="12.8" y="5" width="3.2" height="14" rx="1" {...common} /></>),
     play: (<><path d="M9.5 7.2v9.6l7.8-4.8-7.8-4.8z" {...common} /></>),
     login: (<><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" {...common} /></>),
+    key: (<><circle cx="8" cy="15" r="3" {...common} /><path d="M11 15h8M15 11v8" {...common} /></>),
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ flexShrink: 0, ...style }}>

@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import { Router } from "express";
+import { hashPassword } from "../auth.js";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
 import { createOrgWithOwnerUser } from "../services/registrationService.js";
 import { getSignupInitialCredits, getAllPlatformSettings, getRoleAccessPolicy, upsertPlatformSettings, upsertRoleAccessPolicy } from "../services/platformSettings.js";
@@ -10,6 +12,14 @@ function parseLimitOffset(req, { defaultLimit = 50, maxLimit = 100 } = {}) {
   const limit = Math.min(maxLimit, Math.max(1, parseInt(String(req.query.limit || defaultLimit), 10) || defaultLimit));
   const offset = Math.max(0, parseInt(String(req.query.offset || "0"), 10) || 0);
   return { limit, offset };
+}
+
+function generatePortalTempPassword() {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.randomBytes(16);
+  let s = "";
+  for (let i = 0; i < 14; i++) s += chars[bytes[i] % chars.length];
+  return s;
 }
 
 export function createCreatorRoutes(db) {
@@ -115,7 +125,8 @@ export function createCreatorRoutes(db) {
     }
     const totalRow = await db.get(`SELECT COUNT(*) AS c FROM users u JOIN organizations o ON o.id = u.org_id ${where}`, ...args);
     const rows = await db.all(
-      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name,
+        (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id = u.id) AS last_activity_at
        FROM users u
        JOIN organizations o ON o.id = u.org_id
        ${where}
@@ -269,6 +280,30 @@ export function createCreatorRoutes(db) {
     res.json({ ok: true, userId, isActive: parsed.data.isActive });
   });
 
+  router.post("/users/:userId/set-password", async (req, res) => {
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Invalid user" });
+    const parsed = schemas.creatorUserPasswordSetSchema.safeParse(req.body || {});
+    if (!parsed.success) return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
+    const u = await db.get("SELECT id, org_id, email FROM users WHERE id = ?", userId);
+    if (!u) return res.status(404).json({ error: "User not found" });
+    const raw = parsed.data.password;
+    let plain = typeof raw === "string" ? raw.trim() : "";
+    if (plain && plain.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters, or leave blank to auto-generate" });
+    }
+    if (!plain) plain = generatePortalTempPassword();
+    await db.transaction(async (tx) => {
+      await tx.run("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(plain), userId);
+      await tx.run("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", nowIso(), userId);
+      await logAudit(tx, u.org_id, null, "PLATFORM_USER_PASSWORD_SET", "user", userId, {
+        email: u.email,
+        generated: !raw || !String(raw).trim(),
+      });
+    });
+    res.json({ ok: true, userId, newPassword: plain });
+  });
+
   router.patch("/users/:userId", async (req, res) => {
     const userId = String(req.params.userId || "").trim();
     if (!userId) return res.status(400).json({ error: "Invalid user" });
@@ -303,7 +338,11 @@ export function createCreatorRoutes(db) {
       roleChanged: parsed.data.role !== undefined,
     });
     const row = await db.get(
-      "SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.id = ?",
+      `SELECT u.id, u.org_id, u.full_name, u.email, u.role, u.created_at, u.is_active, o.name AS org_name,
+        (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id = u.id) AS last_activity_at
+       FROM users u
+       JOIN organizations o ON o.id = u.org_id
+       WHERE u.id = ?`,
       userId,
     );
     res.json({ ok: true, user: row });

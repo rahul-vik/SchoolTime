@@ -1,3 +1,5 @@
+import { slotActiveOnWeekday } from "../shared/periodSlotDays.js";
+
 function getSlotMeta(slots) {
   const ls = slots.filter((s) => s.slotType === "LESSON").sort((a, b) => a.slotNumber - b.slotNumber);
   if (!ls.length) {
@@ -77,6 +79,55 @@ function isDayBlockedByRule(subjectId, day, rules) {
       r.ruleType === "EXCLUDE_DAY" &&
       ((Array.isArray(r.dayOfWeekList) && r.dayOfWeekList.includes(day)) || r.dayOfWeek === day)
   );
+}
+
+function includeRuleDivisionIds(rule) {
+  if (Array.isArray(rule?.divisionIds) && rule.divisionIds.length > 0) return rule.divisionIds;
+  if (rule?.divisionId) return [rule.divisionId];
+  return [];
+}
+
+/** Active INCLUDE_ONLY rules for this subject in this division. */
+function includeOnlyRulesFor(subjectId, divisionId, rules) {
+  return (rules || []).filter(
+    (r) =>
+      r &&
+      r.ruleType === "INCLUDE_ONLY" &&
+      r.isActive !== false &&
+      r.subjectId === subjectId &&
+      includeRuleDivisionIds(r).includes(divisionId)
+  );
+}
+
+function cellMatchesIncludeOnlyRule(rule, day, slotNumber, periodSlots, workingDays) {
+  const mode = rule.includeMode || "PRESET_LAST_LESSON";
+  if (mode === "CUSTOM") {
+    if (!Array.isArray(rule.allowedCells) || rule.allowedCells.length === 0) return false;
+    return rule.allowedCells.some((c) => {
+      if (!c || c.dayOfWeek !== day || Number(c.slotNumber) !== Number(slotNumber)) return false;
+      const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(c.slotNumber));
+      if (!slotRow) return false;
+      return slotActiveOnWeekday(slotRow, day);
+    });
+  }
+  if (mode === "PRESET_LAST_LESSON") {
+    const weekday = rule.includeWeekday || "FRIDAY";
+    if (!workingDays.includes(weekday)) return false;
+    const { lastLesson } = getSlotMeta(periodSlots);
+    if (lastLesson == null) return false;
+    if (day !== weekday || Number(slotNumber) !== Number(lastLesson)) return false;
+    const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(lastLesson));
+    if (slotRow && !slotActiveOnWeekday(slotRow, day)) return false;
+    return true;
+  }
+  return false;
+}
+
+/** If any INCLUDE_ONLY applies to this division+subject, (day, slot) must satisfy every such rule. */
+function isPlacementAllowedByIncludeOnly(subjectId, divisionId, day, slotNumber, periodSlots, workingDays, rules) {
+  const rel = includeOnlyRulesFor(subjectId, divisionId, rules);
+  if (rel.length === 0) return true;
+  return rel.every((r) => cellMatchesIncludeOnlyRule(r, day, slotNumber, periodSlots, workingDays));
 }
 
 function teacherAllowedInDivision(teacher, divisionId) {
@@ -174,6 +225,7 @@ export function runTimetableEngine(data) {
     DIVISION_OCCUPIED: 0,
     DAY_RULE_BLOCKED: 0,
     SLOT_RULE_BLOCKED: 0,
+    INCLUDE_RULE_BLOCKED: 0,
     SUBJECT_WEEKLY_TARGET_REACHED: 0,
     SUBJECT_MAX_PER_DAY: 0,
     TEACHER_SUBJECT_LOCK_MISMATCH: 0,
@@ -186,6 +238,7 @@ export function runTimetableEngine(data) {
     CONTINUITY_LIMIT: 0,
     CROSS_DIVISION_CONTINUITY_DAY: 0,
     NO_ELIGIBLE_SUBJECT: 0,
+    SLOT_INACTIVE_THIS_DAY: 0,
   };
 
   const tSlotKey = (tId, day, slot) => `${tId}:${day}:${slot}`;
@@ -321,8 +374,17 @@ export function runTimetableEngine(data) {
   function canPlaceAssignment({ teacher, divisionId, day, slotNumber, subjectId, ignoreSoftRules = false }) {
     if (!teacherAllowedInDivision(teacher, divisionId)) return { ok: false, reason: "DIVISION_BLOCKED" };
     if (divisionSlotMap.has(dSlotKey(divisionId, day, slotNumber))) return { ok: false, reason: "DIVISION_OCCUPIED" };
+    const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(slotNumber));
+    if (slotRow && !slotActiveOnWeekday(slotRow, day)) {
+      return { ok: false, reason: "SLOT_INACTIVE_THIS_DAY" };
+    }
     if (!ignoreSoftRules && isDayBlockedByRule(subjectId, day, rules)) return { ok: false, reason: "DAY_RULE_BLOCKED" };
     if (!ignoreSoftRules && isSlotBlockedByRule(subjectId, slotNumber, periodSlots, rules)) return { ok: false, reason: "SLOT_RULE_BLOCKED" };
+    if (
+      !isPlacementAllowedByIncludeOnly(subjectId, divisionId, day, slotNumber, periodSlots, workingDays, rules)
+    ) {
+      return { ok: false, reason: "INCLUDE_RULE_BLOCKED" };
+    }
     const subDayCount = subjectDailyCount.get(subDKey(divisionId, subjectId, day)) || 0;
     const sub = subjects.find((s) => s.id === subjectId);
     if (sub) {
@@ -446,6 +508,8 @@ export function runTimetableEngine(data) {
   }
 
   for (const fs of fixedSlots || []) {
+    const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(fs.slotNumber));
+    if (slotRow && !slotActiveOnWeekday(slotRow, fs.dayOfWeek)) continue;
     if (divisionSlotMap.has(dSlotKey(fs.divisionId, fs.dayOfWeek, fs.slotNumber))) continue;
     const t = findEligibleTeacher(fs.subjectId, fs.divisionId, fs.dayOfWeek, fs.slotNumber);
     if (t) placeEntry(fs.divisionId, t.id, fs.subjectId, fs.dayOfWeek, fs.slotNumber);
@@ -470,6 +534,13 @@ export function runTimetableEngine(data) {
           : classDivs;
         for (const day of ruleDays) {
           for (const divId of targets) {
+            const fmSlot = periodSlots.find((s) => Number(s.slotNumber) === Number(firstMorning));
+            if (fmSlot && !slotActiveOnWeekday(fmSlot, day)) {
+              classTeacherRuleStats.firstPeriodRequested += 1;
+              classTeacherRuleStats.firstPeriodSkipped += 1;
+              markClassTeacherSkip("FIRST_PERIOD_SLOT_INACTIVE_THIS_DAY");
+              continue;
+            }
             classTeacherRuleStats.firstPeriodRequested += 1;
             const placed = tryPlaceTeacherDivision(t, divId, day, firstMorning);
             if (placed) classTeacherRuleStats.firstPeriodPlaced += 1;
@@ -497,8 +568,13 @@ export function runTimetableEngine(data) {
         if (isDayBlockedByRule(sub.id, day, rules)) continue;
         if ((subjectDailyCount.get(subDKey(div.id, sub.id, day)) || 0) >= (maxPerDay || 2)) continue;
         for (const slot of lessonSlots) {
+          if (!slotActiveOnWeekday(slot, day)) continue;
           if (divisionSlotMap.has(dSlotKey(div.id, day, slot.slotNumber))) continue;
           if (isSlotBlockedByRule(sub.id, slot.slotNumber, periodSlots, rules)) continue;
+          if (!isPlacementAllowedByIncludeOnly(sub.id, div.id, day, slot.slotNumber, periodSlots, workingDays, rules)) {
+            markRejection("INCLUDE_RULE_BLOCKED");
+            continue;
+          }
           const t = findEligibleTeacher(sub.id, div.id, day, slot.slotNumber);
           if (!t) continue;
           placeEntry(div.id, t.id, sub.id, day, slot.slotNumber);
@@ -535,6 +611,7 @@ export function runTimetableEngine(data) {
             if ((subjectDailyCount.get(subDKey(div.id, sub.id, day)) || 0) >= (maxPerDay || 2)) continue;
             const slotOrder = reverseEveryOther(rotate(lessonSlots, pass + di), pass);
             for (const slot of slotOrder) {
+              if (!slotActiveOnWeekday(slot, day)) continue;
               if (divisionSlotMap.has(dSlotKey(div.id, day, slot.slotNumber))) continue;
               const divMeta = divisions.find((d) => d.id === div.id);
               const candidates = teachers.filter(
@@ -584,6 +661,7 @@ export function runTimetableEngine(data) {
   for (const div of divisions) {
     for (const day of workingDays) {
       for (const slot of periodSlots) {
+        if (!slotActiveOnWeekday(slot, day)) continue;
         const key = dSlotKey(div.id, day, slot.slotNumber);
         if (!divisionSlotMap.has(key)) {
           if (slot.slotType !== "LESSON") {

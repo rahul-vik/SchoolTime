@@ -82,6 +82,59 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
       return { ...p, divisionLimits: limits };
     });
   };
+
+  const divisionLimitRowHasValues = (row) => {
+    if (!row) return false;
+    const m = row.maxPerDay;
+    const w = row.weeklyPeriods;
+    const hasM = m !== undefined && m !== null && m !== "" && !Number.isNaN(Number(m));
+    const hasW = w !== undefined && w !== null && w !== "" && !Number.isNaN(Number(w));
+    return hasM || hasW;
+  };
+
+  /** Copy this row's max/day + weekly limit fields to all eligible divisions listed below (skips excluded divisions). */
+  const copyDivisionLimitFieldsBelow = (fromDivisionId) => {
+    const rows = eligibleDivisions;
+    const fromIdx = rows.findIndex((d) => d.id === fromDivisionId);
+    if (fromIdx < 0 || fromIdx >= rows.length - 1) {
+      notify("No divisions below this row to copy to.", "warning");
+      return;
+    }
+    const srcCheck = (form.divisionLimits || []).find((dl) => dl.divisionId === fromDivisionId);
+    if (!divisionLimitRowHasValues(srcCheck)) {
+      notify("Enter max/day or weekly first.", "warning");
+      return;
+    }
+    const excludeIds = form.divisionExcludeIds || [];
+    const targetIds = [];
+    for (let j = fromIdx + 1; j < rows.length; j += 1) {
+      if (!excludeIds.includes(rows[j].id)) targetIds.push(rows[j].id);
+    }
+    if (targetIds.length === 0) {
+      notify("No divisions below received values (remaining rows may be excluded).", "warning");
+      return;
+    }
+    const srcRow = (form.divisionLimits || []).find((dl) => dl.divisionId === fromDivisionId);
+    setForm((p) => {
+      const limits = [...(p.divisionLimits || [])];
+      for (const tid of targetIds) {
+        const li = limits.findIndex((dl) => dl.divisionId === tid);
+        const next = { divisionId: tid };
+        if (srcRow?.maxPerDay !== undefined) next.maxPerDay = Math.max(1, Number(srcRow.maxPerDay) || 1);
+        if (srcRow?.weeklyPeriods !== undefined) next.weeklyPeriods = Math.max(1, Number(srcRow.weeklyPeriods) || 1);
+        const keep = next.maxPerDay !== undefined || next.weeklyPeriods !== undefined;
+        if (!keep) {
+          if (li >= 0) limits.splice(li, 1);
+        } else if (li >= 0) {
+          limits[li] = next;
+        } else {
+          limits.push(next);
+        }
+      }
+      return { ...p, divisionLimits: limits };
+    });
+    notify("Copied to rows below.", "success");
+  };
   const canGoToStepTwo = () => {
     if (!form.name || !String(form.name).trim()) { notify("Subject name is required", "warning"); return false; }
     if (!form.code || !String(form.code).trim()) { notify("Subject code is required", "warning"); return false; }
@@ -188,20 +241,21 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
           width={540}
           scrollToTopKey={subjectStep}
         >
-          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-            {[{ id: 1, label: "Basics & Classes" }, { id: 2, label: "Division Overrides" }].map((step) => (
-              <button
-                key={step.id}
-                onClick={() => {
-                  if (step.id === 2 && !canGoToStepTwo()) return;
-                  setSubjectStep(step.id);
-                }}
-                style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${subjectStep === step.id ? T.brand : T.surfaceBorder}`, background: subjectStep === step.id ? T.brand + "12" : T.surface, color: subjectStep === step.id ? T.brand : T.textMid, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-              >
-                {step.id}. {step.label}
-              </button>
-            ))}
-          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              {[{ id: 1, label: "Basics & Classes" }, { id: 2, label: "Division Overrides" }].map((step) => (
+                <button
+                  key={step.id}
+                  onClick={() => {
+                    if (step.id === 2 && !canGoToStepTwo()) return;
+                    setSubjectStep(step.id);
+                  }}
+                  style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${subjectStep === step.id ? T.brand : T.surfaceBorder}`, background: subjectStep === step.id ? T.brand + "12" : T.surface, color: subjectStep === step.id ? T.brand : T.textMid, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                >
+                  {step.id}. {step.label}
+                </button>
+              ))}
+            </div>
           {subjectStep === 1 && (
             <div style={{ display: "flex", flexDirection: "column", gap: formSectionGap }}>
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? "0 12px" : "0 18px" }}>
@@ -247,9 +301,12 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
               ) : (
                 <div style={{ display: "grid", gap: 8, maxHeight: 280, overflow: "auto", border: `1px solid ${T.surfaceBorder}`, borderRadius: 8, padding: 10 }}>
                   {!isMobile && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 140px 140px", gap: 8, alignItems: "center", paddingBottom: 4, borderBottom: `1px solid ${T.surfaceBorder}` }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 44px 140px 140px", gap: 8, alignItems: "center", paddingBottom: 4, borderBottom: `1px solid ${T.surfaceBorder}` }}>
                       <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>Division</span>
                       <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>&nbsp;</span>
+                      <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700, textAlign: "center", display: "block" }} title="Copy filled limits down">
+                        <UiIcon name="copyDown" size={14} stroke={T.textSoft} style={{ display: "block", margin: "0 auto" }} />
+                      </span>
                       <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>Max per day</span>
                       <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>Total weekly</span>
                     </div>
@@ -259,12 +316,58 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
                     const std = standards.find((s) => s.id === div.standardId);
                     const isExclude = selectedExcludeIds.includes(div.id);
                     const existing = (form.divisionLimits || []).find((dl) => dl.divisionId === div.id) || {};
+                    const rowIndex = eligibleDivisions.findIndex((d) => d.id === div.id);
+                    const isLastEligibleRow = rowIndex >= eligibleDivisions.length - 1;
+                    const hasRowLimitValues = divisionLimitRowHasValues(existing);
+                    const copyDisabled = isLastEligibleRow || isExclude || !hasRowLimitValues;
+                    const copyTitle = isExclude
+                      ? "Excluded"
+                      : isLastEligibleRow
+                        ? "Nothing below"
+                        : !hasRowLimitValues
+                          ? "Fill max/day or weekly"
+                          : "Copy down";
+                    const copyAria =
+                      isExclude || isLastEligibleRow || !hasRowLimitValues
+                        ? copyTitle
+                        : "Copy max per day and weekly limits to all divisions below";
                     return (
-                      <div key={div.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto 140px 140px", gap: 8, alignItems: "center", borderBottom: `1px solid ${T.surfaceBorder}55`, paddingBottom: 8 }}>
+                      <div key={div.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr auto 44px 140px 140px", gap: 8, alignItems: "center", borderBottom: `1px solid ${T.surfaceBorder}55`, paddingBottom: 8 }}>
                         <span style={{ fontSize: 12, color: T.textMid, fontWeight: 600 }}>Std {std?.name || "?"}-{div.name}</span>
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                           <button onClick={() => toggleDivisionOverride(div.id, "exclude")} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${isExclude ? T.danger : T.surfaceBorder}`, background: isExclude ? T.danger + "14" : T.surface, color: isExclude ? T.danger : T.textSoft, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Exclude</button>
+                          {isMobile && (
+                            <Btn
+                              type="button"
+                              iconOnly
+                              variant="ghost"
+                              size="sm"
+                              disabled={copyDisabled}
+                              ariaLabel={copyAria}
+                              title={copyTitle}
+                              onClick={() => copyDivisionLimitFieldsBelow(div.id)}
+                              style={{ marginLeft: "auto" }}
+                            >
+                              <UiIcon name="copyDown" size={16} stroke={copyDisabled ? T.textSoft : T.brand} />
+                            </Btn>
+                          )}
                         </div>
+                        {!isMobile && (
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Btn
+                              type="button"
+                              iconOnly
+                              variant="ghost"
+                              size="sm"
+                              disabled={copyDisabled}
+                              ariaLabel={copyAria}
+                              title={copyTitle}
+                              onClick={() => copyDivisionLimitFieldsBelow(div.id)}
+                            >
+                              <UiIcon name="copyDown" size={16} stroke={copyDisabled ? T.textSoft : T.brand} />
+                            </Btn>
+                          </div>
+                        )}
                         {isMobile ? (
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                             <Field label="Max per day">
@@ -287,7 +390,24 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
               )}
             </div>
           )}
-          <div style={{ display: "flex", gap: 10, justifyContent: subjectStep === 1 ? "flex-end" : "space-between" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              justifyContent: subjectStep === 1 ? "flex-end" : "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              marginTop: 20,
+              marginLeft: -16,
+              marginRight: -16,
+              paddingTop: 16,
+              paddingLeft: 16,
+              paddingRight: 16,
+              paddingBottom: `calc(28px + env(safe-area-inset-bottom, 0px))`,
+              borderTop: `1px solid ${T.surfaceBorder}`,
+              background: `${T.surfaceAlt}cc`,
+            }}
+          >
             {subjectStep === 1 ? (
               <>
                 <Btn
@@ -305,6 +425,7 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
                 <Btn onClick={save}>Save Subject</Btn>
               </>
             )}
+          </div>
           </div>
         </Modal>
       )}

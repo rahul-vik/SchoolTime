@@ -24,6 +24,7 @@ import {
   creatorPutRoleAccessPolicy,
   creatorRegisterOrg,
   creatorSetUserActive,
+  creatorSetUserPassword,
   getCreatorToken,
 } from "./creatorApi";
 import { Btn, Input, Modal, T, UiIcon, css, useBreakpoint } from "../shared/uiPrimitives";
@@ -80,6 +81,11 @@ export function CreatorApp() {
   const [roleVisibility, setRoleVisibility] = useState({ owner: true, admin: true, staff: true });
   const [userEditModal, setUserEditModal] = useState(null);
   const [userEditForm, setUserEditForm] = useState({ fullName: "", email: "", role: "staff" });
+  /** Plaintext passwords the portal has set or seen this session only (not loaded from the server). */
+  const [portalUserPasswordById, setPortalUserPasswordById] = useState({});
+  const [portalUserPwReveal, setPortalUserPwReveal] = useState({});
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [passwordResetPlain, setPasswordResetPlain] = useState("");
   const [orgSortBy, setOrgSortBy] = useState("created");
   const [orgSortDir, setOrgSortDir] = useState("desc");
   const [creditOrgId, setCreditOrgId] = useState("");
@@ -373,6 +379,32 @@ export function CreatorApp() {
     }
   };
 
+  const openPasswordReset = (u) => {
+    setPasswordResetUser(u);
+    setPasswordResetPlain("");
+  };
+
+  const submitPasswordReset = async (e) => {
+    e.preventDefault();
+    if (!passwordResetUser) return;
+    setBusy(true);
+    try {
+      const body = {};
+      const trimmed = passwordResetPlain.trim();
+      if (trimmed) body.password = trimmed;
+      const out = await creatorSetUserPassword(passwordResetUser.id, body);
+      setPortalUserPasswordById((p) => ({ ...p, [passwordResetUser.id]: out.newPassword }));
+      setPortalUserPwReveal((r) => ({ ...r, [passwordResetUser.id]: true }));
+      notify("Password updated. Use the eye icon in the table to show or hide it. Copy it now if you need to share it.");
+      setPasswordResetUser(null);
+      setPasswordResetPlain("");
+    } catch (err) {
+      notify(err.message || "Password update failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -385,8 +417,12 @@ export function CreatorApp() {
       };
       const ic = reg.initialCredits.trim();
       if (ic !== "") body.initialCredits = Number(ic);
+      const ownerPassword = reg.password;
       const out = await creatorRegisterOrg(body);
       notify(out.message || "Organization created");
+      if (out.userId && ownerPassword) {
+        setPortalUserPasswordById((p) => ({ ...p, [out.userId]: ownerPassword }));
+      }
       setReg({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
     } catch (err) {
       notify(err.message || "Registration failed", "danger");
@@ -524,6 +560,59 @@ export function CreatorApp() {
     controlWithIconRow: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
     iconSq39: { height: 39, padding: "0 12px", flexShrink: 0, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center" },
     rowActions: { display: "inline-flex", gap: 8, flexWrap: "nowrap", justifyContent: "flex-end", alignItems: "center", whiteSpace: "nowrap" },
+  };
+
+  const renderPortalUserPasswordCell = (u) => {
+    const known = portalUserPasswordById[u.id];
+    const revealed = Boolean(portalUserPwReveal[u.id]);
+    const displayText = !revealed
+      ? "••••••••"
+      : known || "Not available";
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: 320 }}>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontFamily: "ui-monospace, Consolas, monospace",
+            fontSize: 12,
+            lineHeight: 1.35,
+            color: revealed && known ? T.text : T.textMid,
+            wordBreak: revealed && !known ? "break-word" : "normal",
+            whiteSpace: revealed && known ? "nowrap" : "normal",
+            overflow: revealed && known ? "hidden" : "visible",
+            textOverflow: revealed && known ? "ellipsis" : "clip",
+          }}
+          title={revealed && known ? known : revealed && !known ? "Set a new password with the key icon to show it here." : undefined}
+        >
+          {displayText}
+        </span>
+        <Btn
+          type="button"
+          variant="ghost"
+          size="sm"
+          iconOnly
+          ariaLabel={revealed ? `Hide password for ${u.full_name}` : `Show password for ${u.full_name}`}
+          title={revealed ? "Hide" : "Show"}
+          onClick={() => setPortalUserPwReveal((p) => ({ ...p, [u.id]: !p[u.id] }))}
+          disabled={busy}
+        >
+          <EyeIcon off={revealed} />
+        </Btn>
+        <Btn
+          type="button"
+          variant="ghost"
+          size="sm"
+          iconOnly
+          ariaLabel={`Set new password for ${u.full_name}`}
+          title="Set new password"
+          onClick={() => openPasswordReset(u)}
+          disabled={busy}
+        >
+          <UiIcon name="key" size={16} stroke="currentColor" />
+        </Btn>
+      </div>
+    );
   };
 
   return (
@@ -860,6 +949,7 @@ export function CreatorApp() {
           <div>
             <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
               Each row is one login. School credits are managed on the <strong>Organizations</strong> tab. Multiple rows usually mean several schools or test accounts.
+              The eye only shows a password if this portal already knows it (after Register org or Set password with the key icon).
             </p>
             <div style={{ ...pt.toolRow, marginBottom: 12 }}>
               {Array.from(new Set((users.users || []).map((u) => String(u.role || "").toLowerCase()).filter(Boolean))).map((roleKey) => (
@@ -899,8 +989,13 @@ export function CreatorApp() {
                         <span style={css.badge(u.role === "owner" ? T.brand : u.role === "admin" ? T.warning : T.textSoft)}>{u.role}</span>
                       </div>
                       <div style={{ marginTop: 4, fontSize: 12, color: T.textMid }}>{u.email}</div>
+                      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.textMid, textTransform: "uppercase", letterSpacing: "0.05em" }}>Password</span>
+                        <div style={{ flex: "1 1 200px", minWidth: 0 }}>{renderPortalUserPasswordCell(u)}</div>
+                      </div>
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>{u.org_name}</div>
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Created: {formatDateTime(u.created_at)}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Last activity: {formatDateTime(u.last_activity_at, "No activity yet")}</div>
                       <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-end" }}>
                         <Btn size="sm" variant="ghost" iconOnly ariaLabel={`Edit ${u.full_name}`} onClick={() => openEditUser(u)} disabled={busy}><UiIcon name="preferences" size={16} stroke="currentColor" /></Btn>
                         <Btn size="sm" variant="ghost" iconOnly ariaLabel={u.is_active ? `Deactivate ${u.full_name}` : `Activate ${u.full_name}`} onClick={() => toggleUserActive(u)} disabled={busy}><UiIcon name={u.is_active ? "pause" : "play"} size={16} stroke="currentColor" /></Btn>
@@ -915,10 +1010,12 @@ export function CreatorApp() {
                   <tr>
                     <th style={pt.th}>Name</th>
                     <th style={pt.th}>Email</th>
+                    <th style={pt.th}>Password</th>
                     <th style={pt.th}>Role</th>
                     <th style={pt.th}>Org</th>
                     <th style={pt.th}>Active</th>
                     <th style={pt.th}>Created</th>
+                    <th style={pt.th}>Last activity</th>
                     <th style={{ ...pt.th, textAlign: "right", width: 1 }}>Actions</th>
                   </tr>
                 </thead>
@@ -927,10 +1024,12 @@ export function CreatorApp() {
                     <tr key={u.id}>
                       <td style={pt.td}>{u.full_name}</td>
                       <td style={pt.td}>{u.email}</td>
+                      <td style={{ ...pt.td, maxWidth: 340 }}>{renderPortalUserPasswordCell(u)}</td>
                       <td style={pt.td}>{u.role}</td>
                       <td style={pt.td}>{u.org_name}</td>
                       <td style={pt.td}>{u.is_active ? "Yes" : "No"}</td>
                       <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.created_at)}</td>
+                      <td style={{ ...pt.td, whiteSpace: "nowrap", fontSize: 12 }}>{formatDateTime(u.last_activity_at, "No activity yet")}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
                           <Btn
@@ -986,6 +1085,47 @@ export function CreatorApp() {
                       <UiIcon name="close" size={18} stroke="currentColor" />
                     </Btn>
                     <Btn type="submit" iconOnly ariaLabel="Save user" disabled={busy}>
+                      <UiIcon name="check" size={18} stroke="currentColor" />
+                    </Btn>
+                  </div>
+                </form>
+              </Modal>
+            )}
+            {passwordResetUser && (
+              <Modal
+                title={`Set password — ${passwordResetUser.full_name}`}
+                onClose={() => {
+                  setPasswordResetUser(null);
+                  setPasswordResetPlain("");
+                }}
+                scrollToTopKey={passwordResetUser.id}
+              >
+                <form onSubmit={submitPasswordReset}>
+                  <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid, lineHeight: 1.55 }}>
+                    This replaces the user’s current password and signs them out on all devices. Leave the field blank for a random password. After you save, use the eye icon in the Users table to show or hide it.
+                  </p>
+                  <Input
+                    label="New password (optional)"
+                    type="password"
+                    value={passwordResetPlain}
+                    onChange={(v) => setPasswordResetPlain(v)}
+                    help="Minimum 6 characters if you type one yourself."
+                  />
+                  <div style={pt.modalActions}>
+                    <Btn
+                      type="button"
+                      variant="ghost"
+                      iconOnly
+                      ariaLabel="Cancel"
+                      onClick={() => {
+                        setPasswordResetUser(null);
+                        setPasswordResetPlain("");
+                      }}
+                      disabled={busy}
+                    >
+                      <UiIcon name="close" size={18} stroke="currentColor" />
+                    </Btn>
+                    <Btn type="submit" iconOnly ariaLabel="Save new password" disabled={busy}>
                       <UiIcon name="check" size={18} stroke="currentColor" />
                     </Btn>
                   </div>

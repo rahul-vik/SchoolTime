@@ -49,6 +49,11 @@ Reduce human effort without risking production integrity.
 7. Medium/high findings must never be auto-applied; they require explicit approval flow.
 8. Auto-fix actions must log before/after deltas in audit metadata for traceability.
 
+## Timetable validation and auto-fix (reference)
+
+- Post-generation checks live in `server/services/timetableValidationService.js` and emit **finding codes** (e.g. `SUBJECT_WEEKLY_OVERFLOW`, `SUBJECT_DAILY_OVERFLOW`, `SUBJECT_APPLICABILITY_MISMATCH`, `LESSON_ON_INACTIVE_PERIOD_SLOT`, teacher weekly cap, etc.).
+- **`server/services/timetableAutoFixService.js`** may auto-apply only findings on the **explicit low-risk allow-list** (currently overflow/applicability-style codes). Other findings—including **`LESSON_ON_INACTIVE_PERIOD_SLOT`**—require human review, period grid changes, or **regenerate** unless a maintainer extends the allow-list with care.
+
 ## Workflow Enforcement
 
 Enforced by `.github/workflows/daily-health-autofix.yml` and `scripts/autofix-risk-gate.mjs`.

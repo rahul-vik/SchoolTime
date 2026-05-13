@@ -10,12 +10,14 @@ Use it for onboarding, daily development, and release decisions.
   - Frontend in `src/`
   - Backend in `server/`
   - Docs in `docs/`
-  - Small cross-runtime helpers in `shared/` (e.g. report label strings imported by both `exportService.js` and the client)
+  - Small cross-runtime helpers in `shared/` (e.g. report label strings imported by both `exportService.js` and the client; **`shared/periodSlotDays.js`** for period-slot weekday activity used by engine, exports, validation, and UI—keep them aligned)
 - Keep changes minimal, focused, and backward-compatible unless explicitly approved.
 - Never commit secrets. Use `.env` locally and keep `.env.example` current.
 - Preserve deterministic timetable/export behavior across runs.
 - Preserve deterministic teacher assignment within a run: do not mix multiple teachers for the same division-subject unless explicitly introducing and documenting a team-teaching rule.
 - Keep user-facing language simple and action-oriented.
+- For operational timestamps shown in admin/creator views (for example "Last activity"), source from real activity records (audit/session actions) rather than creation timestamps.
+- Session refresh/resume should be auditable when it materially represents user activity (for example refresh-token driven app reopen).
 
 ## 2) Branch Model And Workflow
 

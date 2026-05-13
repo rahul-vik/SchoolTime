@@ -1,6 +1,7 @@
 ﻿import { useState } from "react";
-import { T, EmptyState, useBreakpoint } from "./uiPrimitives";
-import { teacherFullName, isClassTeacherLesson } from "./timetableDisplayHelpers";
+import { slotActiveOnWeekday } from "../../../shared/periodSlotDays.js";
+import { EmptyState, T, useBreakpoint } from "./uiPrimitives";
+import { isClassTeacherLesson, teacherFullName } from "./timetableDisplayHelpers.js";
 
 export function TimetableGrid({ timetable, divisions, teachers, subjects, periodSlots, workingDays, viewMode, selectedId, onCellClick, isEditable, pendingSwap, standards, mediums = [] }) {
   const bp = useBreakpoint();
@@ -18,16 +19,56 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
       : timetable.entries.find((e) => e.teacherId === eId && e.dayOfWeek === day && e.slotNumber === sn)
   );
 
-  const renderCell = (entry) => {
+  const renderCell = (entry, day, slot) => {
+    const inactive = slot && day && !slotActiveOnWeekday(slot, day);
+    if (inactive) {
+      return (
+        <div
+          style={{
+            height: cellH,
+            background: T.surfaceBorder + "55",
+            borderRadius: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: `1px dashed ${T.surfaceBorder}`,
+          }}
+        >
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.textSoft }}>Off</span>
+        </div>
+      );
+    }
     if (!entry) return <div style={{ height: cellH, background: T.surfaceBorder + "40", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 9, color: T.textSoft }}>—</span></div>;
     if (entry.slotType === "BREAK" || entry.slotType === "LUNCH") return <div style={{ height: 36, background: T.surfaceBorder, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>{entry.label}</span></div>;
-    if (entry.isFreePeriod) return <div style={{ height: cellH, background: T.surfaceAlt, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${T.surfaceBorder}` }}><span style={{ fontSize: 11, color: T.textSoft }}>Free</span></div>;
+
+    const isPending = pendingSwap && pendingSwap.divisionId === entry.divisionId && pendingSwap.dayOfWeek === entry.dayOfWeek && pendingSwap.slotNumber === entry.slotNumber;
+    if (entry.isFreePeriod) {
+      return (
+        <div
+          onClick={() => isEditable && onCellClick && onCellClick(entry)}
+          title={isEditable ? "Tap to swap with another period" : undefined}
+          style={{
+            height: cellH,
+            background: T.surfaceAlt,
+            borderRadius: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: `1px dashed ${T.surfaceBorder}`,
+            cursor: isEditable ? "pointer" : "default",
+            boxShadow: isPending ? `0 0 0 2px ${T.gold}` : "none",
+            transition: "all 0.15s",
+          }}
+        >
+          <span style={{ fontSize: 11, color: T.textSoft }}>Free</span>
+        </div>
+      );
+    }
 
     const sub = subjects.find((s) => s.id === entry.subjectId);
     const tch = teachers.find((t) => t.id === entry.teacherId);
     const div = divisions.find((d) => d.id === entry.divisionId);
     const color = sub?.colorHex || T.CORE;
-    const isPending = pendingSwap && pendingSwap.divisionId === entry.divisionId && pendingSwap.dayOfWeek === entry.dayOfWeek && pendingSwap.slotNumber === entry.slotNumber;
     const showCt = isClassTeacherLesson(entry, teachers);
 
     return (
@@ -105,7 +146,7 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
                 <div style={{ fontSize: 9, fontWeight: 700, color: T.textSoft, textTransform: "uppercase" }}>{slot.label.replace("Period ", "P")}</div>
                 <div style={{ fontSize: 9, color: T.textSoft }}>{slot.startTime}</div>
               </div>
-              <div style={{ flex: 1 }}>{renderCell(getEntry(selectedId, day, slot.slotNumber))}</div>
+              <div style={{ flex: 1 }}>{renderCell(getEntry(selectedId, day, slot.slotNumber), day, slot)}</div>
             </div>
           ))}
         </div>
@@ -124,7 +165,7 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
           {days.map((day) => (
             <tr key={day}>
               <td style={{ padding: "3px 10px 3px 3px", fontSize: 11, fontWeight: 700, color: T.textMid, whiteSpace: "nowrap" }}>{day.slice(0, 3)}</td>
-              {slots.map((s) => <td key={s.slotNumber} style={{ padding: 2, verticalAlign: "top" }}>{renderCell(getEntry(selectedId, day, s.slotNumber))}</td>)}
+              {slots.map((s) => <td key={s.slotNumber} style={{ padding: 2, verticalAlign: "top" }}>{renderCell(getEntry(selectedId, day, s.slotNumber), day, s)}</td>)}
             </tr>
           ))}
         </tbody>

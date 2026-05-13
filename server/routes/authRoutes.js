@@ -97,6 +97,7 @@ export function createAuthRoutes(db) {
     if (!row || row.revoked_at || isAfter(nowIso(), row.expires_at) || !row.is_active) return res.status(401).json({ error: "Invalid refresh token" });
     await db.run("UPDATE refresh_tokens SET revoked_at = ? WHERE id = ?", nowIso(), row.id);
     const tokens = await issueTokenPair(db, { id: row.user_id, org_id: row.org_id, email: row.email, role: row.role });
+    await logAudit(db, row.org_id, row.user_id, "USER_SESSION_REFRESHED", "user", row.user_id, { via: "refresh_token" });
     res.json({ token: tokens.accessToken, refreshToken: tokens.refreshToken });
   });
 
