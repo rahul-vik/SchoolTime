@@ -1,3 +1,5 @@
+import { ensurePeriodSlotsActiveWeekdays } from "../../../shared/periodSlotDays.js";
+
 function normalizeClassTeacherPreferences(rawPrefs, seedPrefs, workingDays) {
   const seed = seedPrefs || {};
   const next = rawPrefs || {};
@@ -53,8 +55,9 @@ export function applyTenantStateWithFallback(state, seed, setters) {
   setters.setDivisions(nextDivisions);
   setters.setSubjects(normalizeSubjects(state.subjects || seed.subjects, nextStandards, nextDivisions));
   setters.setTeachers(state.teachers || seed.teachers);
-  setters.setPeriodSlots(state.periodSlots || seed.periodSlots);
   const nextWorkingDays = state.workingDays || seed.workingDays;
+  const rawPeriodSlots = state.periodSlots || seed.periodSlots;
+  setters.setPeriodSlots(ensurePeriodSlotsActiveWeekdays(rawPeriodSlots, nextWorkingDays));
   setters.setWorkingDays(nextWorkingDays);
   setters.setSchedulingRules(state.schedulingRules || seed.schedulingRules);
   setters.setClassTeacherPreferences(normalizeClassTeacherPreferences(state.classTeacherPreferences, seed.classTeacherPreferences, nextWorkingDays));

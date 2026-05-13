@@ -22,6 +22,7 @@
     "migrate:tenant-state:backfill": "node scripts/backfill-tenant-migrations.mjs",
     "migrate:tenant-state:backfill:apply": "node scripts/backfill-tenant-migrations.mjs --apply",
     "test:backend:validation": "node --test tests/backend/timetable-validation-autofix.test.mjs",
+    "test:backend:engine": "node --test tests/backend/engine-include-only.test.mjs tests/backend/tenant-state-migration-prune.test.mjs",
     "test:postgres:integration": "node scripts/postgres-integration-check.mjs",
     "docs:auto": "node scripts/auto-docs-rules.mjs",
     "release:prepare": "node scripts/prepare-release-branch.mjs",

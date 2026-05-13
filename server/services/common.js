@@ -50,6 +50,16 @@ export const schemas = {
     role: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i),
     isActive: z.boolean().optional(),
   }),
+  /** Tenant admin `PATCH /users/:id` — at least one field required. */
+  tenantUserPatchSchema: z
+    .object({
+      role: z.string().min(2).max(40).regex(/^[a-z][a-z0-9_ -]*$/i).optional(),
+      isActive: z.boolean().optional(),
+      password: z.string().min(6).max(120).optional(),
+    })
+    .refine((d) => d.role !== undefined || d.isActive !== undefined || d.password !== undefined, {
+      message: "Provide at least one of role, isActive, or password",
+    }),
   updateMeSchema: z.object({ fullName: z.string().min(2).max(120).optional(), password: z.string().min(6).max(120).optional() }).strict(),
   refreshSchema: z.object({ refreshToken: z.string().min(20) }),
   resetRequestSchema: z.object({ email: z.string().email() }),
@@ -82,6 +92,10 @@ export const schemas = {
     credit_pack_price_cents: z.number().int().min(0).max(100_000_000).optional(),
   }),
   creatorUserActiveSchema: z.object({ isActive: z.boolean() }),
+  /** Optional `password`: if omitted or blank, server generates a temporary password and returns it once. */
+  creatorUserPasswordSetSchema: z.object({
+    password: z.string().max(128).nullish(),
+  }),
   creatorUserPatchSchema: z
     .object({
       fullName: z.string().min(2).max(120).optional(),

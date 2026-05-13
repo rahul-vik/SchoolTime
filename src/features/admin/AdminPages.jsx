@@ -157,7 +157,7 @@ function mergeMeIntoTeamUsers(users, me) {
 }
 
 export function UsersPage({ users, me, availableRoles = ["owner", "admin", "staff"], onRefresh, notify, ui }) {
-  const { css, Input, Select, Btn, T } = ui;
+  const { css, Input, Select, Btn, T, Modal } = ui;
   const { isMobile } = useBreakpoint();
   const canManageUsers = Boolean(me?.permissions?.canManageUsers);
   const roleOptions = availableRoles
@@ -166,7 +166,16 @@ export function UsersPage({ users, me, availableRoles = ["owner", "admin", "staf
   const defaultCreateRole = roleOptions.some((r) => r.value === "staff") ? "staff" : (roleOptions[0]?.value || "staff");
   const [form, setForm] = useState({ fullName: "", email: "", password: "", role: defaultCreateRole });
   const [busy, setBusy] = useState(false);
+  const [pwdUser, setPwdUser] = useState(null);
+  const [pwdValue, setPwdValue] = useState("");
+  const [pwdBusy, setPwdBusy] = useState(false);
   const displayUsers = mergeMeIntoTeamUsers(users, me);
+
+  const canSetPasswordForUser = (u) => {
+    if (!canManageUsers || u.id === me.id) return false;
+    if (String(u.role || "").toLowerCase() === "owner" && String(me?.role || "").toLowerCase() !== "owner") return false;
+    return true;
+  };
 
   const addUser = async () => {
     setBusy(true);
@@ -189,6 +198,28 @@ export function UsersPage({ users, me, availableRoles = ["owner", "admin", "staf
       notify("User updated", "success");
     } catch (err) {
       notify(err.message || "Failed to update user", "danger");
+    }
+  };
+
+  const submitNewPassword = async (e) => {
+    e.preventDefault();
+    if (!pwdUser) return;
+    const pw = pwdValue.trim();
+    if (pw.length < 6) {
+      notify("Password must be at least 6 characters", "warning");
+      return;
+    }
+    setPwdBusy(true);
+    try {
+      await updateUser(pwdUser.id, { password: pw });
+      notify("Password updated. Ask them to sign in with the new password.", "success");
+      setPwdUser(null);
+      setPwdValue("");
+      await onRefresh();
+    } catch (err) {
+      notify(err.message || "Failed to update password", "danger");
+    } finally {
+      setPwdBusy(false);
     }
   };
 
@@ -221,10 +252,33 @@ export function UsersPage({ users, me, availableRoles = ["owner", "admin", "staf
                   ))}
                 </select>
               )}
+              {canSetPasswordForUser(u) && (
+                <Btn size="sm" variant="ghost" onClick={() => { setPwdUser(u); setPwdValue(""); }} disabled={busy || pwdBusy}>
+                  New password
+                </Btn>
+              )}
             </div>
           ))}
         </div>
       </div>
+      {pwdUser && Modal && (
+        <Modal title={`New password — ${pwdUser.full_name}`} onClose={() => { if (!pwdBusy) { setPwdUser(null); setPwdValue(""); } }}>
+          <form onSubmit={submitNewPassword}>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
+              Sets a new sign-in password for this team member and signs them out on all devices.
+            </p>
+            <Input label="New password (min 6 characters)" type="password" value={pwdValue} onChange={(v) => setPwdValue(v)} required />
+            <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <Btn type="button" variant="ghost" onClick={() => { if (!pwdBusy) { setPwdUser(null); setPwdValue(""); } }} disabled={pwdBusy}>
+                Cancel
+              </Btn>
+              <Btn type="submit" disabled={pwdBusy}>
+                {pwdBusy ? "Saving…" : "Save password"}
+              </Btn>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

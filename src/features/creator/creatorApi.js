@@ -101,6 +101,11 @@ export function creatorUpdateUser(userId, body) {
   return creatorRequest(`/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(body) });
 }
 
+/** Body: `{ password?: string }` — omit or blank password to let the server generate one. Response includes `newPassword` once. */
+export function creatorSetUserPassword(userId, body = {}) {
+  return creatorRequest(`/users/${encodeURIComponent(userId)}/set-password`, { method: "POST", body: JSON.stringify(body) });
+}
+
 export function creatorListCreditLedger(params = {}) {
   const q = new URLSearchParams();
   if (params.limit != null) q.set("limit", String(params.limit));

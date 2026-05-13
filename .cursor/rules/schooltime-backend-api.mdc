@@ -15,6 +15,9 @@ alwaysApply: false
 - Keep audit-sensitive actions logged where applicable.
 - If database strategy changes (SQLite -> Postgres), update `docs/POSTGRES_MIGRATION.md` and deployment docs in the same change.
 - When adding new `tenant_state` fields, update validation (`tenantStateSchema`) and load/save flows together so fields are never dropped.
+- **Tenant migration** (`server/services/tenantStateMigration.js`): migrate and normalize **`periodSlots`** (including `activeWeekdays`) **before** `schedulingRules`; prune **`INCLUDE_ONLY` / CUSTOM / `allowedCells`** that reference a slot on a weekday when that slot is inactive—keeps persisted rules aligned with `server/engine.js`.
+- **Timetable engine** (`server/engine.js`): placement and **`INCLUDE_ONLY`** matching respect **`slotActiveOnWeekday`**; rejection stats include `SLOT_INACTIVE_THIS_DAY` where relevant.
+- **Validation** (`server/services/timetableValidationService.js`): cross-check entries vs period grid (e.g. **`LESSON_ON_INACTIVE_PERIOD_SLOT`**); keep finding codes in sync with `timetableAutoFixService` allow-list policy in `docs/AUTONOMOUS_AUTOFIX_POLICY.md`.
 - Keep timetable diagnostics reason codes stable and human-readable; if you add reason keys, document/handle them in frontend diagnostics.
 
 ## API Safety

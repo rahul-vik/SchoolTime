@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, useEffect } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
 import {
   findClassTeacherForDivision,
@@ -137,10 +137,32 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
   );
 }
 
-export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, notify, navigate, helpers, ui }) {
+export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, onUndoManualEdit, notify, navigate, helpers, ui }) {
   const { T, css, Btn, EmptyState } = ui;
   const { TimetableGrid } = helpers;
   const { isMobile } = useBreakpoint();
+
+  const manualEditCount = timetable
+    ? Math.max(
+        0,
+        Number(timetable?.report?.manualEditCount || 0) || (Array.isArray(timetable?.manualEdits) ? timetable.manualEdits.length : 0),
+      )
+    : 0;
+  const lastManualEditAt = timetable?.report?.lastManualEditAt;
+
+  useEffect(() => {
+    if (!onUndoManualEdit || manualEditCount <= 0) return undefined;
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== "z" || e.shiftKey) return;
+      const el = e.target;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      e.preventDefault();
+      onUndoManualEdit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onUndoManualEdit, manualEditCount]);
+
   if (timetableStatus === "DRAFT" || !timetable) {
     return (
       <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
@@ -155,11 +177,6 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const selTeacher = teachers.find((t) => t.id === selectedTeacherId);
   const classTeacherForDiv = currentDiv ? findClassTeacherForDivision(currentDiv.id, teachers) : null;
   const teacherCtLabels = selTeacher ? classTeacherDivisionLabels(selTeacher, divisions, standards) : [];
-  const manualEditCount = Math.max(
-    0,
-    Number(timetable?.report?.manualEditCount || 0) || (Array.isArray(timetable?.manualEdits) ? timetable.manualEdits.length : 0),
-  );
-  const lastManualEditAt = timetable?.report?.lastManualEditAt;
   const generatedLabel = timetable?.generatedAt ? formatDateTimeIndian(timetable.generatedAt, null) : null;
   const divisionsWithoutClassTeacher = resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers);
   const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
@@ -276,30 +293,37 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         )}
         <Btn onClick={() => { setIsEditMode((p) => !p); if (isEditMode) setPendingSwap(null); }} variant={isEditMode ? "primary" : "ghost"} size="sm" style={isMobile ? { alignSelf: "flex-start" } : undefined}>{isEditMode ? "Edit Mode On" : "Edit"}</Btn>
         {manualEditCount > 0 && (
-          <span
-            title={lastManualEditAt ? `Last manual edit: ${formatDateTimeIndian(lastManualEditAt, "")}` : "Manual edits detected"}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: `1px solid ${T.info}44`,
-              background: T.info + "12",
-              color: T.info,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            <UiIcon name="check" size={12} stroke={T.info} />
-            Manual edits: {manualEditCount}
-          </span>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span
+              title={lastManualEditAt ? `Last manual edit: ${formatDateTimeIndian(lastManualEditAt, "")}` : "Manual edits detected"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: `1px solid ${T.info}44`,
+                background: T.info + "12",
+                color: T.info,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              <UiIcon name="check" size={12} stroke={T.info} />
+              Manual edits: {manualEditCount}
+            </span>
+            {onUndoManualEdit ? (
+              <Btn size="sm" variant="ghost" title="Undo last swap (Ctrl+Z or ⌘Z)" onClick={() => onUndoManualEdit()}>
+                Undo last
+              </Btn>
+            ) : null}
+          </div>
         )}
       </div>
 
       {isEditMode && (
         <div style={{ padding: "10px 14px", background: T.info + "14", borderRadius: 8, marginBottom: 14, fontSize: 13, color: T.info, fontWeight: 500 }}>
-          {pendingSwap ? "Period selected — tap another period to swap." : "Tap one period, then tap another to swap."}
+          {pendingSwap ? "Cell selected — tap another lesson or free period to swap." : "Tap one lesson or free period, then another to swap. Use Undo last or Ctrl+Z (⌘Z) to reverse the last swap."}
         </div>
       )}
 

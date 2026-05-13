@@ -10,7 +10,7 @@ Use it for onboarding, daily development, and release decisions.
   - Frontend in `src/`
   - Backend in `server/`
   - Docs in `docs/`
-  - Small cross-runtime helpers in `shared/` (e.g. report label strings imported by both `exportService.js` and the client)
+  - Small cross-runtime helpers in `shared/` (e.g. report label strings imported by both `exportService.js` and the client; **`shared/periodSlotDays.js`** for period-slot weekday activity used by engine, exports, validation, and UI—keep them aligned)
 - Keep changes minimal, focused, and backward-compatible unless explicitly approved.
 - Never commit secrets. Use `.env` locally and keep `.env.example` current.
 - Preserve deterministic timetable/export behavior across runs.

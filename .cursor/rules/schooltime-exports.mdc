@@ -18,6 +18,7 @@ alwaysApply: false
 
 - **CT** when the teacher is class teacher for that division: subject/code on the **left**, **CT** on the **right**, **black** text (PDF + Excel + app grid).
 - **Teacher view:** below **Std …-Division**, render medium **code** only on its own line in **black** when `medium.code` exists.
+- **Inactive period days:** when a lesson slot is off for a given weekday (`periodSlots[].activeWeekdays`), that **(day, column)** is not a teachable cell—render like an empty cell (em dash styling), consistent with `slotActiveOnWeekday` in `server/engine.js` and the in-app `TimetableGrid`.
 
 ## Reports bundle (`REPORTS_BUNDLE`)
 

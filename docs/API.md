@@ -33,13 +33,19 @@ Response includes:
 - `PATCH /me`
 - `GET /users` — requires `canManageUsers`
 - `POST /users` — requires `canManageUsers`; role must exist in `availableRoles`
-- `PATCH /users/:id` — requires `canManageUsers`; role must exist in `availableRoles`
+- `PATCH /users/:id` — requires `canManageUsers`; body may include **`role`**, **`isActive`**, and/or **`password`** (min 6 chars); at least one field required. **`password`** updates the hash and revokes that user’s refresh tokens. Only an **owner** may set the password for another **owner** account.
 
 ## Tenant State
 
 - `GET /state`
 - `PUT /state` — requires `canConfigureTimetable`
 - State payload may include `classTeacherPreferences`, `exportJobs` (latest 3 retained by client), and `lastGeneratedTimetable`
+
+### Period slots and scheduling rules
+
+- Each `periodSlots[]` item may include **`activeWeekdays`**: a subset of the tenant’s working days. Empty or omitted means the slot runs on **all** working days (backward compatible).
+- On load/persist, the server runs **`migrateTenantState`** (`server/services/tenantStateMigration.js`): normalizes `activeWeekdays` per slot, migrates **`periodSlots` before `schedulingRules`**, and prunes **`INCLUDE_ONLY` / `CUSTOM` / `allowedCells`** entries that reference a slot on a weekday when that slot is off—so stored rules stay consistent with the engine and `server/engine.js`.
+- **`PUT /state`** should send coherent `periodSlots` + `schedulingRules`; clients that hydrate from `GET /state` receive already-migrated payloads.
 
 ## Timetable
 
@@ -84,6 +90,8 @@ Paths below are under the normal API base (e.g. `http://localhost:8787/api`) wit
 - `DELETE /creator/orgs/:orgId` — body `{ "confirmationName": string, "notes"?: string }`; **`confirmationName` must exactly match** the organization name (trimmed). Deletes the org and all tenant data (users, `tenant_state`, `timetable_runs`, `credit_ledger`, `licenses`, `api_keys`, `audit_logs` and org-scoped `platform_error_logs` for that org, tokens, etc.) after inserting a row into `platform_org_purges`. **404** if org missing; **400** if name mismatch
 - `GET /creator/users` — query: `limit`, `offset`, `q`
 - `PATCH /creator/users/:userId/active` — body `{ "isActive": boolean }` — deactivate or reactivate; deactivating revokes refresh tokens
+- `POST /creator/users/:userId/set-password` — body `{ "password"?: string }` — sets a new login password (bcrypt-hashed). If **`password`** is omitted or blank, the server generates a random one. **Revokes** the user’s refresh tokens. Response: `{ "ok": true, "userId", "newPassword" }` (**`newPassword`** is returned **once** here; it is not stored in plaintext in the database)
+- `PATCH /creator/users/:userId` — partial body with at least one of `{ "fullName", "email", "role" }` — update user fields (**409** if email already in use)
 - `DELETE /creator/users/:userId` — hard-delete user if the org has **another** user (reassigns `timetable_runs.created_by_user_id`); **409** if this is the only user in the org
 - `GET /creator/credit-ledger` — query: `limit`, `orgId` (optional)
 - `GET /creator/credit-purchase-requests` — query: `status` = `pending` | `approved` | `rejected` | `all` (default `pending`); joins org + requester

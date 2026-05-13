@@ -15,6 +15,7 @@ alwaysApply: true
 - For admin/creator activity timestamps, use true activity-derived fields (audit/session signals), not entity creation time fallbacks.
 - Capture session-resume activity through audit logging when refresh-token flows represent real user app reopen/resume behavior.
 - Keep exports and scheduling behavior deterministic and reproducible from persisted state.
+- **Period slots and weekdays:** optional per-slot **`activeWeekdays`** (subset of tenant working days) is honored by the timetable engine, PDF/Excel exports, post-run validation, and tenant migration (`shared/periodSlotDays.js`). **`INCLUDE_ONLY`** rules must not contradict inactive slots; migration prunes impossible **`allowedCells`** when state is normalized.
 - Keep teacher allocation deterministic per run: for the same division+subject, avoid mixing multiple teachers unless explicitly requested as a team-teaching feature.
 - Do not break `npm run dev:all`, `npm run build`, or API compatibility without explicit approval.
 

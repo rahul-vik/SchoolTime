@@ -111,23 +111,52 @@ export function createUserRoutes(db) {
     const currentRole = await getCurrentRole(req);
     const access = await getRolePermissionContext(db, currentRole);
     if (!access.permissions.canManageUsers) return res.status(403).json({ error: "Forbidden" });
-    const parsed = schemas.roleUpdateSchema.safeParse(req.body);
+    const parsed = schemas.tenantUserPatchSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
     const target = await db.get("SELECT id, role FROM users WHERE id = ? AND org_id = ?", req.params.id, req.auth.orgId);
     if (!target) return res.status(404).json({ error: "User not found" });
-    if (!access.availableRoles.includes(String(parsed.data.role || "").trim().toLowerCase())) {
-      return res.status(400).json({ error: "Role is not allowed by role access policy" });
-    }
-    if (currentRole !== "owner" && parsed.data.role === "owner") return res.status(403).json({ error: "Only owner can assign owner role" });
 
-    await db.run(
-      "UPDATE users SET role = ?, is_active = COALESCE(?, is_active) WHERE id = ? AND org_id = ?",
-      parsed.data.role,
-      parsed.data.isActive === undefined ? null : parsed.data.isActive ? 1 : 0,
-      req.params.id,
-      req.auth.orgId,
-    );
-    await logAudit(db, req.auth.orgId, req.auth.userId, "USER_UPDATED", "user", req.params.id, parsed.data);
+    if (parsed.data.role !== undefined) {
+      if (!access.availableRoles.includes(String(parsed.data.role || "").trim().toLowerCase())) {
+        return res.status(400).json({ error: "Role is not allowed by role access policy" });
+      }
+      if (currentRole !== "owner" && parsed.data.role === "owner") return res.status(403).json({ error: "Only owner can assign owner role" });
+    }
+
+    if (parsed.data.password !== undefined) {
+      if (String(target.role || "").toLowerCase() === "owner" && String(currentRole || "").toLowerCase() !== "owner") {
+        return res.status(403).json({ error: "Only an owner can set the owner account password" });
+      }
+    }
+
+    const sets = [];
+    const vals = [];
+    if (parsed.data.role !== undefined) {
+      sets.push("role = ?");
+      vals.push(parsed.data.role);
+    }
+    if (parsed.data.isActive !== undefined) {
+      sets.push("is_active = ?");
+      vals.push(parsed.data.isActive ? 1 : 0);
+    }
+    if (parsed.data.password !== undefined) {
+      sets.push("password_hash = ?");
+      vals.push(hashPassword(parsed.data.password));
+    }
+    vals.push(req.params.id, req.auth.orgId);
+
+    await db.transaction(async (tx) => {
+      await tx.run(`UPDATE users SET ${sets.join(", ")} WHERE id = ? AND org_id = ?`, ...vals);
+      if (parsed.data.password !== undefined) {
+        await tx.run("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", nowIso(), req.params.id);
+      }
+    });
+
+    await logAudit(db, req.auth.orgId, req.auth.userId, "USER_UPDATED", "user", req.params.id, {
+      ...(parsed.data.role !== undefined && { role: parsed.data.role }),
+      ...(parsed.data.isActive !== undefined && { isActive: parsed.data.isActive }),
+      passwordChanged: parsed.data.password !== undefined,
+    });
     res.json({ ok: true });
   });
 

@@ -54,6 +54,64 @@ export function generateTimetableFlow({
   }, 1200);
 }
 
+/** Apply swapped subject/teacher to a LESSON grid cell; free slots use null ids + isFreePeriod. */
+export function entryAfterSwapPlacement(e, subjectId, teacherId) {
+  const sid = subjectId != null ? subjectId : null;
+  const tid = teacherId != null ? teacherId : null;
+  const isFree = !sid && !tid;
+  const next = { ...e, subjectId: sid, teacherId: tid, isFreePeriod: isFree };
+  if (isFree) next.label = "Free";
+  else delete next.label;
+  return next;
+}
+
+function cellMatchesSwapAnchor(e, anchor) {
+  return (
+    e &&
+    anchor &&
+    e.divisionId === anchor.divisionId &&
+    e.dayOfWeek === anchor.dayOfWeek &&
+    Number(e.slotNumber) === Number(anchor.slotNumber)
+  );
+}
+
+/**
+ * Reverts the last manual SWAP using `manualEdits` snapshots (from/to = pre-swap placement).
+ * @returns {{ timetable: object, changed: boolean, message: string, level: string }}
+ */
+export function applyUndoLastManualEdit(prev) {
+  if (!prev || typeof prev !== "object") {
+    return { timetable: prev, changed: false, message: "Nothing to undo", level: "info" };
+  }
+  const edits = [...(prev.manualEdits || [])];
+  if (edits.length === 0) {
+    return { timetable: prev, changed: false, message: "Nothing to undo", level: "info" };
+  }
+  const last = edits[edits.length - 1];
+  if (last.type !== "SWAP" || !last.from || !last.to) {
+    return { timetable: prev, changed: false, message: "Cannot undo this edit type", level: "warning" };
+  }
+  edits.pop();
+  const newEntries = (prev.entries || []).map((e) => {
+    if (cellMatchesSwapAnchor(e, last.from)) return entryAfterSwapPlacement(e, last.from.subjectId, last.from.teacherId);
+    if (cellMatchesSwapAnchor(e, last.to)) return entryAfterSwapPlacement(e, last.to.subjectId, last.to.teacherId);
+    return e;
+  });
+  const nextReport = { ...(prev.report || {}) };
+  nextReport.manualEditCount = edits.length;
+  if (edits.length === 0) {
+    delete nextReport.lastManualEditAt;
+  } else {
+    nextReport.lastManualEditAt = edits[edits.length - 1].editedAt;
+  }
+  return {
+    timetable: { ...prev, entries: newEntries, manualEdits: edits, report: nextReport },
+    changed: true,
+    message: "Last swap undone",
+    level: "success",
+  };
+}
+
 export function swapTimetableCells({
   entry,
   isEditMode,
@@ -85,12 +143,12 @@ export function swapTimetableCells({
         e.divisionId === pendingSwap.divisionId &&
         e.dayOfWeek === pendingSwap.dayOfWeek &&
         e.slotNumber === pendingSwap.slotNumber
-      ) return { ...e, subjectId: entry.subjectId, teacherId: entry.teacherId };
+      ) return entryAfterSwapPlacement(e, entry.subjectId, entry.teacherId);
       if (
         e.divisionId === entry.divisionId &&
         e.dayOfWeek === entry.dayOfWeek &&
         e.slotNumber === entry.slotNumber
-      ) return { ...e, subjectId: pendingSwap.subjectId, teacherId: pendingSwap.teacherId };
+      ) return entryAfterSwapPlacement(e, pendingSwap.subjectId, pendingSwap.teacherId);
       return e;
     });
     const now = new Date().toISOString();

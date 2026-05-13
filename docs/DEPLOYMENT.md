@@ -24,6 +24,13 @@ If you are preparing Render Postgres, run Phase 1 migration first:
 
 - `docs/POSTGRES_MIGRATION.md`
 
+### Platform operator portal (`/creator`)
+
+- The **creator** UI is the same SPA as the school app; entry is chosen in `src/main.jsx` from the path **after** the Vite `base` (so GitHub Pages builds with `--base "/YourRepo/"` still open the portal at `https://…/YourRepo/creator`).
+- Backend: set **`CREATOR_PORTAL_PASSWORD`** (dev) and/or **`CREATOR_PORTAL_PASSWORD_HASH`** (production) in server `.env`. If neither is set, `POST /api/creator/login` returns **503** with a clear error — the portal “does not run” until this is configured.
+- Frontend API calls use **`VITE_API_BASE_URL`** (see `.env.example`). For static hosting, that must point at a reachable **`/api`** (same host reverse-proxy, or full URL with CORS allowing the Pages origin).
+- Deep link **`…/creator`**: ensure the host serves **`index.html`** for unknown paths (GitHub Actions workflow copies `dist/index.html` to `dist/404.html` for this).
+
 ## 3) Install And Build
 
 ```bash
@@ -100,6 +107,22 @@ chmod +x scripts/backup-db.sh scripts/restore-db.sh
 - Verify audit logs and usage endpoints
 - Verify `npm run smoke:prod` passes
 - Verify security audit with `npm run audit:security`
+
+### Tenant state upgrades (existing schools)
+
+Tenant configuration is JSON in `tenant_state.state_json`. Newer fields (for example per-period `activeWeekdays`) do not require a separate SQL migration for SQLite; the API runs **`migrateTenantState`** when tenant state is loaded and persists when the normalized payload differs from what was stored.
+
+Optional one-time backfill after a release (dry-run first, then apply):
+
+```bash
+npm run migrate:tenant-state:backfill
+npm run migrate:tenant-state:backfill:apply
+```
+
+Migration notes for scheduling rules:
+
+- **INCLUDE_ONLY / CUSTOM:** cells that reference a period slot inactive on that weekday are dropped. If every cell would be removed, the rule is set **`isActive: false`** so timetable generation is not blocked by an impossible constraint.
+- **INCLUDE_ONLY / PRESET_LAST_LESSON:** if `includeWeekday` is not in the school’s `workingDays`, or the computed last lesson slot is inactive on that weekday, the rule is set **`isActive: false`**.
 
 ## Observability
 

@@ -21,6 +21,6 @@ alwaysApply: false
 ## UI Change Checklist
 
 - Works on mobile and desktop breakpoints.
-- No overflow/regression in cards, tables, or action bars.
+- No overflow/regression in cards, tables, or action bars; give modal footers (e.g. multi-step **Subjects** wizard) clear separation from scrollable content and enough bottom padding/safe-area for primary actions.
 - Existing flows still work: generate timetable, view timetable, exports, settings.
 

@@ -1,55 +1,238 @@
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "../auth.js";
 import { logAudit, nowIso, writeCreditLedger } from "./common.js";
+import { migrateTenantState } from "./tenantStateMigration.js";
 
+/** Standards 1–10, one section A each, minimal subjects/teachers so the first timetable run is easy to follow. */
 function buildDemoTenantState(orgName) {
-  const schoolName = String(orgName || "").trim() || "SchoolTime Demo School";
+  const schoolName = String(orgName || "").trim() || "Demo School";
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
   const startYear = month >= 5 ? year : year - 1;
   const endYear = startYear + 1;
+
+  const n = 10;
+  const standardIds = Array.from({ length: n }, (_, i) => `std${i + 1}`);
+  const standards = standardIds.map((id, i) => ({
+    id,
+    name: String(i + 1),
+    sortOrder: i + 1,
+  }));
+  const divisions = standardIds.map((standardId, i) => ({
+    id: `div${i + 1}`,
+    standardId,
+    mediumId: "m1",
+    name: "A",
+  }));
+
+  const subjects = [
+    {
+      id: "sub_eng",
+      name: "English",
+      code: "ENG",
+      category: "LANGUAGE",
+      weeklyPeriods: 5,
+      maxPerDay: 2,
+      priorityWeight: 8,
+      colorHex: "#7c3aed",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+    {
+      id: "sub_math",
+      name: "Mathematics",
+      code: "MATH",
+      category: "CORE",
+      weeklyPeriods: 3,
+      maxPerDay: 2,
+      priorityWeight: 10,
+      colorHex: "#0369a1",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+    {
+      id: "sub_sci",
+      name: "Science",
+      code: "SCI",
+      category: "CORE",
+      weeklyPeriods: 3,
+      maxPerDay: 2,
+      priorityWeight: 9,
+      colorHex: "#0e7490",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+    {
+      id: "sub_soc",
+      name: "Social Studies",
+      code: "SOC",
+      category: "NON_CORE",
+      weeklyPeriods: 2,
+      maxPerDay: 1,
+      priorityWeight: 6,
+      colorHex: "#0891b2",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+    {
+      id: "sub_lab",
+      name: "Computer Lab",
+      code: "CS",
+      category: "PRACTICAL",
+      weeklyPeriods: 2,
+      maxPerDay: 1,
+      priorityWeight: 4,
+      colorHex: "#059669",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+    {
+      id: "sub_pe",
+      name: "Physical Education",
+      code: "PE",
+      category: "EXTRA_CURRICULAR",
+      weeklyPeriods: 2,
+      maxPerDay: 1,
+      priorityWeight: 3,
+      colorHex: "#d97706",
+      mediumIds: ["m1"],
+      standardIds: [...standardIds],
+      divisionScopeMode: "ALL_IN_SELECTED_CLASSES",
+      divisionIncludeIds: [],
+      divisionExcludeIds: [],
+      divisionLimits: [],
+    },
+  ];
+
+  const teacherBase = {
+    maxPerDay: 6,
+    maxPerWeek: 30,
+    mediumIds: ["m1"],
+    freeMorningPeriods: 0,
+    freeEveningPeriods: 0,
+    maxContinuousSameSubjectPerDivision: 2,
+    maxContinuousAnySubjectPerDivision: 3,
+    divisionSubjectExclusions: [],
+  };
+
+  const classTeachers = divisions.map((div, i) => ({
+    ...teacherBase,
+    id: `t_ct_${i + 1}`,
+    firstName: "Demo",
+    lastName: `English teacher (Std ${i + 1}–A)`,
+    employeeCode: `CT${String(i + 1).padStart(2, "0")}`,
+    email: `english.ct${i + 1}@schooltime.demo`,
+    subjectIds: ["sub_eng"],
+    primarySubjectId: "sub_eng",
+    assignedDivisionIds: [div.id],
+    classTeacherDivisionIds: [div.id],
+    primaryClassTeacherDivisionId: div.id,
+  }));
+
+  const specialists = [
+    {
+      ...teacherBase,
+      id: "t_math",
+      firstName: "Demo",
+      lastName: "Mathematics (all classes)",
+      employeeCode: "MATH01",
+      email: "math@schooltime.demo",
+      subjectIds: ["sub_math"],
+      primarySubjectId: "sub_math",
+      assignedDivisionIds: [],
+      classTeacherDivisionIds: [],
+      primaryClassTeacherDivisionId: null,
+    },
+    {
+      ...teacherBase,
+      id: "t_sci",
+      firstName: "Demo",
+      lastName: "Science (all classes)",
+      employeeCode: "SCI01",
+      email: "science@schooltime.demo",
+      subjectIds: ["sub_sci"],
+      primarySubjectId: "sub_sci",
+      assignedDivisionIds: [],
+      classTeacherDivisionIds: [],
+      primaryClassTeacherDivisionId: null,
+    },
+    {
+      ...teacherBase,
+      id: "t_soc",
+      firstName: "Demo",
+      lastName: "Social studies (all classes)",
+      employeeCode: "SOC01",
+      email: "social@schooltime.demo",
+      subjectIds: ["sub_soc"],
+      primarySubjectId: "sub_soc",
+      assignedDivisionIds: [],
+      classTeacherDivisionIds: [],
+      primaryClassTeacherDivisionId: null,
+    },
+    {
+      ...teacherBase,
+      id: "t_lab",
+      firstName: "Demo",
+      lastName: "Computer lab (all classes)",
+      employeeCode: "LAB01",
+      email: "computerlab@schooltime.demo",
+      subjectIds: ["sub_lab"],
+      primarySubjectId: "sub_lab",
+      assignedDivisionIds: [],
+      classTeacherDivisionIds: [],
+      primaryClassTeacherDivisionId: null,
+    },
+    {
+      ...teacherBase,
+      id: "t_pe",
+      firstName: "Demo",
+      lastName: "Physical education (all classes)",
+      employeeCode: "PE01",
+      email: "pe@schooltime.demo",
+      subjectIds: ["sub_pe"],
+      primarySubjectId: "sub_pe",
+      assignedDivisionIds: [],
+      classTeacherDivisionIds: [],
+      primaryClassTeacherDivisionId: null,
+    },
+  ];
+
   return {
     school: {
       id: "sch1",
       name: schoolName,
-      code: "STDEMO",
+      code: "DEMO",
       timeZone: "Asia/Kolkata",
       academicYear: `${startYear}-${String(endYear).slice(-2)}`,
       yearStart: `${startYear}-06-01`,
       yearEnd: `${endYear}-03-31`,
     },
-    mediums: [
-      { id: "m1", name: "English", code: "EN", isPrimary: true },
-      { id: "m2", name: "Malayalam", code: "ML", isPrimary: false },
-    ],
-    standards: [
-      { id: "s4", name: "4", sortOrder: 4 },
-      { id: "s5", name: "5", sortOrder: 5 },
-      { id: "s6", name: "6", sortOrder: 6 },
-    ],
-    divisions: [
-      { id: "d1", standardId: "s4", mediumId: "m1", name: "A" },
-      { id: "d2", standardId: "s4", mediumId: "m1", name: "B" },
-      { id: "d3", standardId: "s5", mediumId: "m1", name: "A" },
-      { id: "d4", standardId: "s5", mediumId: "m2", name: "B" },
-      { id: "d5", standardId: "s6", mediumId: "m1", name: "A" },
-    ],
-    subjects: [
-      { id: "sub1", name: "English", code: "ENG", category: "LANGUAGE", weeklyPeriods: 6, maxPerDay: 2, priorityWeight: 8, colorHex: "#7c3aed", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-      { id: "sub2", name: "Mathematics", code: "MATH", category: "CORE", weeklyPeriods: 6, maxPerDay: 2, priorityWeight: 10, colorHex: "#0369a1", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-      { id: "sub3", name: "Science", code: "SCI", category: "CORE", weeklyPeriods: 5, maxPerDay: 2, priorityWeight: 10, colorHex: "#0e7490", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-      { id: "sub4", name: "Social Studies", code: "SS", category: "NON_CORE", weeklyPeriods: 4, maxPerDay: 1, priorityWeight: 6, colorHex: "#0891b2", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-      { id: "sub5", name: "Computer Lab", code: "CS", category: "PRACTICAL", weeklyPeriods: 2, maxPerDay: 1, priorityWeight: 4, colorHex: "#059669", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-      { id: "sub6", name: "Physical Education", code: "PE", category: "EXTRA_CURRICULAR", weeklyPeriods: 2, maxPerDay: 1, priorityWeight: 3, colorHex: "#d97706", mediumIds: ["m1", "m2"], standardIds: ["s4", "s5", "s6"], divisionScopeMode: "ALL_IN_SELECTED_CLASSES", divisionIncludeIds: [], divisionExcludeIds: [], divisionLimits: [] },
-    ],
-    teachers: [
-      { id: "t1", firstName: "Priya", lastName: "Sharma", employeeCode: "T001", email: "priya@schooltime.demo", maxPerDay: 6, maxPerWeek: 30, mediumIds: ["m1"], subjectIds: ["sub1"], primarySubjectId: "sub1", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 2, maxContinuousAnySubjectPerDivision: 3, assignedDivisionIds: ["d1", "d2", "d3"], classTeacherDivisionIds: ["d1"], primaryClassTeacherDivisionId: "d1", divisionSubjectExclusions: [] },
-      { id: "t2", firstName: "Rajesh", lastName: "Kumar", employeeCode: "T002", email: "rajesh@schooltime.demo", maxPerDay: 6, maxPerWeek: 30, mediumIds: ["m1", "m2"], subjectIds: ["sub2"], primarySubjectId: "sub2", freeMorningPeriods: 1, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 2, maxContinuousAnySubjectPerDivision: 3, assignedDivisionIds: ["d1", "d2", "d3", "d4", "d5"], classTeacherDivisionIds: ["d3"], primaryClassTeacherDivisionId: "d3", divisionSubjectExclusions: [] },
-      { id: "t3", firstName: "Meena", lastName: "Nair", employeeCode: "T003", email: "meena@schooltime.demo", maxPerDay: 6, maxPerWeek: 30, mediumIds: ["m1", "m2"], subjectIds: ["sub3"], primarySubjectId: "sub3", freeMorningPeriods: 0, freeEveningPeriods: 1, maxContinuousSameSubjectPerDivision: 2, maxContinuousAnySubjectPerDivision: 3, assignedDivisionIds: [], classTeacherDivisionIds: ["d4"], primaryClassTeacherDivisionId: "d4", divisionSubjectExclusions: [] },
-      { id: "t4", firstName: "Anitha", lastName: "Thomas", employeeCode: "T004", email: "anitha@schooltime.demo", maxPerDay: 6, maxPerWeek: 30, mediumIds: ["m1", "m2"], subjectIds: ["sub4", "sub5"], primarySubjectId: "sub4", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 2, maxContinuousAnySubjectPerDivision: 3, assignedDivisionIds: [], classTeacherDivisionIds: [], primaryClassTeacherDivisionId: null, divisionSubjectExclusions: [] },
-      { id: "t5", firstName: "Deepa", lastName: "Raj", employeeCode: "T005", email: "deepa@schooltime.demo", maxPerDay: 5, maxPerWeek: 25, mediumIds: ["m1", "m2"], subjectIds: ["sub6"], primarySubjectId: "sub6", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 1, maxContinuousAnySubjectPerDivision: 2, assignedDivisionIds: [], classTeacherDivisionIds: ["d5"], primaryClassTeacherDivisionId: "d5", divisionSubjectExclusions: [] },
-    ],
+    mediums: [{ id: "m1", name: "English", code: "EN", isPrimary: true }],
+    standards,
+    divisions,
+    subjects,
+    teachers: [...classTeachers, ...specialists],
     periodSlots: [
       { slotNumber: 1, startTime: "09:00", endTime: "09:45", slotType: "LESSON", label: "Period 1", durationMins: 45 },
       { slotNumber: 2, startTime: "09:45", endTime: "10:30", slotType: "LESSON", label: "Period 2", durationMins: 45 },
@@ -62,8 +245,22 @@ function buildDemoTenantState(orgName) {
     ],
     workingDays: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
     schedulingRules: [
-      { id: "r1", subjectId: "sub6", ruleType: "EXCLUDE_SLOT", isActive: true, note: "PE away from boundary slots", slotTargets: ["FIRST_MORNING", "LAST_LESSON"] },
-      { id: "r2", subjectId: "sub5", ruleType: "EXCLUDE_DAY", isActive: true, dayOfWeekList: ["MONDAY"], note: "Lab not on Monday" },
+      {
+        id: "demo_rule_pe",
+        subjectId: "sub_pe",
+        ruleType: "EXCLUDE_SLOT",
+        isActive: true,
+        note: "PE away from boundary slots",
+        slotTargets: ["FIRST_MORNING", "LAST_LESSON"],
+      },
+      {
+        id: "demo_rule_lab",
+        subjectId: "sub_lab",
+        ruleType: "EXCLUDE_DAY",
+        isActive: true,
+        dayOfWeekList: ["MONDAY"],
+        note: "Lab not on Monday",
+      },
     ],
     classTeacherPreferences: {
       enabled: true,
@@ -102,7 +299,7 @@ export async function createOrgWithOwnerUser(tx, {
     nowIso(),
   );
   await tx.run("INSERT INTO licenses (org_id, credits_remaining, updated_at) VALUES (?, ?, ?)", orgId, initialCredits, nowIso());
-  const demoState = buildDemoTenantState(orgName);
+  const demoState = migrateTenantState(buildDemoTenantState(orgName)).state;
   await tx.run(
     "INSERT INTO tenant_state (org_id, state_json, updated_at) VALUES (?, ?, ?)",
     orgId,

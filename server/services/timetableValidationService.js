@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { slotActiveOnWeekday } from "../../shared/periodSlotDays.js";
 import { nowIso } from "./common.js";
 
 function subjectAppliesToDivision(subject, division) {
@@ -31,7 +32,16 @@ function getTeacherWeeklyCap(teacher, periodSlots, workingDays) {
   const morningCount = lessonSlots.filter((s) => (firstAfterLunch ? s.slotNumber < firstAfterLunch : s.slotNumber <= Math.ceil(lessonSlots.length / 2))).length;
   const eveningCount = lessonSlots.length - morningCount;
   const derivedMaxPerDay = Math.max(0, Math.min(lessonSlots.length, Math.max(0, morningCount - Number(teacher.freeMorningPeriods || 0)) + Math.max(0, eveningCount - Number(teacher.freeEveningPeriods || 0))));
-  const derivedMaxPerWeek = Math.max(30, derivedMaxPerDay * ((workingDays || []).length || 0));
+  const days = workingDays || [];
+  let weeklyTeachable = 0;
+  for (const day of days) {
+    let activeLessonsThisDay = 0;
+    for (const s of lessonSlots) {
+      if (slotActiveOnWeekday(s, day)) activeLessonsThisDay += 1;
+    }
+    weeklyTeachable += Math.min(derivedMaxPerDay, activeLessonsThisDay);
+  }
+  const derivedMaxPerWeek = Math.max(30, weeklyTeachable);
   return Number(teacher.maxPerWeek || 0) > 0 ? Number(teacher.maxPerWeek) : derivedMaxPerWeek;
 }
 
@@ -135,6 +145,25 @@ export function validateTimetableRun({ state, entries, runId }) {
         autoFixable: true,
         context: { runId, divisionId: e.divisionId, subjectId: e.subjectId, dayOfWeek: e.dayOfWeek, slotNumber: e.slotNumber },
         fixSuggestion: "Remove invalid placement slot.",
+      }));
+    }
+  }
+
+  for (const e of lessonEntries) {
+    const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(e.slotNumber));
+    if (slotRow && !slotActiveOnWeekday(slotRow, e.dayOfWeek)) {
+      const division = divisionById.get(e.divisionId);
+      const std = division ? standardsById.get(division.standardId) : null;
+      const sub = subjectById.get(e.subjectId);
+      findings.push(makeFinding({
+        code: "LESSON_ON_INACTIVE_PERIOD_SLOT",
+        title: "Lesson on a period that does not run this day",
+        message: `${sub?.name || "Subject"} in Std ${std?.name || "?"}-${division?.name || "?"} uses slot ${e.slotNumber} on ${e.dayOfWeek}, but that period is off for that weekday.`,
+        risk: "LOW",
+        severity: "ERROR",
+        autoFixable: true,
+        context: { runId, divisionId: e.divisionId, subjectId: e.subjectId, dayOfWeek: e.dayOfWeek, slotNumber: e.slotNumber },
+        fixSuggestion: "Regenerate the timetable or turn that period on for that weekday under Periods.",
       }));
     }
   }

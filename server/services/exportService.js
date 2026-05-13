@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../shared/reportHoursLabels.js";
+import { slotActiveOnWeekday } from "../../shared/periodSlotDays.js";
 
 /** Parse data URL from Settings → school logo for PDF/Excel embedding (PNG/JPEG only for Excel). */
 function parseSchoolLogoImage(logoDataUrl) {
@@ -513,7 +514,8 @@ function addPdfVisualTimetablePage(doc, schedCtx, state, { viewMode, rowId, titl
     cx += dayColW + gap;
 
     for (const slot of allSlots) {
-      const entry = findScheduleEntry(schedCtx, viewMode, rowId, day, slot.slotNumber);
+      const entry =
+        !slotActiveOnWeekday(slot, day) ? null : findScheduleEntry(schedCtx, viewMode, rowId, day, slot.slotNumber);
       drawPdfScheduleCell(doc, cx, rowY, slotColW, rowH, entry, schedCtx, viewMode);
       cx += slotColW + gap;
     }
@@ -1127,9 +1129,10 @@ function addExcelVisualTimetableSheet(workbook, sheetTitle, displayTitle, schedC
       gcell.border = gapBorder;
 
       const slot = allSlots[i];
-      const col = excelSlotDataCol(i);
-      const entry = findScheduleEntry(schedCtx, viewMode, rowId, day, slot.slotNumber);
-      applyExcelScheduleCell(sheet, r, col, entry, schedCtx, viewMode);
+      const entry =
+        !slotActiveOnWeekday(slot, day) ? null : findScheduleEntry(schedCtx, viewMode, rowId, day, slot.slotNumber);
+      const dataCol = excelSlotDataCol(i);
+      applyExcelScheduleCell(sheet, r, dataCol, entry, schedCtx, viewMode);
     }
     r += 1;
   }
