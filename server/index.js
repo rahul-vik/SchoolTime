@@ -23,11 +23,18 @@ import { createCreatorRoutes } from "./routes/creatorRoutes.js";
 import { createValidationRoutes } from "./routes/validationRoutes.js";
 import { insertPlatformError } from "./services/platformErrorLog.js";
 import { ensurePlatformSettingsDefaults } from "./services/platformSettings.js";
+import { migrateAllPersistedTenantStates } from "./services/tenantStateMigrationRunner.js";
 import { ENV } from "./config/env.js";
 import { getAppReleaseMeta } from "./services/appReleaseMeta.js";
 
 await initDb();
 await ensurePlatformSettingsDefaults(db);
+{
+  const m = await migrateAllPersistedTenantStates(db);
+  if (m.updated > 0) {
+    console.log(`[tenant_state] startup migration persisted for ${m.updated}/${m.scanned} org(s) (invalid JSON rows skipped: ${m.invalid})`);
+  }
+}
 
 const app = express();
 const { NODE_ENV, PORT, RATE_LIMIT_MAX, CORS_ORIGINS, hasWildcardCors } = ENV;

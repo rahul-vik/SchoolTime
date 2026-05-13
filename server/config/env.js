@@ -35,6 +35,13 @@ function buildEnv() {
   const SMTP_USER = String(process.env.SMTP_USER || "").trim();
   const SMTP_PASS = String(process.env.SMTP_PASS || "").trim();
   const SMTP_FROM = String(process.env.SMTP_FROM || "").trim();
+  const SMTP_CONNECTION_TIMEOUT_MS = toPositiveInt(process.env.SMTP_CONNECTION_TIMEOUT_MS, 45_000);
+  const SMTP_SOCKET_TIMEOUT_MS = toPositiveInt(process.env.SMTP_SOCKET_TIMEOUT_MS, 120_000);
+  const SMTP_FORCE_IPV4 = ["1", "true", "yes"].includes(String(process.env.SMTP_FORCE_IPV4 || "").trim().toLowerCase());
+  const smtpRt = String(process.env.SMTP_REQUIRE_TLS || "").trim().toLowerCase();
+  /** off | on | auto — auto enables requireTLS for typical STARTTLS on 587. */
+  const SMTP_REQUIRE_TLS_MODE =
+    smtpRt === "false" || smtpRt === "0" ? "off" : smtpRt === "true" || smtpRt === "1" ? "on" : "auto";
   const APP_BASE_URL = String(process.env.APP_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
 
   return {
@@ -59,6 +66,10 @@ function buildEnv() {
     SMTP_USER,
     SMTP_PASS,
     SMTP_FROM,
+    SMTP_CONNECTION_TIMEOUT_MS,
+    SMTP_SOCKET_TIMEOUT_MS,
+    SMTP_FORCE_IPV4,
+    SMTP_REQUIRE_TLS_MODE,
     APP_BASE_URL,
   };
 }
