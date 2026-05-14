@@ -21,6 +21,7 @@ Thumbs.db
 # Local UI/debug screenshots (not part of repo assets)
 reportUI.png
 reportUI2.png
+timetable missmatch.png
 
 # IDE/editor — commit shared tasks; ignore other local VS Code files
 .idea/

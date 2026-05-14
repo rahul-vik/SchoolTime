@@ -1,5 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+import { normalizeTenantSchoolOrdering } from "../../../shared/schoolDisplayOrder.js";
+import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 
 export function SetupPage({ school, setSchool, mediums, setMediums, workingDays, setWorkingDays, notify, onConfirmSave, ui }) {
   const { T, css, Btn, Input, Select } = ui;
@@ -7,7 +9,7 @@ export function SetupPage({ school, setSchool, mediums, setMediums, workingDays,
   const [form, setForm] = useState(school);
   const [saved, setSaved] = useState(false);
   const [newMedium, setNewMedium] = useState({ name: "", code: "" });
-  const allDays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+  const allDays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
   const previewLogo = form.logoDataUrl || "";
 
   useEffect(() => {
@@ -23,7 +25,10 @@ export function SetupPage({ school, setSchool, mediums, setMediums, workingDays,
   };
   const toggleDay = (d) => {
     if (workingDays.includes(d) && workingDays.length === 1) { notify("At least one working day is required", "warning"); return; }
-    setWorkingDays((p) => p.includes(d) ? p.filter((x) => x !== d) : [...p, d]);
+    setWorkingDays((p) => {
+      const next = p.includes(d) ? p.filter((x) => x !== d) : [...p, d];
+      return sortWorkingDaysCanonical(next);
+    });
   };
   const addMedium = () => {
     if (!newMedium.name || !newMedium.code) return;
@@ -183,8 +188,15 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
         addedDivKeySet.add(key);
       });
     });
-    setStandards((p) => [...p, ...newStds]);
-    setDivisions((p) => [...p, ...newDivs]);
+    const mergedStd = [...standards, ...newStds];
+    const mergedDiv = [...divisions, ...newDivs];
+    const { standards: st2, divisions: div2 } = normalizeTenantSchoolOrdering({
+      standards: mergedStd,
+      divisions: mergedDiv,
+      workingDays: [],
+    });
+    setStandards(st2);
+    setDivisions(div2);
     closeQuickAdd();
     notify(`Added ${newStds.length} standards, ${newDivs.length} divisions`);
   };

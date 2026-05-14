@@ -1,5 +1,6 @@
 ﻿import { UiIcon } from "../shared/uiPrimitives";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
+import { findEntityById, pickTimetableSnapshotLists } from "../shared/idLookups";
 
 /**
  * Plain-language tips when completion is below 100%, using engine report + school context.
@@ -23,10 +24,16 @@ function buildCompletionInsights({
   const shortfall = Math.max(0, required - scheduled);
   const activeRules = (schedulingRules || []).filter((r) => r.isActive).length;
 
+  const { divisions: divList, standards: stdList, subjects: subList } = pickTimetableSnapshotLists(timetable, {
+    divisions,
+    standards,
+    subjects,
+  });
+
   const divisionLabel = (divisionId) => {
-    const div = divisions.find((d) => d.id === divisionId);
+    const div = findEntityById(divList, divisionId);
     if (!div) return "A class";
-    const std = standards.find((s) => s.id === div.standardId);
+    const std = findEntityById(stdList, div.standardId);
     return `Std ${std?.name ?? "?"} — Div ${div.name}`;
   };
 
@@ -39,7 +46,7 @@ function buildCompletionInsights({
 
   const topGaps = unscheduled.slice(0, 4);
   for (const u of topGaps) {
-    const sub = subjects.find((s) => s.id === u.subjectId);
+    const sub = findEntityById(subList, u.subjectId);
     const name = sub?.name || sub?.code || "that subject";
     const where = divisionLabel(u.divisionId);
     const n = u.periodsShort || 0;

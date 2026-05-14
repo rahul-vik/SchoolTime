@@ -35,20 +35,61 @@ State is mostly managed in `App.jsx` and passed to feature pages as props.
   - role guard
   - API key auth for B2B endpoints
 
+## Tenant state normalization
+
+- **`migrateTenantState`** (`server/services/tenantStateMigration.js`) also orders **`workingDays`** (Monday→Sunday subset), **`standards`** (ascending by `sortOrder`, else numeric `name`, else name), and **`divisions`** (by standard order, then division name), and rewrites **`sortOrder`** on standards to `1..n` for a single canonical list used by the engine, exports, and UI. It also sets **`classTeacherPreferences.enabled`** to **`false`** when the field is omitted so generation matches explicit opt-in semantics.
+- Client **`applyTenantStateWithFallback`** / **`buildTenantState`** (`src/features/timetable/tenantState.js`) apply the same ordering on load and before save. Shared helpers: **`shared/schoolDisplayOrder.js`**, **`shared/periodSlotDays.js`** (`sortWorkingDaysCanonical`, `WEEKDAY_CANONICAL_ORDER`).
+
+## Settings vs generation (honesty matrix)
+
+| Setting / data | Honored at generate? | Notes |
+|----------------|---------------------|--------|
+| Standards, divisions, mediums, working days | Yes | Canonical ordering via `migrateTenantState` / `normalizeTenantSchoolOrdering`. |
+| Period slots (`slotType`, times, `activeWeekdays`) | Yes | Inactive **(day, slot)** pairs never receive lessons. |
+| Subjects (limits, scope, priority) | Yes | Per-division limits from `divisionLimits` or legacy `subjectAllocations`. |
+| Teachers (subjects, mediums, caps, continuity, division allow/exclude) | Yes | `teacherSubjects` narrows eligible teachers when present. |
+| `freePeriodRules` | Yes | Blocks teacher on marked cells. |
+| Placement preferences (`schedulingRules`) | Partial / mode-dependent | `EXCLUDE_DAY` / `EXCLUDE_SLOT` (incl. migrated `NOT_*`) and `INCLUDE_ONLY` are enforced in **STRICT**. **BEST_FIT** / **OPTIMAL** may relax **day/slot excludes only** in extra passes; `INCLUDE_ONLY`, inactive slots, teacher caps, continuity, and locks stay hard. |
+| Class teacher: first-period days | Yes | Only when **`classTeacherPreferences.enabled === true`** (explicit toggle). |
+| Class teacher: `dailyPrimaryMinPeriods` | No (stored only) | Validated in tenant state; engine does not place to satisfy it yet. |
+| `fixedSlots` | Yes if present in payload | No first-party UI; API/B2B can supply rows. UI “fixed placement” uses **`INCLUDE_ONLY`** rules instead. |
+| `TIMETABLE_SOLVER` | Routing only | **`legacy`** (default): `runTimetableEngine` in-process. **`experimental`**: worker + timeout; v0 delegates to the same greedy core and adds `report.experimental` metadata; on worker error/timeout, **fallback** runs legacy in-process. Not a global optimizer. |
+
 ## Timetable Engine Flow
 
-Located in `server/engine.js`.
+Located in `server/engine.js`. HTTP generate uses `server/timetableSolverRunner.js` → `runTimetableGenerationEngine` (async) which defaults to the same `runTimetableEngine` implementation.
 
 Shared weekday logic for period rows lives in **`shared/periodSlotDays.js`** (`slotActiveOnWeekday`, normalization helpers). The engine rejects placements on inactive **(day, slot)** pairs (`SLOT_INACTIVE_THIS_DAY`), skips those cells in placement loops, and applies the same notion to **`INCLUDE_ONLY`**: **CUSTOM** `allowedCells` and **PRESET_LAST_LESSON** matches only count when the underlying period slot is active that day (unknown slot numbers in `allowedCells` never match).
+
+**Non-teaching rows:** `canPlaceAssignment` requires a matching `periodSlots` row for the target `slotNumber` with `slotType === "LESSON"` (or unset `slotType` for legacy rows). Rows typed **`BREAK`** or **`LUNCH`** never accept lesson placements (`NON_LESSON_SLOT` in rejection stats). Main placement loops still iterate only **`lessonSlots`** (`slotType === "LESSON"`).
 
 Core sequence:
 
 1. Normalize slot metadata (morning/after-lunch/boundaries).
-2. Place fixed slots where possible (respecting inactive slots per day).
+2. Place fixed slots where possible (respecting inactive slots per day and non-lesson slot guard).
 3. Iterate divisions and subjects by priority.
 4. For each needed period, find eligible teacher and available slot (lesson slots inactive that weekday are skipped).
 5. Fill remaining unassigned lesson slots with `isFreePeriod`.
 6. Compute unscheduled requirements and score.
+
+**Scheduling rules vs optimization:** The engine is **constraint-satisfying and greedy**, not a global optimizer. **`STRICT`** never relaxes placement preferences. In **`BEST_FIT`** / **`OPTIMAL`**, only **day/slot exclusion** rules (`EXCLUDE_DAY`, `EXCLUDE_SLOT`, and legacy `NOT_*` / `BOTH_BOUNDARY`) are skipped when `ignoreSoftRules` is set during the extra search passes; **`INCLUDE_ONLY`**, inactive period days, teacher/division locks, continuity caps, free-period rules, and weekly/daily subject limits stay **hard** in every pass. **`OPTIMAL`** runs more rotated passes than **`BEST_FIT`** to improve fill rate, not to prove optimality.
+
+**Rule activity:** Exclude rules treat `isActive` as **on** when the field is missing (`isActive !== false`), matching **`INCLUDE_ONLY`** and migrated tenant state.
+
+**API-only inputs:** **`fixedSlots`** is honored by the engine if present in generate payload; there is no Rules UI for it yet. **`dailyPrimaryMinPeriods`** on class-teacher preferences is stored and validated in state but **not** applied by placement (first-period placement for class teachers is the supported preference block).
+
+### Solver selection (`TIMETABLE_SOLVER`)
+
+- **`legacy`** (default): synchronous `runTimetableEngine` in the API process.
+- **`experimental`**: runs scheduling inside a **worker thread** with **`TIMETABLE_SOLVER_TIMEOUT_MS`** (default 30s, capped at 300s). Current prototype (`server/engineExperimental.js`) still delegates to the greedy engine so behavior matches legacy; this path exists for **timeout / isolation / future CP-SAT** integration. On timeout or worker failure, the runner **re-runs legacy** in-process and sets `report.solver.fallbackReason`.
+
+**Global optimality:** Even **`OPTIMAL`** scheduling mode is only extra greedy passes (see above). True global optimization (e.g. CP-SAT) would need problem-size limits, time budgets, and a separate model layer—follow-ups after the experimental hook is stable.
+
+## In-app timetable vs live tenant state
+
+- Each run persists **`state_json`** on `timetable_runs` (returned to the client as **`timetable.sourceState`** on generate and `GET /timetable/latest`).
+- The **Timetable** page grid reads **`sourceState.periodSlots`** and **`sourceState.workingDays`** when available so column headers and inactive-slot shading match the slot numbers stored in **`entries`**. Live `tenant_state` period edits apply after the next generate.
+- **Reports** already preferred `sourceState` for report math; shortage/unscheduled labels use the same snapshot lists via `src/features/shared/idLookups.js` so division/standard names stay aligned with `report.unscheduled` ids.
 
 ## Post-run validation
 

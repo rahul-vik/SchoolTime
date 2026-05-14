@@ -33,16 +33,17 @@ See `LICENSE` for full text.
 - Session resume activity is captured on token refresh so "Last activity" reflects reopen/resume usage too
 - Role-based access (`owner`, `admin`, etc.)
 - School **Settings → Users**: add team members with a temporary password; **owners** can set a **new password** for any teammate (non-owners cannot change the **owner** account password); platform portal (`/creator`) can set passwords across tenants
-- School setup: mediums, standards, divisions
+- School setup: mediums, standards, divisions (**standards** and **divisions** are kept in ascending standard order system-wide; **working days** are always Mon→Sun order in grids, engine, exports, and saved tenant state)
 - Academic setup: subjects, teachers, teacher-division mapping, class-teacher assignment (single class teacher class)
 - Subject applicability controls: class-level scope with optional division include/exclude overrides; per-division max/day and weekly limits in the subject wizard include a **copy-down** control to apply the current row to all divisions listed below
 - Scheduling setup: period slots (each slot can run on a subset of school days; new slots default to all working days), working days, subject placement preferences (exclude slots/days, **optional fixed lesson period on chosen weekdays for one or more divisions**; the preference editor keeps excludes and fixed placement consistent; fixed-period choices only list slots active on every selected day), class-teacher first-period weekday selection
-- Scheduling diagnostics with top rejection reasons and actionable tuning suggestions
+- Scheduling diagnostics with top rejection reasons and actionable tuning suggestions (rejection stats include **`NON_LESSON_SLOT`** when a placement would target a break/lunch row)
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
 - Division-subject teacher consistency lock: once a teacher is chosen for a subject in a division during generation, subsequent placements for that same division-subject stay with the same teacher
 - New registrations start with **clean demo tenant data**: standards **1–10** with one section **A** each (English medium), core subjects plus **Computer Lab** and **PE**, one class teacher per division plus shared subject teachers, a Mon–Fri period grid, and sample scheduling rules (**PE** avoids first morning / last lesson; **Computer Lab** not on Monday)
 - After generate: **Edit** timetable to swap two lesson or free cells; **Undo last** (or **Ctrl+Z** / **⌘Z** when not typing in a field) reverses swaps one at a time from the edit history
-- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable)
+- **Timetable view alignment:** the Timetable grid uses **`sourceState.periodSlots`** and **`sourceState.workingDays`** from the generation run when present so columns match **`entries`** slot numbers (avoids lessons appearing under Break/Lunch headers after Periods are edited). Unscheduled badges and Dashboard completion hints resolve class names from the same run snapshot with stable id matching (`src/features/shared/idLookups.js`).
+- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable). Placement is **greedy constraint-satisfying** (not a proven global optimum). Optional env **`TIMETABLE_SOLVER=experimental`** runs the same scheduling core inside a worker with timeout and **automatic fallback** to legacy on failure (see `docs/ARCHITECTURE.md`).
 - Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
@@ -116,6 +117,8 @@ Based on `.env.example`:
 - `RATE_LIMIT_MAX` - requests/minute/IP
 - `CORS_ORIGIN` - allowed frontend origin(s)
 - `DB_CLIENT` - current runtime DB engine (`sqlite` default)
+- `TIMETABLE_SOLVER` - `legacy` (default) or `experimental` (worker-wrapped run; v0 still uses the greedy engine; reserved for future CP-SAT style solvers)
+- `TIMETABLE_SOLVER_TIMEOUT_MS` - wall-clock cap for the experimental worker before fallback (default `30000`, max `300000`)
 - `DATABASE_URL` - required for Postgres migration / Postgres runtime
 - `VITE_API_BASE_URL` - frontend API base URL
 - `CREATOR_PORTAL_PASSWORD` - optional; enables `/creator` portal login (use a long random value; for production prefer `CREATOR_PORTAL_PASSWORD_HASH`)

@@ -3,8 +3,26 @@
  * Missing or empty array = all working days (backward compatible).
  */
 
+/** Monday → Sunday calendar order for school working-day lists. */
+export const WEEKDAY_CANONICAL_ORDER = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+
+/** Dedupe and sort selected working days in Mon→Sun order (unknown tokens last, then A–Z). */
+export function sortWorkingDaysCanonical(workingDays) {
+  if (!Array.isArray(workingDays) || workingDays.length === 0) return [];
+  const uniq = [...new Set(workingDays.map((d) => String(d)))];
+  return uniq.sort((a, b) => {
+    const ia = WEEKDAY_CANONICAL_ORDER.indexOf(a);
+    const ib = WEEKDAY_CANONICAL_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 export function defaultWorkingDaysFallback(workingDays) {
-  if (Array.isArray(workingDays) && workingDays.length > 0) return [...workingDays];
+  const sorted = sortWorkingDaysCanonical(workingDays || []);
+  if (sorted.length > 0) return sorted;
   return ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 }
 
@@ -13,7 +31,8 @@ export function normalizeActiveWeekdays(activeWeekdays, workingDays) {
   const wd = defaultWorkingDaysFallback(workingDays);
   if (!Array.isArray(activeWeekdays) || activeWeekdays.length === 0) return [...wd];
   const filtered = [...new Set(activeWeekdays.filter((d) => wd.includes(d)))];
-  return filtered.length > 0 ? filtered : [...wd];
+  const sorted = sortWorkingDaysCanonical(filtered);
+  return sorted.length > 0 ? sorted : [...wd];
 }
 
 export function ensurePeriodSlotsActiveWeekdays(periodSlots, workingDays) {

@@ -32,6 +32,7 @@ Build a reliable, practical school timetable system with clear UX, predictable e
 ## Export Fidelity
 
 - Maintain parity between in-app timetable intent and PDF/Excel visuals (including inactive period days: no lesson content in those cells).
+- **Timetable screen:** prefer **`timetable.sourceState`** (`periodSlots`, `workingDays`, and entity lists used for report labels) when rendering a generated run so slot columns and shortage badges match persisted **`entries`** and `report.unscheduled` ids (see `src/features/shared/idLookups.js`).
 - Use shared schedule context when possible.
 - Preserve break/lunch/free and category styling semantics.
 - Class-teacher **CT** is black, subject row: code left / CT right; teacher exports add medium **code** under **Std …-Div** when set.

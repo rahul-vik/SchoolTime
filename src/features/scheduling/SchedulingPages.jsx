@@ -584,7 +584,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
   const deleteRule = (id) => { setSchedulingRules((p) => p.filter((r) => r.id !== id)); notify("Rule removed"); };
   const activeCount = schedulingRules.filter((r) => r.isActive).length;
   const classTeacherPrefs = classTeacherPreferences || { enabled: false, ctFirstPeriodDays: [], dailyPrimaryMinPeriods: 0, schedulingMode: "STRICT" };
-  const classTeacherRulesEnabled = classTeacherPrefs.enabled !== false;
+  const classTeacherRulesEnabled = classTeacherPrefs.enabled === true;
   const selectedCtDays = Array.isArray(classTeacherPrefs.ctFirstPeriodDays) ? classTeacherPrefs.ctFirstPeriodDays : [];
   const grouped = useMemo(() => { const m = new Map(); schedulingRules.forEach((r) => { if (!m.has(r.subjectId)) m.set(r.subjectId, []); m.get(r.subjectId).push(r); }); return m; }, [schedulingRules]);
 
@@ -610,7 +610,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 20 }}>
-        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 17 : 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><UiIcon name="preferences" size={18} stroke={T.text} />Placement Preferences<span style={{ ...css.badge(T.gold), fontSize: 12 }}>{activeCount} active</span></h2><p style={{ margin: "4px 0 0", fontSize: 12, color: T.textSoft }}>These are applied automatically when creating timetables</p></div>
+        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 17 : 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><UiIcon name="preferences" size={18} stroke={T.text} />Placement Preferences<span style={{ ...css.badge(T.gold), fontSize: 12 }}>{activeCount} active</span></h2><p style={{ margin: "4px 0 0", fontSize: 12, color: T.textSoft }}>Active preferences are read when you create a timetable. Inactive rows are ignored. Best fit / optimal modes may relax day and slot excludes (not fixed-only placement) to improve coverage.</p></div>
         <Btn onClick={() => openCombinedPreferenceModal(subjects[0]?.id || "", null)} size="sm" fullWidth={isMobile}>+ Add Preference</Btn>
       </div>
 
@@ -676,7 +676,10 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
           </div>
         </Field>
         <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
-          Selected days apply first-period class teacher priority for the assigned class teacher class.
+          Selected days apply first-period class teacher priority for the assigned class teacher class. Turn the toggle on to apply this block; leaving it off matches generation (class teacher placement stays disabled).
+        </p>
+        <p style={{ fontSize: 11, color: T.textSoft, margin: "10px 0 0", lineHeight: 1.45 }}>
+          Note: a stored minimum class-teacher periods-per-day value (if ever set via import/API) is not used for placement yet—the engine only applies first-period priority when rules are enabled.
         </p>
       </div>
 

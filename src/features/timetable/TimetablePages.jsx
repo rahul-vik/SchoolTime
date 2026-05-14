@@ -10,7 +10,23 @@ import {
 } from "../shared/timetableDisplayHelpers";
 import { formatDateTimeIndian, formatTimeIndian } from "../shared/dateTimeFormat";
 import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../../shared/reportHoursLabels.js";
+import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
+import { normalizeTenantSchoolOrdering, sortDivisionsByStandardOrder } from "../../../shared/schoolDisplayOrder.js";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
+import { findEntityById, pickTimetableSnapshotLists } from "../shared/idLookups";
+
+/** Timetable entries use slot numbers from the generation snapshot; grid columns must match or lessons appear under Break/Lunch headers. */
+function periodGridForTimetableView(timetable, periodSlots, workingDays) {
+  const snap = timetable?.sourceState;
+  const rawWd = Array.isArray(snap?.workingDays) && snap.workingDays.length > 0 ? snap.workingDays : workingDays;
+  const wdSorted = sortWorkingDaysCanonical(rawWd || []);
+  const wd =
+    wdSorted.length > 0 ? wdSorted : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  return {
+    periodSlots: Array.isArray(snap?.periodSlots) && snap.periodSlots.length > 0 ? snap.periodSlots : periodSlots,
+    workingDays: wd,
+  };
+}
 
 export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, classTeacherPreferences, setClassTeacherPreferences, ui }) {
   const { T, css, Btn, ProgressBar, Modal, Select } = ui;
@@ -61,9 +77,9 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
             value={schedulingMode}
             onChange={(v) => setClassTeacherPreferences?.((p) => ({ ...(p || {}), schedulingMode: v }))}
             options={[
-              { value: "STRICT", label: "Strict — all active rules" },
-              { value: "BEST_FIT", label: "Best fit — may relax soft rules for coverage" },
-              { value: "OPTIMAL", label: "Optimal — deeper search" },
+              { value: "STRICT", label: "Strict — honor day/slot excludes" },
+              { value: "BEST_FIT", label: "Best fit — may relax day/slot excludes for coverage" },
+              { value: "OPTIMAL", label: "Optimal — more search passes (still not globally optimal)" },
             ]}
           />
         </div>
@@ -71,7 +87,9 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
 
       <div style={{ ...css.card, padding: isMobile ? 16 : 20 }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 700 }}>Generation Summary</h3>
-        <p style={{ fontSize: 13, color: T.textSoft, margin: "0 0 16px" }}>We will use your classes, subjects, teachers, and preferences to create the timetable.</p>
+        <p style={{ fontSize: 13, color: T.textSoft, margin: "0 0 16px" }}>
+          Generation uses your classes, subjects, teachers, period grid, working days, teacher caps, placement preferences, and class-teacher rules (when enabled). It is a fast greedy scheduler with optional extra passes—not a guaranteed global optimum.
+        </p>
         <div style={{ display: "grid", gridTemplateColumns: summaryCols, gap: 10, marginBottom: 20 }}>
           {[
             { label: "Classes", value: divisions.length },
@@ -90,10 +108,9 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 13, fontWeight: 700, color: T.brand }}>Generating…</span><span style={{ fontSize: 13, fontWeight: 800, color: T.brand }}>{generatingProgress}%</span></div>
             <ProgressBar value={generatingProgress} max={100} color={T.brand} height={8} />
-            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {["Step 1: Place fixed periods", "Step 2: Fill schedule", "Step 3: Improve fit", "Step 4: Final checks"].map((phase, i) => (
-                <span key={i} style={{ ...css.badge(generatingProgress > i * 25 ? T.success : T.textSoft), fontSize: 11, gap: 4 }}>{generatingProgress > i * 25 ? <UiIcon name="check" size={11} stroke="currentColor" /> : null}{phase}</span>
-              ))}
+            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 600 }}>Working…</span>
+              <span style={{ ...css.badge(T.brand), fontSize: 11 }}>Placing lessons and free periods</span>
             </div>
           </div>
         ) : timetableStatus === "GENERATED" ? (
@@ -179,6 +196,12 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const teacherCtLabels = selTeacher ? classTeacherDivisionLabels(selTeacher, divisions, standards) : [];
   const generatedLabel = timetable?.generatedAt ? formatDateTimeIndian(timetable.generatedAt, null) : null;
   const divisionsWithoutClassTeacher = resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers);
+  const { divisions: reportDivisions, standards: reportStandards, subjects: reportSubjects } = pickTimetableSnapshotLists(timetable, {
+    divisions,
+    standards,
+    subjects,
+  });
+  const { periodSlots: gridPeriodSlots, workingDays: gridWorkingDays } = periodGridForTimetableView(timetable, periodSlots, workingDays);
   const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
   const topRejectionReasons = Object.entries(timetable.report?.rejections || {})
     .filter(([, count]) => Number(count) > 0)
@@ -262,6 +285,11 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
       detail: "Open Teachers and verify subject + medium mapping for this subject.",
       nav: "teachers",
     },
+    NON_LESSON_SLOT: {
+      title: "Placement on break or lunch row",
+      detail: "Fixed-period or slot rules may target a non-teaching row. Open Periods and ensure fixed slots use Lesson-type rows only.",
+      nav: "periods",
+    },
   };
   const recommendedFixes = topRejectionReasons.map(([reason, count]) => ({
     reason,
@@ -284,7 +312,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         </div>
         {viewMode === "division" ? (
           <select value={selectedDivisionId} onChange={(e) => setSelectedDivisionId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 150, flex: isMobile ? "1 1 100%" : 1 }}>
-            {divisions.map((d) => { const s = standards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
+            {sortDivisionsByStandardOrder(divisions, standards).map((d) => { const s = standards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
           </select>
         ) : (
           <select value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 160, flex: isMobile ? "1 1 100%" : 1 }}>
@@ -370,9 +398,9 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {timetable.report.unscheduled.slice(0, 6).map((u, i) => {
-                const s = subjects.find((x) => x.id === u.subjectId);
-                const d = divisions.find((x) => x.id === u.divisionId);
-                const std = d ? standards.find((x) => x.id === d.standardId) : null;
+                const s = findEntityById(reportSubjects, u.subjectId);
+                const d = findEntityById(reportDivisions, u.divisionId);
+                const std = d ? findEntityById(reportStandards, d.standardId) : null;
                 return (
                   <span key={i} style={css.badge(T.warning)}>
                     Std {std?.name || "?"} - Div {d?.name || "?"} - {s?.code || "SUB"}: short by {u.periodsShort}
@@ -407,7 +435,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             ))}
           </div>
         </div>
-        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={periodSlots} workingDays={workingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
+        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={gridPeriodSlots} workingDays={gridWorkingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
         {viewMode === "teacher" && hasFreeConf && (
           <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.textMid, textAlign: "center", lineHeight: 1.4 }}>
             Free periods:{" "}
@@ -459,11 +487,19 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
   const [activeReport, setActiveReport] = useState("subject-hours");
   const generatedLabel = timetable?.generatedAt ? formatDateTimeIndian(timetable.generatedAt, null) : null;
   const sourceState = timetable?.sourceState || {};
-  const reportDivisions = sourceState.divisions || divisions || [];
+  const reportSlice = normalizeTenantSchoolOrdering({
+    standards: sourceState.standards || standards || [],
+    divisions: sourceState.divisions || divisions || [],
+    workingDays: sourceState.workingDays || workingDays || [],
+  });
+  const reportDivisions = reportSlice.divisions;
+  const reportStandards = reportSlice.standards;
+  const reportWorkingDays =
+    reportSlice.workingDays.length > 0
+      ? reportSlice.workingDays
+      : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   const reportSubjects = sourceState.subjects || subjects || [];
   const reportTeachers = sourceState.teachers || teachers || [];
-  const reportStandards = sourceState.standards || standards || [];
-  const reportWorkingDays = sourceState.workingDays || workingDays || [];
   const reportPeriodSlots = sourceState.periodSlots || periodSlots || [];
   if (!timetable) {
     return (

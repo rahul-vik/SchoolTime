@@ -95,9 +95,26 @@ app.use("/api", authMiddleware, requirePermission(db, "canViewAudit"), createAud
 app.use("/api", authMiddleware, createValidationRoutes(db));
 app.use("/api", apiKeyAuthMiddleware(db), createB2BRoutes(db));
 
+/** Client closed the socket while Express was reading the JSON body (debounced save, tab close, flaky network). Not an application bug. */
+function isClientAbortBodyError(err) {
+  const t = String(err?.type || "");
+  if (t === "request.aborted") return true;
+  const m = String(err?.message || "");
+  if (/request aborted/i.test(m)) return true;
+  return false;
+}
+
 app.use(async (err, req, res, next) => {
   if (res.headersSent) {
     next(err);
+    return;
+  }
+  if (isClientAbortBodyError(err)) {
+    try {
+      if (!req.aborted) res.status(400).json({ error: "Request aborted", detail: "The client closed the connection before the body finished uploading." });
+    } catch {
+      // ignore — client may already be gone
+    }
     return;
   }
   try {
