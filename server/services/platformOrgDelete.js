@@ -45,6 +45,14 @@ export async function purgeOrganizationInTransaction(tx, orgId, { confirmationNa
     notes || null,
   );
 
+  await deleteOrganizationDataInTransaction(tx, orgId);
+}
+
+/**
+ * Deletes all rows for an organization (sessions, users, state, runs, etc.) and the organization row.
+ * Does not write platform_org_purges — used for purge (after log) and for bundle import replace.
+ */
+export async function deleteOrganizationDataInTransaction(tx, orgId) {
   await tx.run("DELETE FROM refresh_tokens WHERE org_id = ?", orgId);
   await tx.run("DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = ?)", orgId);
   await tx.run("DELETE FROM api_keys WHERE org_id = ?", orgId);

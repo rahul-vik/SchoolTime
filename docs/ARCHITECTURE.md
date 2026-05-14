@@ -66,11 +66,16 @@ Shared weekday logic for period rows lives in **`shared/periodSlotDays.js`** (`s
 Core sequence:
 
 1. Normalize slot metadata (morning/after-lunch/boundaries).
-2. Place fixed slots where possible (respecting inactive slots per day and non-lesson slot guard).
-3. Iterate divisions and subjects by priority.
-4. For each needed period, find eligible teacher and available slot (lesson slots inactive that weekday are skipped).
-5. Fill remaining unassigned lesson slots with `isFreePeriod`.
-6. Compute unscheduled requirements and score.
+2. **Pre-seed division+subject teacher locks** when **`teacherSubjects`** names exactly one teacher for that pair (avoids the first greedy placement locking the wrong teacher).
+3. Place fixed slots where possible (respecting inactive slots per day and non-lesson slot guard).
+4. Class-teacher first-period placements when enabled.
+5. Main greedy placement: iterate divisions and subjects by priority; for each needed period, **`findEligibleTeacher`** prefers **division specialists** (`assignedDivisionIds` of length 1 for that class) before generalists when there is no explicit `teacherSubjects` list.
+6. **BEST_FIT** / **OPTIMAL** soft passes (relax day/slot excludes only) when those modes are selected.
+7. **Lock repair (up to two rounds):** any **(division, subject)** still short on weekly periods has its existing lessons for that pair removed, the per-pair lock cleared, and gap fill retried—reduces “wrong first teacher” deadlocks. Stats: `report.lockRepair`.
+8. Fill remaining unassigned lesson slots with `isFreePeriod`.
+9. Compute unscheduled requirements and score.
+
+This remains **heuristic**, not CP-SAT global optimization; see `planning/global-optimal-solver/` for a future solver path.
 
 **Scheduling rules vs optimization:** The engine is **constraint-satisfying and greedy**, not a global optimizer. **`STRICT`** never relaxes placement preferences. In **`BEST_FIT`** / **`OPTIMAL`**, only **day/slot exclusion** rules (`EXCLUDE_DAY`, `EXCLUDE_SLOT`, and legacy `NOT_*` / `BOTH_BOUNDARY`) are skipped when `ignoreSoftRules` is set during the extra search passes; **`INCLUDE_ONLY`**, inactive period days, teacher/division locks, continuity caps, free-period rules, and weekly/daily subject limits stay **hard** in every pass. **`OPTIMAL`** runs more rotated passes than **`BEST_FIT`** to improve fill rate, not to prove optimality.
 

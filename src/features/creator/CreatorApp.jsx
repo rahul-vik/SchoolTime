@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   clearCreatorToken,
   creatorAdjustCredits,
+  creatorDownloadOrgBundle,
+  creatorImportOrgBundle,
   creatorDeleteOrganization,
   creatorDeleteUser,
   creatorUpdateUser,
@@ -97,6 +99,13 @@ export function CreatorApp() {
   const [orgDeleteModal, setOrgDeleteModal] = useState(null);
   const [orgDeleteConfirmName, setOrgDeleteConfirmName] = useState("");
   const [orgDeleteNotes, setOrgDeleteNotes] = useState("");
+  const [orgBundleImportModal, setOrgBundleImportModal] = useState(null);
+  const [orgBundleImportScope, setOrgBundleImportScope] = useState("full");
+  const [orgBundleImportFile, setOrgBundleImportFile] = useState(null);
+  const [orgBundleImportConfirmName, setOrgBundleImportConfirmName] = useState("");
+  const [orgBundleImportRemap, setOrgBundleImportRemap] = useState(false);
+  const [orgBundleImportSourceName, setOrgBundleImportSourceName] = useState("");
+  const [orgBundleImportTargetName, setOrgBundleImportTargetName] = useState("");
   const [orgPurges, setOrgPurges] = useState(null);
   const [creditPurchasePending, setCreditPurchasePending] = useState(null);
   const [reg, setReg] = useState({ orgName: "", fullName: "", email: "", password: "", initialCredits: "" });
@@ -112,7 +121,8 @@ export function CreatorApp() {
     window.setTimeout(() => setToast(null), 5000);
   }, []);
 
-  const refreshTab = useCallback(async () => {
+  const refreshTab = useCallback(async (opts = {}) => {
+    const { suppressErrorToast = false } = opts;
     if (!token) return;
     setBusy(true);
     try {
@@ -163,8 +173,11 @@ export function CreatorApp() {
         setTokenState(null);
         setLoginErr("Your platform session expired. Please sign in again.");
         notify("Platform session expired. Please sign in again.", "warning");
-      } else {
+        if (suppressErrorToast) throw e;
+      } else if (!suppressErrorToast) {
         notify(msg, "danger");
+      } else {
+        throw e;
       }
     } finally {
       setBusy(false);
@@ -452,6 +465,125 @@ export function CreatorApp() {
     }
   };
 
+  const readFileAsText = (file) =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ""));
+      r.onerror = () => reject(new Error("Could not read file"));
+      r.readAsText(file);
+    });
+
+  const handleExportOrgBundle = async (org, exportScope = "full") => {
+    setBusy(true);
+    try {
+      const { filename, jsonText } = await creatorDownloadOrgBundle(org.id, exportScope === "timetable" ? { scope: "timetable" } : {});
+      const blob = new Blob([jsonText], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify("Bundle download started");
+    } catch (err) {
+      notify(err.message || "Export failed", "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitOrgBundleImport = async (e) => {
+    e.preventDefault();
+    if (!orgBundleImportModal) return;
+    if (!orgBundleImportFile) {
+      notify("Choose a JSON bundle file", "danger");
+      return;
+    }
+    if (!orgBundleImportRemap && !orgBundleImportConfirmName.trim()) {
+      notify("Enter the organization name from the bundle to confirm", "danger");
+      return;
+    }
+    if (orgBundleImportRemap && (!orgBundleImportSourceName.trim() || !orgBundleImportTargetName.trim())) {
+      notify("Enter both name confirmations for remap import", "danger");
+      return;
+    }
+    setBusy(true);
+    try {
+      const raw = await readFileAsText(orgBundleImportFile);
+      let bundle;
+      try {
+        bundle = JSON.parse(raw);
+      } catch (parseErr) {
+        notify(`Bundle file is not valid JSON: ${String(parseErr?.message || parseErr)}`, "danger");
+        return;
+      }
+      let out;
+      if (orgBundleImportRemap) {
+        out = await creatorImportOrgBundle(orgBundleImportModal.id, "", bundle, {
+          remapBundleOrgIdToUrlOrg: true,
+          confirmationSourceOrganizationName: orgBundleImportSourceName.trim(),
+          confirmationTargetOrganizationName: orgBundleImportTargetName.trim(),
+          scope: orgBundleImportScope,
+        });
+      } else {
+        out = await creatorImportOrgBundle(orgBundleImportModal.id, orgBundleImportConfirmName.trim(), bundle, {
+          scope: orgBundleImportScope,
+        });
+      }
+      setOrgBundleImportModal(null);
+      setOrgBundleImportScope("full");
+      setOrgBundleImportFile(null);
+      setOrgBundleImportConfirmName("");
+      setOrgBundleImportRemap(false);
+      setOrgBundleImportSourceName("");
+      setOrgBundleImportTargetName("");
+      let refreshError = null;
+      try {
+        await refreshTab({ suppressErrorToast: true });
+      } catch (re) {
+        refreshError = re;
+      }
+      if (
+        refreshError &&
+        /session expired|invalid auth token|missing auth token/i.test(String(refreshError.message || ""))
+      ) {
+        return;
+      }
+      void creatorGetOverview()
+        .then((o) => setOverview(o))
+        .catch(() => {});
+      const baseMsg =
+        (out && typeof out.message === "string" && out.message.trim()) ||
+        (out?.remapped
+          ? "Bundle imported; ids in the file were remapped to this organization."
+          : "Bundle imported; this organization's data was replaced from the file.");
+      const userPart =
+        out?.scope === "timetable"
+          ? ""
+          : typeof out?.userCount === "number" && Number.isFinite(out.userCount)
+            ? ` (${out.userCount} user account${out.userCount === 1 ? "" : "s"} in the bundle)`
+            : "";
+      const successMsg = `${baseMsg}${userPart}.`;
+      if (refreshError) {
+        notify(
+          `${successMsg} Could not reload this tab: ${String(refreshError?.message || refreshError || "Unknown error")}`,
+          "warning",
+        );
+      } else {
+        notify(successMsg, "success");
+      }
+    } catch (err) {
+      const code = err.errorCode ? ` [${err.errorCode}]` : "";
+      let msg = (err.message || "Import failed") + code;
+      if (Array.isArray(err.emails) && err.emails.length) {
+        msg += ` (${err.emails.join(", ")})`;
+      }
+      notify(msg, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const approveCreditPurchase = async (reqId) => {
     if (!window.confirm("Approve and add these credits to the school?")) return;
     setBusy(true);
@@ -624,7 +756,7 @@ export function CreatorApp() {
             bottom: 24,
             left: "50%",
             transform: "translateX(-50%)",
-            zIndex: 2000,
+            zIndex: 6000,
             padding: "12px 20px",
             borderRadius: 10,
             background: toast.type === "danger" ? T.danger : T.brand,
@@ -721,7 +853,7 @@ export function CreatorApp() {
         {tab === "orgs" && orgs && (
           <div>
             <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>
-              Credits belong to each <strong>organization</strong>. Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. Use <strong>Add credits</strong> for manual adjustments. <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
+              Credits belong to each <strong>organization</strong>. Schools request extra credits from the app; <strong>pending requests</strong> appear below for you to approve or reject. Use <strong>Add credits</strong> for manual adjustments. <strong>Export bundle</strong> downloads a full JSON backup (includes password hashes—store securely). <strong>Export timetable setup</strong> downloads only the school configuration JSON (no users). <strong>Import bundle</strong> can replace either the full org or timetable setup only (choose in the modal). <strong>Remove organization</strong> deletes the org and related data; a <strong>purge record</strong> is kept below.
             </p>
             <div style={{ ...pt.toolRow, marginBottom: 12 }}>
               <div style={{ ...pt.inlineField, minWidth: 180 }}>
@@ -838,6 +970,165 @@ export function CreatorApp() {
                 </form>
               </Modal>
             )}
+            {orgBundleImportModal && (
+              <Modal
+                title={`Import bundle — ${orgBundleImportModal.name}`}
+                onClose={() => {
+                  setOrgBundleImportModal(null);
+                  setOrgBundleImportScope("full");
+                  setOrgBundleImportFile(null);
+                  setOrgBundleImportConfirmName("");
+                  setOrgBundleImportRemap(false);
+                  setOrgBundleImportSourceName("");
+                  setOrgBundleImportTargetName("");
+                }}
+              >
+                {orgBundleImportScope === "timetable" ? (
+                  <p style={{ margin: "0 0 12px", fontSize: 13, color: T.danger, fontWeight: 600 }}>
+                    This updates only saved timetable configuration for organization id{" "}
+                    <span style={{ fontFamily: "ui-monospace, monospace" }}>{orgBundleImportModal.id}</span>
+                    {" "}
+                    (from the file’s <strong>tenantState</strong> object). All existing <strong>timetable runs</strong> for this school are deleted so old grids are not left inconsistent.{" "}
+                    <strong>Users, credits, and licenses are not changed.</strong>
+                    {!orgBundleImportRemap ? (
+                      <>
+                        {" "}
+                        The JSON must list the same id in <strong>bundle.organization.id</strong>, unless you use remap below.
+                      </>
+                    ) : (
+                      <>
+                        {" "}
+                        Remap mode sets <strong>bundle.organization.id</strong> to this row’s id before import.
+                      </>
+                    )}
+                  </p>
+                ) : (
+                  <p style={{ margin: "0 0 12px", fontSize: 13, color: T.danger, fontWeight: 600 }}>
+                    This replaces all existing data for organization id{" "}
+                    <span style={{ fontFamily: "ui-monospace, monospace" }}>{orgBundleImportModal.id}</span>.
+                    {!orgBundleImportRemap ? (
+                      <>
+                        {" "}
+                        The JSON must list the same id in <strong>bundle.organization.id</strong>, unless you use remap below.
+                      </>
+                    ) : (
+                      <>
+                        {" "}
+                        Remap mode will rewrite every <strong>org_id</strong> in the file to this id before import. The school name stored after import comes from the bundle (for example a backup from another org replaces this row’s data and display name).
+                      </>
+                    )}
+                  </p>
+                )}
+                {!orgBundleImportRemap && (
+                  <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid }}>
+                    Type <strong>organization.name</strong> from the bundle file exactly (trimmed), for confirmation:
+                  </p>
+                )}
+                {orgBundleImportRemap && (
+                  <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textMid }}>
+                    Type the bundle’s school name and this portal row’s school name exactly (trimmed). This proves you intend to load another org’s backup into this id.
+                  </p>
+                )}
+                <form noValidate onSubmit={submitOrgBundleImport}>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ ...pt.inlineLabel, marginBottom: 8 }}>Import type</div>
+                    <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer", fontSize: 13, color: T.text, marginBottom: 8 }}>
+                      <input
+                        type="radio"
+                        name="bundle-import-scope"
+                        checked={orgBundleImportScope === "full"}
+                        onChange={() => setOrgBundleImportScope("full")}
+                      />
+                      <span>Full organization backup (users, credits, runs, …)</span>
+                    </label>
+                    <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer", fontSize: 13, color: T.text }}>
+                      <input
+                        type="radio"
+                        name="bundle-import-scope"
+                        checked={orgBundleImportScope === "timetable"}
+                        onChange={() => setOrgBundleImportScope("timetable")}
+                      />
+                      <span>Timetable setup only (<code style={{ fontSize: 12 }}>bundleKind: timetable_setup</code>)</span>
+                    </label>
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", fontSize: 13, color: T.text }}>
+                      <input
+                        type="checkbox"
+                        checked={orgBundleImportRemap}
+                        onChange={(ev) => setOrgBundleImportRemap(ev.target.checked)}
+                        style={{ marginTop: 2 }}
+                      />
+                      <span>
+                        <strong>Import into this organization</strong> (rewrite bundle <code style={{ fontSize: 12 }}>organization.id</code> and all{" "}
+                        <code style={{ fontSize: 12 }}>org_id</code> fields to this row’s id). Dangerous: use only for migration into a chosen org slot.
+                      </span>
+                    </label>
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Bundle JSON file
+                    </label>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      onChange={(ev) => setOrgBundleImportFile(ev.target.files?.[0] || null)}
+                      style={{ fontSize: 13, width: "100%" }}
+                    />
+                  </div>
+                  {!orgBundleImportRemap && (
+                    <Input
+                      label="Confirmation (organization name from bundle)"
+                      value={orgBundleImportConfirmName}
+                      onChange={setOrgBundleImportConfirmName}
+                      placeholder={orgBundleImportModal.name}
+                      required
+                    />
+                  )}
+                  {orgBundleImportRemap && (
+                    <>
+                      <Input
+                        label="Bundle organization name (must match JSON)"
+                        value={orgBundleImportSourceName}
+                        onChange={setOrgBundleImportSourceName}
+                        placeholder="Name inside the file"
+                        required
+                      />
+                      <Input
+                        label={`This organization’s name (must match “${orgBundleImportModal.name}”)`}
+                        value={orgBundleImportTargetName}
+                        onChange={setOrgBundleImportTargetName}
+                        placeholder={orgBundleImportModal.name}
+                        required
+                      />
+                    </>
+                  )}
+                  <div style={pt.modalActions}>
+                    <Btn
+                      type="button"
+                      variant="ghost"
+                      iconOnly
+                      ariaLabel="Cancel"
+                      onClick={() => {
+                        setOrgBundleImportModal(null);
+                        setOrgBundleImportScope("full");
+                        setOrgBundleImportFile(null);
+                        setOrgBundleImportConfirmName("");
+                        setOrgBundleImportRemap(false);
+                        setOrgBundleImportSourceName("");
+                        setOrgBundleImportTargetName("");
+                      }}
+                      disabled={busy}
+                    >
+                      <UiIcon name="close" size={18} stroke="currentColor" />
+                    </Btn>
+                    <Btn type="submit" variant="danger" disabled={busy}>
+                      {orgBundleImportScope === "timetable" ? "Import timetable setup" : "Replace with bundle"}
+                    </Btn>
+                  </div>
+                </form>
+              </Modal>
+            )}
             {orgDeleteModal && (
               <Modal
                 title={`Remove organization — ${orgDeleteModal.name}`}
@@ -874,7 +1165,18 @@ export function CreatorApp() {
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Created: {formatDateTime(o.created_at)}</div>
                       <div style={{ marginTop: 2, fontSize: 12, color: T.textSoft }}>Last activity: {formatDateTime(o.last_activity_at)}</div>
                       <div style={{ marginTop: 8, fontFamily: "ui-monospace, monospace", fontSize: 11, color: T.textSoft, wordBreak: "break-all" }}>{o.id}</div>
-                      <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        <Btn size="sm" iconOnly ariaLabel={`Export data bundle — ${o.name}`} onClick={() => handleExportOrgBundle(o)} disabled={busy}><UiIcon name="downloads" size={16} stroke="currentColor" /></Btn>
+                        <Btn size="sm" iconOnly ariaLabel={`Export timetable setup — ${o.name}`} title="Timetable setup JSON (no users)" onClick={() => handleExportOrgBundle(o, "timetable")} disabled={busy}><UiIcon name="preferences" size={16} stroke="currentColor" /></Btn>
+                        <Btn size="sm" iconOnly ariaLabel={`Import data bundle — ${o.name}`} onClick={() => {
+                          setOrgBundleImportModal(o);
+                          setOrgBundleImportScope("full");
+                          setOrgBundleImportFile(null);
+                          setOrgBundleImportConfirmName("");
+                          setOrgBundleImportRemap(false);
+                          setOrgBundleImportSourceName("");
+                          setOrgBundleImportTargetName("");
+                        }} disabled={busy}><UiIcon name="copyDown" size={16} stroke="currentColor" /></Btn>
                         <Btn size="sm" iconOnly ariaLabel={`Add credits — ${o.name}`} onClick={() => { setOrgCreditModal(o); setOrgCreditPacks(""); setOrgCreditReason("Operator adjustment"); }} disabled={busy}><UiIcon name="create" size={16} stroke="currentColor" /></Btn>
                         <Btn size="sm" variant="danger" iconOnly ariaLabel={`Remove organization — ${o.name}`} onClick={() => { setOrgDeleteModal(o); setOrgDeleteConfirmName(""); setOrgDeleteNotes(""); }} disabled={busy}><UiIcon name="trash" size={16} stroke="#fff" /></Btn>
                       </div>
@@ -905,6 +1207,23 @@ export function CreatorApp() {
                       <td style={pt.tdMono}>{o.id}</td>
                       <td style={pt.tdActions}>
                         <div style={pt.rowActions}>
+                          <Btn size="sm" iconOnly ariaLabel={`Export data bundle — ${o.name}`} onClick={() => handleExportOrgBundle(o)} disabled={busy}>
+                            <UiIcon name="downloads" size={16} stroke="currentColor" />
+                          </Btn>
+                          <Btn size="sm" iconOnly ariaLabel={`Export timetable setup — ${o.name}`} title="Timetable setup JSON (no users)" onClick={() => handleExportOrgBundle(o, "timetable")} disabled={busy}>
+                            <UiIcon name="preferences" size={16} stroke="currentColor" />
+                          </Btn>
+                          <Btn size="sm" iconOnly ariaLabel={`Import data bundle — ${o.name}`} onClick={() => {
+                          setOrgBundleImportModal(o);
+                          setOrgBundleImportScope("full");
+                          setOrgBundleImportFile(null);
+                          setOrgBundleImportConfirmName("");
+                          setOrgBundleImportRemap(false);
+                          setOrgBundleImportSourceName("");
+                          setOrgBundleImportTargetName("");
+                        }} disabled={busy}>
+                            <UiIcon name="copyDown" size={16} stroke="currentColor" />
+                          </Btn>
                           <Btn size="sm" iconOnly ariaLabel={`Add credits — ${o.name}`} onClick={() => { setOrgCreditModal(o); setOrgCreditPacks(""); setOrgCreditReason("Operator adjustment"); }} disabled={busy}>
                             <UiIcon name="create" size={16} stroke="currentColor" />
                           </Btn>

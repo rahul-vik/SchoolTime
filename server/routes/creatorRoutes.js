@@ -7,6 +7,15 @@ import { getSignupInitialCredits, getAllPlatformSettings, getRoleAccessPolicy, u
 import { listPlatformErrors } from "../services/platformErrorLog.js";
 import { deleteUserInTransaction } from "../services/platformUserLifecycle.js";
 import { purgeOrganizationInTransaction } from "../services/platformOrgDelete.js";
+import {
+  exportOrganizationBundle,
+  exportOrganizationTimetableSetupBundle,
+  importOrganizationBundleInTransaction,
+  importOrganizationTimetableSetupBundleInTransaction,
+  creatorOrgBundleImportBodySchema,
+  remapBundleOrganizationId,
+  remapTimetableSetupBundleOrganizationId,
+} from "../services/platformOrgBundle.js";
 
 function parseLimitOffset(req, { defaultLimit = 50, maxLimit = 100 } = {}) {
   const limit = Math.min(maxLimit, Math.max(1, parseInt(String(req.query.limit || defaultLimit), 10) || defaultLimit));
@@ -108,6 +117,186 @@ export function createCreatorRoutes(db) {
       if (e.message === "NOT_FOUND") return res.status(404).json({ error: "Organization not found" });
       if (e.message === "NAME_MISMATCH") {
         return res.status(400).json({ error: "Confirmation name must exactly match the organization name (trimmed)." });
+      }
+      throw e;
+    }
+  });
+
+  router.get("/orgs/:orgId/export-bundle", async (req, res) => {
+    const orgId = String(req.params.orgId || "").trim();
+    if (!orgId) return res.status(400).json({ error: "Invalid org" });
+    const scopeRaw = String(req.query.scope || "full").trim().toLowerCase();
+    const scope = scopeRaw === "timetable" ? "timetable" : "full";
+    try {
+      const bundle =
+        scope === "timetable" ? await exportOrganizationTimetableSetupBundle(db, orgId) : await exportOrganizationBundle(db, orgId);
+      const slug = String(bundle.organization.name || "org")
+        .trim()
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 48);
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      const filename =
+        scope === "timetable"
+          ? `schooltime-org-${slug}-${orgId}-timetable-setup.json`
+          : `schooltime-org-${slug}-${orgId}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(bundle, null, 2));
+    } catch (e) {
+      if (e.message === "NOT_FOUND") return res.status(404).json({ error: "Organization not found" });
+      throw e;
+    }
+  });
+
+  router.post("/orgs/:orgId/import-bundle", async (req, res) => {
+    const orgId = String(req.params.orgId || "").trim();
+    if (!orgId) return res.status(400).json({ error: "Invalid org", errorCode: "INVALID_ORG" });
+    const parsed = creatorOrgBundleImportBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.issues, errorCode: "INVALID_REQUEST" });
+    }
+    const {
+      scope: importScope,
+      bundle,
+      remapBundleOrgIdToUrlOrg,
+      confirmationName,
+      confirmationSourceOrganizationName,
+      confirmationTargetOrganizationName,
+    } = parsed.data;
+    if (!bundle || typeof bundle !== "object") {
+      return res.status(400).json({ error: "Missing bundle", errorCode: "MISSING_BUNDLE" });
+    }
+
+    const scope = importScope === "timetable" ? "timetable" : "full";
+    const remap = Boolean(remapBundleOrgIdToUrlOrg);
+    let bundleForImport = bundle;
+    let confirmationForImport = String(confirmationName || "").trim();
+    let auditExtra = {};
+
+    if (remap) {
+      const targetRow = await db.get("SELECT id, name FROM organizations WHERE id = ?", orgId);
+      if (!targetRow) return res.status(404).json({ error: "Organization not found", errorCode: "TARGET_ORG_NOT_FOUND" });
+
+      const sourceNameTrim = String(confirmationSourceOrganizationName || "").trim();
+      const targetNameTrim = String(confirmationTargetOrganizationName || "").trim();
+      const bundleOrgName = String(bundle.organization?.name || "").trim();
+      const bundleOrgId = String(bundle.organization?.id || "").trim();
+
+      if (!bundleOrgId) {
+        return res.status(400).json({ error: "Bundle is missing organization.id", errorCode: "INVALID_BUNDLE" });
+      }
+      if (sourceNameTrim !== bundleOrgName) {
+        return res.status(400).json({
+          error: "Source confirmation must exactly match organization.name in the bundle (trimmed).",
+          errorCode: "SOURCE_NAME_MISMATCH",
+        });
+      }
+      if (targetNameTrim !== String(targetRow.name || "").trim()) {
+        return res.status(400).json({
+          error: "Target confirmation must exactly match this organization's name in the database (trimmed).",
+          errorCode: "TARGET_NAME_MISMATCH",
+        });
+      }
+
+      try {
+        bundleForImport = scope === "timetable" ? remapTimetableSetupBundleOrganizationId(bundle, orgId) : remapBundleOrganizationId(bundle, orgId);
+      } catch (e) {
+        if (e.message === "REMAP_ORG_ID_INCONSISTENT") {
+          return res.status(400).json({
+            error:
+              "Bundle contains an org_id that does not match the bundle's organization.id; refusing remap. Re-export from source or fix the JSON.",
+            errorCode: "REMAP_ORG_ID_INCONSISTENT",
+            detail: e.detail || null,
+          });
+        }
+        if (e.message === "INVALID_BUNDLE") {
+          return res.status(400).json({ error: "Invalid bundle payload", details: e.details || null, errorCode: "INVALID_BUNDLE" });
+        }
+        throw e;
+      }
+
+      confirmationForImport = sourceNameTrim;
+      auditExtra = { remappedOrgIdFrom: bundleOrgId, remapBundleOrgIdToUrlOrg: true };
+    } else if (String(bundle.organization?.id || "").trim() !== orgId) {
+      return res.status(400).json({
+        error:
+          "Bundle organization.id must match the URL org id. To load a bundle from another org into this row, enable remap in the portal and confirm both organization names (see API docs).",
+        errorCode: "ORG_ID_MISMATCH",
+      });
+    }
+
+    try {
+      const out = await db.transaction(async (tx) => {
+        if (scope === "timetable") {
+          const result = await importOrganizationTimetableSetupBundleInTransaction(tx, bundleForImport, {
+            targetOrgId: orgId,
+            confirmationName: confirmationForImport,
+          });
+          await logAudit(tx, orgId, null, "PLATFORM_ORG_TIMETABLE_SETUP_IMPORT", "organization", orgId, {
+            bundleVersion: bundleForImport.bundleVersion,
+            bundleKind: bundleForImport.bundleKind,
+            ...auditExtra,
+          });
+          return { ...result, scope: "timetable" };
+        }
+        const result = await importOrganizationBundleInTransaction(tx, bundleForImport, {
+          targetOrgId: orgId,
+          confirmationName: confirmationForImport,
+        });
+        await logAudit(tx, orgId, null, "PLATFORM_ORG_BUNDLE_IMPORT", "organization", orgId, {
+          userCount: result.userCount,
+          bundleVersion: bundleForImport.bundleVersion,
+          ...auditExtra,
+        });
+        return { ...result, scope: "full" };
+      });
+      if (out.scope === "timetable") {
+        res.json({
+          ok: true,
+          orgId: out.orgId,
+          scope: "timetable",
+          remapped: remap,
+          message: remap
+            ? "Timetable setup imported; bundle org id was remapped to this organization. Previous timetable runs were removed."
+            : "Timetable setup imported; tenant_state was updated and previous timetable runs were removed.",
+        });
+      } else {
+        res.json({
+          ok: true,
+          orgId: out.orgId,
+          scope: "full",
+          userCount: out.userCount,
+          remapped: remap,
+          message: remap
+            ? "Bundle imported; ids in the file were remapped to this organization."
+            : "Bundle imported; this organization's data was replaced from the file.",
+        });
+      }
+    } catch (e) {
+      if (e.message === "NOT_FOUND") {
+        return res.status(404).json({ error: "Organization not found", errorCode: "NOT_FOUND" });
+      }
+      if (e.message === "NAME_MISMATCH") {
+        return res.status(400).json({
+          error: "Confirmation name must exactly match the organization name in the bundle (trimmed).",
+          errorCode: "NAME_MISMATCH",
+        });
+      }
+      if (e.message === "ORG_ID_MISMATCH" || e.message === "USER_ORG_MISMATCH") {
+        return res.status(400).json({
+          error: "Bundle org or user org_id does not match URL organization id.",
+          errorCode: e.message,
+        });
+      }
+      if (e.message === "INVALID_BUNDLE") {
+        return res.status(400).json({ error: "Invalid bundle payload", details: e.details || null, errorCode: "INVALID_BUNDLE" });
+      }
+      if (e.message === "EMAIL_IN_USE") {
+        return res.status(400).json({
+          error:
+            "One or more bundle user emails are already registered to another organization. Change or remove those accounts elsewhere, adjust emails in the bundle, then retry.",
+          errorCode: "EMAIL_IN_USE",
+          emails: Array.isArray(e.emails) ? e.emails : [],
+        });
       }
       throw e;
     }

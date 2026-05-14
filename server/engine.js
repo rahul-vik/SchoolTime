@@ -227,6 +227,11 @@ export function runTimetableEngine(data) {
     softRuleRelaxPlacements: 0,
     searchPasses: 0,
   };
+  const lockRepairStats = {
+    rounds: 0,
+    lessonsRemoved: 0,
+    subjectsRetried: 0,
+  };
   const rejectionStats = {
     DIVISION_BLOCKED: 0,
     DIVISION_OCCUPIED: 0,
@@ -440,6 +445,17 @@ export function runTimetableEngine(data) {
     }
 
     const rankedCandidates = [...candidates].sort((a, b) => {
+      if (explicit.length === 0) {
+        const divSpecialistRank = (t) => {
+          const ad = t.assignedDivisionIds || [];
+          if (ad.length === 0) return 2;
+          if (ad.length === 1 && ad[0] === divisionId) return 0;
+          return ad.includes(divisionId) ? 1 : 4;
+        };
+        const ra = divSpecialistRank(a);
+        const rb = divSpecialistRank(b);
+        if (ra !== rb) return ra - rb;
+      }
       const aWeek = teacherWeeklyCount.get(tWeekKey(a.id)) || 0;
       const bWeek = teacherWeeklyCount.get(tWeekKey(b.id)) || 0;
       if (aWeek !== bWeek) return aWeek - bWeek;
@@ -477,6 +493,96 @@ export function runTimetableEngine(data) {
       divisionSubjectTeacherLock.set(subTeacherLockKey(divisionId, subjectId), teacherId);
     }
   }
+
+  function removeLessonFromMapsAndEntry(entry) {
+    if (!entry || entry.isFreePeriod || !entry.subjectId || !entry.teacherId) return;
+    const { divisionId, teacherId, subjectId, dayOfWeek: day, slotNumber } = entry;
+    divisionSlotMap.delete(dSlotKey(divisionId, day, slotNumber));
+    teacherSlotMap.delete(tSlotKey(teacherId, day, slotNumber));
+    teacherDailyCount.set(tDayKey(teacherId, day), Math.max(0, (teacherDailyCount.get(tDayKey(teacherId, day)) || 0) - 1));
+    if (isMornSlot(slotNumber)) {
+      teacherMorningCount.set(tDayKey(teacherId, day), Math.max(0, (teacherMorningCount.get(tDayKey(teacherId, day)) || 0) - 1));
+    } else {
+      teacherEveningCount.set(tDayKey(teacherId, day), Math.max(0, (teacherEveningCount.get(tDayKey(teacherId, day)) || 0) - 1));
+    }
+    teacherWeeklyCount.set(tWeekKey(teacherId), Math.max(0, (teacherWeeklyCount.get(tWeekKey(teacherId)) || 0) - 1));
+    subjectWeeklyCount.set(subWKey(divisionId, subjectId), Math.max(0, (subjectWeeklyCount.get(subWKey(divisionId, subjectId)) || 0) - 1));
+    subjectDailyCount.set(subDKey(divisionId, subjectId, day), Math.max(0, (subjectDailyCount.get(subDKey(divisionId, subjectId, day)) || 0) - 1));
+    const idx = entries.findIndex(
+      (e) =>
+        e.divisionId === divisionId &&
+        e.dayOfWeek === day &&
+        Number(e.slotNumber) === Number(slotNumber) &&
+        e.subjectId === subjectId &&
+        e.teacherId === teacherId &&
+        !e.isFreePeriod,
+    );
+    if (idx >= 0) entries.splice(idx, 1);
+  }
+
+  function removeAllLessonsForDivisionSubject(divisionId, subjectId) {
+    let removed = 0;
+    for (const day of workingDays) {
+      for (const slot of lessonSlots) {
+        const e = divisionSlotMap.get(dSlotKey(divisionId, day, slot.slotNumber));
+        if (e && e.subjectId === subjectId && e.slotType === "LESSON" && !e.isFreePeriod) {
+          removeLessonFromMapsAndEntry(e);
+          removed += 1;
+        }
+      }
+    }
+    divisionSubjectTeacherLock.delete(subTeacherLockKey(divisionId, subjectId));
+    return removed;
+  }
+
+  function scheduleGapForDivisionSubject(div, sub) {
+    const { weeklyPeriods: required, maxPerDay } = getDivisionSubjectLimits(sub, div.id, subjectAllocations);
+    let scheduled = subjectWeeklyCount.get(subWKey(div.id, sub.id)) || 0;
+    const dayQ = [...workingDays, ...workingDays, ...workingDays];
+    let di = 0;
+    while (scheduled < required && di < dayQ.length) {
+      const day = dayQ[di++];
+      if (isDayBlockedByRule(sub.id, day, rules)) continue;
+      if ((subjectDailyCount.get(subDKey(div.id, sub.id, day)) || 0) >= (maxPerDay || 2)) continue;
+      for (const slot of lessonSlots) {
+        if (!slotActiveOnWeekday(slot, day)) continue;
+        if (divisionSlotMap.has(dSlotKey(div.id, day, slot.slotNumber))) continue;
+        if (isSlotBlockedByRule(sub.id, slot.slotNumber, periodSlots, rules)) continue;
+        if (!isPlacementAllowedByIncludeOnly(sub.id, div.id, day, slot.slotNumber, periodSlots, workingDays, rules)) {
+          markRejection("INCLUDE_RULE_BLOCKED");
+          continue;
+        }
+        const t = findEligibleTeacher(sub.id, div.id, day, slot.slotNumber);
+        if (!t) continue;
+        placeEntry(div.id, t.id, sub.id, day, slot.slotNumber);
+        scheduled++;
+        break;
+      }
+    }
+  }
+
+  function seedExplicitSingletonLocks() {
+    const pairToTeachers = new Map();
+    for (const ts of teacherSubjects || []) {
+      if (!ts || !ts.subjectId || !ts.teacherId) continue;
+      const targetDivs = ts.divisionId ? [ts.divisionId] : divisions.map((d) => d.id);
+      for (const divId of targetDivs) {
+        const sub = subjects.find((s) => s.id === ts.subjectId);
+        const div = divisions.find((d) => d.id === divId);
+        if (!sub || !div || !subjectAppliesToDivision(sub, div)) continue;
+        const k = subTeacherLockKey(divId, ts.subjectId);
+        if (!pairToTeachers.has(k)) pairToTeachers.set(k, new Set());
+        pairToTeachers.get(k).add(ts.teacherId);
+      }
+    }
+    for (const [k, set] of pairToTeachers) {
+      if (set.size === 1) {
+        divisionSubjectTeacherLock.set(k, [...set][0]);
+      }
+    }
+  }
+
+  seedExplicitSingletonLocks();
 
   function getEligibleSubjectsForTeacherDivision(teacher, divisionId) {
     const div = divisions.find((d) => d.id === divisionId);
@@ -668,6 +774,31 @@ export function runTimetableEngine(data) {
     }
   }
 
+  const MAX_LOCK_REPAIR_ROUNDS = 2;
+  for (let round = 0; round < MAX_LOCK_REPAIR_ROUNDS; round++) {
+    const shortages = [];
+    for (const div of divisions) {
+      for (const sub of subjects) {
+        if (!subjectAppliesToDivision(sub, div)) continue;
+        const { weeklyPeriods: required } = getDivisionSubjectLimits(sub, div.id, subjectAllocations);
+        const scheduled = subjectWeeklyCount.get(subWKey(div.id, sub.id)) || 0;
+        if (scheduled < required) shortages.push({ div, sub, required, scheduled });
+      }
+    }
+    if (shortages.length === 0) break;
+    lockRepairStats.rounds += 1;
+    shortages.sort(
+      (a, b) => b.sub.priorityWeight - a.sub.priorityWeight || (b.required - b.scheduled) - (a.required - a.scheduled),
+    );
+    for (const { div, sub, required } of shortages) {
+      const now = subjectWeeklyCount.get(subWKey(div.id, sub.id)) || 0;
+      if (now >= required) continue;
+      lockRepairStats.lessonsRemoved += removeAllLessonsForDivisionSubject(div.id, sub.id);
+      lockRepairStats.subjectsRetried += 1;
+      scheduleGapForDivisionSubject(div, sub);
+    }
+  }
+
   for (const div of divisions) {
     for (const day of workingDays) {
       for (const slot of periodSlots) {
@@ -724,6 +855,7 @@ export function runTimetableEngine(data) {
       divisionsMissingClassTeacher,
       classTeacherRules: classTeacherRuleStats,
       optimization: optimizationStats,
+      lockRepair: lockRepairStats,
       rejections: rejectionStats,
       durationMs: Math.floor(Math.random() * 800) + 200,
     },
