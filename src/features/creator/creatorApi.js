@@ -42,16 +42,22 @@ async function creatorRequest(path, options = {}) {
   } catch {
     throw new Error("Cannot reach the API server. Check VITE_API_BASE_URL and that the backend is running.");
   }
+  // Non-JSON or empty body becomes `{}` so callers still get an object; check `res.ok` and status for errors.
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401) {
       // Keep explicit login errors user-friendly; only auto-clear stale tokens on authenticated calls.
       if (path !== "/login") {
         clearCreatorToken();
-        throw new Error("Session expired. Please sign in to the platform portal again.");
+        const e = new Error("Session expired. Please sign in to the platform portal again.");
+        if (data.errorCode) e.errorCode = data.errorCode;
+        throw e;
       }
     }
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    if (data.errorCode) err.errorCode = data.errorCode;
+    if (Array.isArray(data.emails)) err.emails = data.emails;
+    throw err;
   }
   return data;
 }
@@ -145,6 +151,54 @@ export function creatorDeleteOrganization(orgId, body) {
   return creatorRequest(`/orgs/${encodeURIComponent(orgId)}`, {
     method: "DELETE",
     body: JSON.stringify(body || {}),
+  });
+}
+
+/** Full JSON backup for DB migration (platform portal). `options.scope`: `"timetable"` → timetable setup only (see API docs). */
+export async function creatorDownloadOrgBundle(orgId, options = {}) {
+  const scope = options.scope === "timetable" ? "timetable" : "full";
+  const q = scope === "timetable" ? "?scope=timetable" : "";
+  const token = getCreatorToken();
+  const res = await fetch(`${API_BASE}/creator/orgs/${encodeURIComponent(orgId)}/export-bundle${q}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let errMsg = `Export failed (${res.status})`;
+    try {
+      const j = JSON.parse(text);
+      if (j.error) errMsg = j.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(errMsg);
+  }
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const m = /filename="([^"]+)"/.exec(disposition);
+  const filename = m ? m[1] : `schooltime-org-${orgId}.json`;
+  return { filename, jsonText: text };
+}
+
+/**
+ * Import org data from bundle.
+ * `options`: `{ scope?: "full" | "timetable" }` — timetable updates `tenant_state` only (see API).
+ * Remap: `{ remapBundleOrgIdToUrlOrg: true, confirmationSourceOrganizationName, confirmationTargetOrganizationName, scope?: ... }`.
+ */
+export function creatorImportOrgBundle(orgId, confirmationName, bundle, options = null) {
+  const o = options && typeof options === "object" ? options : {};
+  const scope = o.scope === "timetable" ? "timetable" : "full";
+  const body = { bundle, scope };
+  if (o.remapBundleOrgIdToUrlOrg) {
+    body.remapBundleOrgIdToUrlOrg = true;
+    body.confirmationSourceOrganizationName = o.confirmationSourceOrganizationName;
+    body.confirmationTargetOrganizationName = o.confirmationTargetOrganizationName;
+  } else {
+    body.confirmationName = confirmationName;
+  }
+  return creatorRequest(`/orgs/${encodeURIComponent(orgId)}/import-bundle`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 
