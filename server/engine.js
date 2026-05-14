@@ -1,4 +1,5 @@
 import { slotActiveOnWeekday } from "../shared/periodSlotDays.js";
+import { normalizeTenantSchoolOrdering } from "../shared/schoolDisplayOrder.js";
 
 function getSlotMeta(slots) {
   const ls = slots.filter((s) => s.slotType === "LESSON").sort((a, b) => a.slotNumber - b.slotNumber);
@@ -47,7 +48,7 @@ function isSlotBlockedByRule(subjectId, slotNumber, periodSlots, rules) {
         return false;
     }
   };
-  for (const rule of rules.filter((r) => r.subjectId === subjectId && r.isActive)) {
+  for (const rule of rules.filter((r) => r.subjectId === subjectId && r.isActive !== false)) {
     switch (rule.ruleType) {
       case "NOT_FIRST_MORNING":
         if (slotNumber === firstMorning) return true;
@@ -75,7 +76,7 @@ function isDayBlockedByRule(subjectId, day, rules) {
   return rules.some(
     (r) =>
       r.subjectId === subjectId &&
-      r.isActive &&
+      r.isActive !== false &&
       r.ruleType === "EXCLUDE_DAY" &&
       ((Array.isArray(r.dayOfWeekList) && r.dayOfWeekList.includes(day)) || r.dayOfWeek === day)
   );
@@ -174,12 +175,18 @@ function getDivisionSubjectLimits(subject, divisionId, subjectAllocations) {
 }
 
 export function runTimetableEngine(data) {
+  const ord = normalizeTenantSchoolOrdering({
+    standards: data.standards || [],
+    divisions: data.divisions || [],
+    workingDays: data.workingDays || [],
+  });
+  const divisions = ord.divisions;
+  const workingDays =
+    ord.workingDays.length > 0 ? ord.workingDays : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   const {
-    divisions,
     subjects,
     teachers,
     periodSlots,
-    workingDays,
     teacherSubjects,
     freePeriodRules,
     fixedSlots,
@@ -239,6 +246,7 @@ export function runTimetableEngine(data) {
     CROSS_DIVISION_CONTINUITY_DAY: 0,
     NO_ELIGIBLE_SUBJECT: 0,
     SLOT_INACTIVE_THIS_DAY: 0,
+    NON_LESSON_SLOT: 0,
   };
 
   const tSlotKey = (tId, day, slot) => `${tId}:${day}:${slot}`;
@@ -375,7 +383,9 @@ export function runTimetableEngine(data) {
     if (!teacherAllowedInDivision(teacher, divisionId)) return { ok: false, reason: "DIVISION_BLOCKED" };
     if (divisionSlotMap.has(dSlotKey(divisionId, day, slotNumber))) return { ok: false, reason: "DIVISION_OCCUPIED" };
     const slotRow = periodSlots.find((s) => Number(s.slotNumber) === Number(slotNumber));
-    if (slotRow && !slotActiveOnWeekday(slotRow, day)) {
+    if (!slotRow) return { ok: false, reason: "NON_LESSON_SLOT" };
+    if (slotRow.slotType && slotRow.slotType !== "LESSON") return { ok: false, reason: "NON_LESSON_SLOT" };
+    if (!slotActiveOnWeekday(slotRow, day)) {
       return { ok: false, reason: "SLOT_INACTIVE_THIS_DAY" };
     }
     if (!ignoreSoftRules && isDayBlockedByRule(subjectId, day, rules)) return { ok: false, reason: "DAY_RULE_BLOCKED" };
@@ -515,7 +525,7 @@ export function runTimetableEngine(data) {
     if (t) placeEntry(fs.divisionId, t.id, fs.subjectId, fs.dayOfWeek, fs.slotNumber);
   }
 
-  if (classPrefs.enabled && firstMorning !== null) {
+  if (classPrefs.enabled === true && firstMorning !== null) {
     let selectedDays = Array.isArray(classPrefs.ctFirstPeriodDays)
       ? [...new Set(classPrefs.ctFirstPeriodDays.filter((d) => workingDays.includes(d)))]
       : [];

@@ -39,6 +39,8 @@ Response includes:
 
 - `GET /state`
 - `PUT /state` — requires `canConfigureTimetable`
+- If the **browser closes the connection** while the JSON body is still uploading (common with debounced autosave, navigation away, or weak networks), the API may respond with **400** and message **`Request aborted`**; that is not a validation failure and is **not** written to platform error logs.
+- JSON body size limit is **2mb** (`express.json`); oversize payloads return a different parser error—trim large assets (e.g. school logo) if needed.
 - State payload may include `classTeacherPreferences`, `exportJobs` (latest 3 retained by client), and `lastGeneratedTimetable`
 
 ### Period slots and scheduling rules
@@ -49,9 +51,11 @@ Response includes:
 
 ## Timetable
 
-- `POST /timetable/generate` — requires `canConfigureTimetable`
+- `POST /timetable/generate` — requires `canConfigureTimetable`; runs `migrateTenantState` then `runTimetableGenerationEngine` (defaults to legacy greedy core; see `TIMETABLE_SOLVER` in `docs/ARCHITECTURE.md`).
 - `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
-- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`; duplicate query keys use the first value; summary-report aliases such as `reports-bundle`, `SUMMARY`, or `SUMMARY_REPORTS` normalize to `REPORTS_BUNDLE`. Binary PDF/XLSX from `server/services/exportService.js`; visual layout details (CT placement, teacher medium code line, report bundle labeling) are documented in `README.md` → **Exports** and `docs/ARCHITECTURE.md` → **Export Pipeline**.
+- **`POST /timetable/generate` response** — body includes `timetable` with `entries`, `report`, `score`, `status`, `runId`, `generatedAt`, and **`sourceState`**: the validated tenant payload the engine used for that run (same snapshot persisted as `timetable_runs.state_json` and merged into `tenant_state` in the generate transaction).
+- **`GET /timetable/latest` response** — `{ run, timetable }` where `timetable` includes `entries`, `report`, `runId`, `generatedAt`, and **`sourceState`** parsed from the latest row’s `state_json` when present (older rows may omit it; clients fall back to live `GET /state` lists).
+- `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`; duplicate query keys use the first value; summary-report aliases such as `reports-bundle`, `SUMMARY`, or `SUMMARY_REPORTS` normalize to `REPORTS_BUNDLE`. Binary PDF/XLSX from `server/services/exportService.js`; visual layout details (CT placement, teacher medium code line, report bundle labeling) are documented in `README.md` → **Exports** and `docs/ARCHITECTURE.md` → **Export Pipeline**. Export uses the run’s stored state when available so the period grid matches `entries`.
 
 ## Settings/Admin
 
@@ -116,7 +120,7 @@ Unhandled errors that reach the Express error handler are persisted to `platform
   - `entries`
   - `score`
   - `status`
-  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization`, `rejections`, `durationMs`)
+  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization`, `rejections`, `durationMs`, **`solver`** — `{ requested, applied, timeoutMs, workerUsed, fallbackReason?, fallbackDetail? }` from `TIMETABLE_SOLVER` / worker routing, optional **`experimental`** prototype metadata when the experimental path runs)
 
 ## Client Integration
 

@@ -1,7 +1,7 @@
 ﻿import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
-import { runTimetableEngine } from "../engine.js";
+import { runTimetableGenerationEngine } from "../timetableSolverRunner.js";
 import { migrateTenantState } from "../services/tenantStateMigration.js";
 import { validateTimetableRun } from "../services/timetableValidationService.js";
 import { applyLowRiskAutoFixes } from "../services/timetableAutoFixService.js";
@@ -37,7 +37,7 @@ export function createB2BRoutes(db) {
         if (credits <= 0) throw new Error("NO_CREDITS");
         await tx.run("UPDATE licenses SET credits_remaining = ?, updated_at = ? WHERE org_id = ?", credits - 1, nowIso(), req.auth.orgId);
         await writeCreditLedger(tx, req.auth.orgId, -1, "B2B_TIMETABLE_GENERATION", { runId, apiKeyId: req.auth.apiKeyId });
-        const result = runTimetableEngine(parsed.data);
+        const result = await runTimetableGenerationEngine(parsed.data);
         const validation = validateTimetableRun({ state: parsed.data, entries: result.entries, runId });
         const autoFix = applyLowRiskAutoFixes({ entries: result.entries, findings: validation.findings });
         const finalFindings = autoFix.findings;

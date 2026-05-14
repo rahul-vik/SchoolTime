@@ -15,7 +15,8 @@ alwaysApply: false
 - Avoid large monolithic components; extract helpers for transformations/insights.
 - Preserve existing navigation and page IDs used by `navigate(...)`.
 - For timetable diagnostics/shortage insights, show class context (standard + division + subject) instead of subject-only summaries.
-- Prefer actionable quick links from diagnostics cards (`navigate("teachers"|"subjects"|"rules")`) when recommending fixes.
+- **Generated timetable UI:** resolve **`report.unscheduled`** and grid columns against **`timetable.sourceState`** when present (`pickTimetableSnapshotLists`, `periodGridForTimetableView` in `TimetablePages.jsx`; **`findEntityById`** in `src/features/shared/idLookups.js` for string/number id parity). Pass snapshot **`periodSlots`** / **`workingDays`** into **`TimetableGrid`** so Break/Lunch headers align with **`entries`** slot numbers; Dashboard completion bullets use the same snapshot lists.
+- Prefer actionable quick links from diagnostics cards (`navigate("teachers"|"subjects"|"rules"|"periods")`) when recommending fixes.
 - Keep sidebar release footer format as `V<version> (<build-number>)`; show `LOCAL · DEV` tags only in local dev mode.
 
 ## UI Change Checklist

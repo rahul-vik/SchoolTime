@@ -13,11 +13,13 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
   const slots = periodSlots;
   const cellH = bp.isMobile ? 52 : 62;
 
-  const getEntry = (eId, day, sn) => (
-    viewMode === "division"
-      ? timetable.entries.find((e) => e.divisionId === eId && e.dayOfWeek === day && e.slotNumber === sn)
-      : timetable.entries.find((e) => e.teacherId === eId && e.dayOfWeek === day && e.slotNumber === sn)
-  );
+  const idEq = (a, b) => a != null && b != null && String(a) === String(b);
+  const getEntry = (eId, day, sn) => {
+    const snN = Number(sn);
+    return viewMode === "division"
+      ? timetable.entries.find((e) => idEq(e.divisionId, eId) && e.dayOfWeek === day && Number(e.slotNumber) === snN)
+      : timetable.entries.find((e) => idEq(e.teacherId, eId) && e.dayOfWeek === day && Number(e.slotNumber) === snN);
+  };
 
   const renderCell = (entry, day, slot) => {
     const inactive = slot && day && !slotActiveOnWeekday(slot, day);
@@ -41,7 +43,40 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
     if (!entry) return <div style={{ height: cellH, background: T.surfaceBorder + "40", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 9, color: T.textSoft }}>—</span></div>;
     if (entry.slotType === "BREAK" || entry.slotType === "LUNCH") return <div style={{ height: 36, background: T.surfaceBorder, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>{entry.label}</span></div>;
 
-    const isPending = pendingSwap && pendingSwap.divisionId === entry.divisionId && pendingSwap.dayOfWeek === entry.dayOfWeek && pendingSwap.slotNumber === entry.slotNumber;
+    const slotIsBreakOrLunch = slot && (slot.slotType === "BREAK" || slot.slotType === "LUNCH");
+    const entryIsLessonLike = Boolean(entry.subjectId && !entry.isFreePeriod && entry.slotType !== "BREAK" && entry.slotType !== "LUNCH");
+    if (slotIsBreakOrLunch && entryIsLessonLike) {
+      const sub = subjects.find((s) => s.id === entry.subjectId);
+      const code = sub?.code || "?";
+      return (
+        <div
+          title="This column is Break or Lunch in the period grid, but the saved timetable still has a lesson on this slot number. Usually the live Periods layout no longer matches the run that was generated: use Create to regenerate, or ensure the app uses the run snapshot for the grid (sourceState.periodSlots)."
+          style={{
+            minHeight: cellH,
+            borderRadius: 6,
+            padding: "6px 8px",
+            background: `${T.warning}22`,
+            border: `1px solid ${T.warning}66`,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: 4,
+            boxSizing: "border-box",
+          }}
+        >
+          <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 700 }}>{slot.label || slot.slotType}</span>
+          <span style={{ fontSize: 10, color: T.textMid, lineHeight: 1.35, fontWeight: 600 }}>
+            Stored lesson ({code}) — layout mismatch. Regenerate.
+          </span>
+        </div>
+      );
+    }
+
+    const isPending =
+      pendingSwap &&
+      pendingSwap.divisionId === entry.divisionId &&
+      pendingSwap.dayOfWeek === entry.dayOfWeek &&
+      Number(pendingSwap.slotNumber) === Number(entry.slotNumber);
     if (entry.isFreePeriod) {
       return (
         <div

@@ -1,7 +1,22 @@
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../shared/reportHoursLabels.js";
-import { slotActiveOnWeekday } from "../../shared/periodSlotDays.js";
+import { slotActiveOnWeekday, sortWorkingDaysCanonical } from "../../shared/periodSlotDays.js";
+import { normalizeTenantSchoolOrdering } from "../../shared/schoolDisplayOrder.js";
+
+function withExportSchoolOrdering(state) {
+  if (!state || typeof state !== "object") return state;
+  const ord = normalizeTenantSchoolOrdering({
+    standards: state.standards || [],
+    divisions: state.divisions || [],
+    workingDays: state.workingDays || [],
+  });
+  const wd =
+    ord.workingDays.length > 0
+      ? ord.workingDays
+      : sortWorkingDaysCanonical(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"]);
+  return { ...state, standards: ord.standards, divisions: ord.divisions, workingDays: wd };
+}
 
 /** Parse data URL from Settings → school logo for PDF/Excel embedding (PNG/JPEG only for Excel). */
 function parseSchoolLogoImage(logoDataUrl) {
@@ -171,7 +186,10 @@ function periodHeaderLine1(slot) {
 
 /** Full period grid (lessons + break + lunch) for visual PDF/Excel exports. */
 function buildScheduleContext(state, entries) {
-  const workingDays = state.workingDays || [];
+  const workingDays =
+    Array.isArray(state.workingDays) && state.workingDays.length > 0
+      ? sortWorkingDaysCanonical(state.workingDays)
+      : sortWorkingDaysCanonical(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"]);
   const allSlots = [...(state.periodSlots || [])].sort((a, b) => a.slotNumber - b.slotNumber);
   const subjectsById = new Map((state.subjects || []).map((s) => [s.id, s]));
   const teachersById = new Map((state.teachers || []).map((t) => [t.id, t]));
@@ -1486,7 +1504,8 @@ export async function generateExportFile({ type, scope, state, entries }) {
   const entryList = Array.isArray(entries) ? entries : [];
   const typeNorm = normalizeExportType(type);
   const scopeNorm = normalizeExportScope(scope);
-  if (typeNorm === "PDF") return createPdfExport(scopeNorm, state, entryList);
-  if (typeNorm === "EXCEL") return createExcelExport(scopeNorm, state, entryList);
+  const stateNorm = withExportSchoolOrdering(state);
+  if (typeNorm === "PDF") return createPdfExport(scopeNorm, stateNorm, entryList);
+  if (typeNorm === "EXCEL") return createExcelExport(scopeNorm, stateNorm, entryList);
   throw new Error("UNSUPPORTED_TYPE");
 }

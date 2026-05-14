@@ -1,15 +1,17 @@
-import { ensurePeriodSlotsActiveWeekdays } from "../../../shared/periodSlotDays.js";
+import { ensurePeriodSlotsActiveWeekdays, sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
+import { normalizeTenantSchoolOrdering, orderSubjectStandardIds } from "../../../shared/schoolDisplayOrder.js";
+import { resolveClassTeacherEnabled } from "../../../shared/classTeacherPreferences.js";
 
 function normalizeClassTeacherPreferences(rawPrefs, seedPrefs, workingDays) {
   const seed = seedPrefs || {};
   const next = rawPrefs || {};
   const allowedDays = new Set((workingDays || []).map((d) => String(d)));
-  const fallbackDays = (seed.ctFirstPeriodDays || workingDays || []).filter((d) => allowedDays.has(d));
+  const fallbackDays = sortWorkingDaysCanonical((seed.ctFirstPeriodDays || workingDays || []).filter((d) => allowedDays.has(d)));
   const normalizedDays = Array.isArray(next.ctFirstPeriodDays)
-    ? [...new Set(next.ctFirstPeriodDays.map((d) => String(d)).filter((d) => allowedDays.has(d)))]
+    ? sortWorkingDaysCanonical([...new Set(next.ctFirstPeriodDays.map((d) => String(d)).filter((d) => allowedDays.has(d)))])
     : [];
   return {
-    enabled: next.enabled !== false,
+    enabled: resolveClassTeacherEnabled(next, seed),
     dailyPrimaryMinPeriods: Math.max(0, Math.min(2, Number(next.dailyPrimaryMinPeriods || 0))),
     schedulingMode: next.schedulingMode === "OPTIMAL" ? "OPTIMAL" : next.schedulingMode === "BEST_FIT" ? "BEST_FIT" : "STRICT",
     ctFirstPeriodDays: normalizedDays.length > 0 ? normalizedDays : fallbackDays,
@@ -17,10 +19,11 @@ function normalizeClassTeacherPreferences(rawPrefs, seedPrefs, workingDays) {
 }
 
 function normalizeSubjects(subjects, standards, divisions) {
-  const standardIds = (standards || []).map((s) => s.id);
+  const standardIds = orderSubjectStandardIds((standards || []).map((s) => s.id), standards);
   const allowedDivisionIds = new Set((divisions || []).map((d) => d.id));
   return (subjects || []).map((sub) => {
-    const nextStandardIds = Array.isArray(sub.standardIds) && sub.standardIds.length > 0 ? sub.standardIds : standardIds;
+    const nextStandardIdsRaw = Array.isArray(sub.standardIds) && sub.standardIds.length > 0 ? sub.standardIds : standardIds;
+    const nextStandardIds = orderSubjectStandardIds(nextStandardIdsRaw, standards);
     const scopeMode = sub.divisionScopeMode === "CUSTOM_DIVISION_OVERRIDES" ? "CUSTOM_DIVISION_OVERRIDES" : "ALL_IN_SELECTED_CLASSES";
     const divisionIncludeIds = Array.isArray(sub.divisionIncludeIds) ? [...new Set(sub.divisionIncludeIds.filter((id) => allowedDivisionIds.has(id)))] : [];
     const divisionExcludeIds = Array.isArray(sub.divisionExcludeIds) ? [...new Set(sub.divisionExcludeIds.filter((id) => allowedDivisionIds.has(id)))] : [];
@@ -49,18 +52,29 @@ export function applyTenantStateWithFallback(state, seed, setters) {
   if (!state) return;
   setters.setSchool(state.school || seed.school);
   setters.setMediums(state.mediums || seed.mediums);
-  setters.setStandards(state.standards || seed.standards);
-  const nextDivisions = state.divisions || seed.divisions;
-  const nextStandards = state.standards || seed.standards;
+  const wdSource =
+    Array.isArray(state.workingDays) && state.workingDays.length > 0
+      ? state.workingDays
+      : Array.isArray(seed.workingDays) && seed.workingDays.length > 0
+        ? seed.workingDays
+        : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const nextSchool = normalizeTenantSchoolOrdering({
+    standards: state.standards || seed.standards,
+    divisions: state.divisions || seed.divisions,
+    workingDays: wdSource,
+  });
+  const nextStandards = nextSchool.standards;
+  const nextDivisions = nextSchool.divisions;
+  const wd = nextSchool.workingDays.length > 0 ? nextSchool.workingDays : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  setters.setStandards(nextStandards);
   setters.setDivisions(nextDivisions);
   setters.setSubjects(normalizeSubjects(state.subjects || seed.subjects, nextStandards, nextDivisions));
   setters.setTeachers(state.teachers || seed.teachers);
-  const nextWorkingDays = state.workingDays || seed.workingDays;
   const rawPeriodSlots = state.periodSlots || seed.periodSlots;
-  setters.setPeriodSlots(ensurePeriodSlotsActiveWeekdays(rawPeriodSlots, nextWorkingDays));
-  setters.setWorkingDays(nextWorkingDays);
+  setters.setPeriodSlots(ensurePeriodSlotsActiveWeekdays(rawPeriodSlots, wd));
+  setters.setWorkingDays(wd);
   setters.setSchedulingRules(state.schedulingRules || seed.schedulingRules);
-  setters.setClassTeacherPreferences(normalizeClassTeacherPreferences(state.classTeacherPreferences, seed.classTeacherPreferences, nextWorkingDays));
+  setters.setClassTeacherPreferences(normalizeClassTeacherPreferences(state.classTeacherPreferences, seed.classTeacherPreferences, wd));
   if (setters.setExportJobs) setters.setExportJobs(state.exportJobs || []);
   if (setters.setTimetable) {
     const restored = state.lastGeneratedTimetable || null;
@@ -70,15 +84,22 @@ export function applyTenantStateWithFallback(state, seed, setters) {
 }
 
 export function buildTenantState(state) {
+  const next = normalizeTenantSchoolOrdering({
+    standards: state.standards,
+    divisions: state.divisions,
+    workingDays: state.workingDays,
+  });
+  const workingDays =
+    next.workingDays.length > 0 ? next.workingDays : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   return {
     school: state.school,
     mediums: state.mediums,
-    standards: state.standards,
-    divisions: state.divisions,
+    standards: next.standards,
+    divisions: next.divisions,
     subjects: state.subjects,
     teachers: state.teachers,
     periodSlots: state.periodSlots,
-    workingDays: state.workingDays,
+    workingDays,
     schedulingRules: state.schedulingRules,
     classTeacherPreferences: state.classTeacherPreferences,
     exportJobs: state.exportJobs,

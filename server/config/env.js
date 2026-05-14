@@ -74,6 +74,14 @@ function buildEnv() {
   };
 }
 
+/** Read per-request (tests can override process.env between calls). */
+export function getTimetableSolverRuntime() {
+  const raw = String(process.env.TIMETABLE_SOLVER || "legacy").trim().toLowerCase();
+  const mode = raw === "experimental" ? "experimental" : "legacy";
+  const timeoutMs = Math.min(300_000, toPositiveInt(process.env.TIMETABLE_SOLVER_TIMEOUT_MS, 30_000));
+  return { mode, timeoutMs };
+}
+
 function validateEnv(env) {
   if (!["sqlite", "postgres"].includes(env.DB_CLIENT)) {
     throw new Error("Invalid DB_CLIENT. Supported values: sqlite, postgres.");

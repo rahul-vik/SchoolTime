@@ -14,6 +14,7 @@ Use it for onboarding, daily development, and release decisions.
 - Keep changes minimal, focused, and backward-compatible unless explicitly approved.
 - Never commit secrets. Use `.env` locally and keep `.env.example` current.
 - Preserve deterministic timetable/export behavior across runs.
+- When showing a **stored timetable run**, align the in-app grid and shortage labels with **`timetable.sourceState`** (period rows + entity ids from `timetable_runs.state_json`) so **`entries`** slot numbers stay consistent with Break/Lunch columns and `report.unscheduled` (see `docs/ARCHITECTURE.md` → **In-app timetable vs live tenant state**).
 - Preserve deterministic teacher assignment within a run: do not mix multiple teachers for the same division-subject unless explicitly introducing and documenting a team-teaching rule.
 - Keep user-facing language simple and action-oriented.
 - For operational timestamps shown in admin/creator views (for example "Last activity"), source from real activity records (audit/session actions) rather than creation timestamps.

@@ -1,4 +1,6 @@
 import { ensurePeriodSlotsActiveWeekdays, slotActiveOnWeekday } from "../../shared/periodSlotDays.js";
+import { normalizeTenantSchoolOrdering } from "../../shared/schoolDisplayOrder.js";
+import { resolveClassTeacherEnabled } from "../../shared/classTeacherPreferences.js";
 
 function normalizeSubject(subject) {
   let changed = false;
@@ -157,6 +159,31 @@ export function migrateTenantState(inputState) {
     state.teachers = migratedTeachers.map((m) => m.value);
   }
 
+  const wdRaw =
+    Array.isArray(state.workingDays) && state.workingDays.length > 0
+      ? state.workingDays
+      : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const orderedSchool = normalizeTenantSchoolOrdering({
+    standards: state.standards || [],
+    divisions: state.divisions || [],
+    workingDays: wdRaw,
+  });
+  const packSchool = JSON.stringify({
+    w: orderedSchool.workingDays,
+    s: orderedSchool.standards,
+    d: orderedSchool.divisions,
+  });
+  const prevSchool = JSON.stringify({
+    w: state.workingDays || [],
+    s: state.standards || [],
+    d: state.divisions || [],
+  });
+  if (packSchool !== prevSchool) {
+    state.workingDays = orderedSchool.workingDays;
+    state.standards = orderedSchool.standards;
+    state.divisions = orderedSchool.divisions;
+    changed = true;
+  }
   const wd =
     Array.isArray(state.workingDays) && state.workingDays.length > 0
       ? state.workingDays
@@ -181,6 +208,15 @@ export function migrateTenantState(inputState) {
     });
     if (migratedRules.some((m) => m.changed)) changed = true;
     state.schedulingRules = migratedRules.map((m) => m.value);
+  }
+
+  if (state.classTeacherPreferences != null && typeof state.classTeacherPreferences === "object") {
+    const raw = state.classTeacherPreferences;
+    const nextEnabled = resolveClassTeacherEnabled(raw, {});
+    if (raw.enabled !== nextEnabled) {
+      state.classTeacherPreferences = { ...raw, enabled: nextEnabled };
+      changed = true;
+    }
   }
 
   return { state, changed };
