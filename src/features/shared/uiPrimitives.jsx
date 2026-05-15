@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+
+function fieldSlug(label) {
+  if (!label || typeof label !== "string") return "";
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 export const T = {
   brand: "#1a1a2e", brandMid: "#16213e", accent: "#0f3460",
@@ -46,6 +54,51 @@ export function UiIcon({ name, size = 18, stroke = "currentColor", style }) {
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{ flexShrink: 0, ...style }}>
       {icons[name] || icons.timetable}
     </svg>
+  );
+}
+
+/** Click heading to show/hide help body (summary, bullets, actions). */
+export function ExpandableHelpSection({ open, onToggle, heading, children, T, tone = "warning" }) {
+  const accent = tone === "info" ? T.info : T.warning;
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 0",
+          margin: 0,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          textAlign: "left",
+          fontFamily: "inherit",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-flex",
+            width: 14,
+            justifyContent: "center",
+            fontSize: 10,
+            color: T.textSoft,
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+            transition: "transform 0.15s",
+          }}
+        >
+          ▶
+        </span>
+        <UiIcon name={tone === "info" ? "preferences" : "alert"} size={14} stroke={accent} />
+        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: accent, lineHeight: 1.35 }}>{heading}</span>
+      </button>
+      {open ? <div style={{ paddingTop: 4, paddingLeft: 22 }}>{children}</div> : null}
+    </section>
   );
 }
 
@@ -100,10 +153,18 @@ export function Btn({ children, onClick, variant = "primary", size = "md", disab
   );
 }
 
-export function Field({ label, children, error, help, required }) {
+export function Field({ label, children, error, help, required, htmlFor }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      {label && <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}{required && <span style={{ color: T.danger }}> *</span>}</label>}
+      {label && (
+        <label
+          htmlFor={htmlFor || undefined}
+          style={{ display: "block", fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}
+        >
+          {label}
+          {required && <span style={{ color: T.danger }}> *</span>}
+        </label>
+      )}
       {children}
       {error && <p style={{ fontSize: 11, color: T.danger, margin: "4px 0 0" }}>{error}</p>}
       {help && <p style={{ fontSize: 11, color: T.textSoft, margin: "4px 0 0" }}>{help}</p>}
@@ -111,18 +172,36 @@ export function Field({ label, children, error, help, required }) {
   );
 }
 
-export function Input({ label, value, onChange, placeholder, type = "text", error, help, required, style: sty }) {
+export function Input({ label, value, onChange, placeholder, type = "text", error, help, required, style: sty, id, name }) {
+  const autoId = useId();
+  const slug = fieldSlug(label);
+  const controlId = id || (slug ? `schooltime-${slug}` : `schooltime-field${autoId.replace(/:/g, "")}`);
+  const controlName = name ?? (slug || undefined);
   return (
-    <Field label={label} error={error} help={help} required={required}>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ ...css.input, borderColor: error ? T.danger : T.surfaceBorder, ...sty }} />
+    <Field label={label} error={error} help={help} required={required} htmlFor={controlId}>
+      <input
+        id={controlId}
+        name={controlName}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{ ...css.input, borderColor: error ? T.danger : T.surfaceBorder, ...sty }}
+      />
     </Field>
   );
 }
 
-export function Select({ label, value, onChange, options, placeholder, error, disabled = false }) {
+export function Select({ label, value, onChange, options, placeholder, error, disabled = false, id, name }) {
+  const autoId = useId();
+  const slug = fieldSlug(label);
+  const controlId = id || (slug ? `schooltime-${slug}` : `schooltime-select${autoId.replace(/:/g, "")}`);
+  const controlName = name ?? (slug || undefined);
   return (
-    <Field label={label} error={error}>
+    <Field label={label} error={error} htmlFor={controlId}>
       <select
+        id={controlId}
+        name={controlName}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -139,6 +218,59 @@ export function Select({ label, value, onChange, options, placeholder, error, di
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+    </Field>
+  );
+}
+
+/** Single-choice pill row — same visual language as Create timetable engine pills. */
+export function PillSelect({ label, value, onChange, options, disabled = false, help, hintBox = true }) {
+  const active = options.find((o) => o.id === value) || options[0];
+  return (
+    <Field label={label} help={help}>
+      <div
+        role="radiogroup"
+        aria-label={label || undefined}
+        style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+      >
+        {options.map((opt) => {
+          const on = value === opt.id;
+          const accent = opt.accent || T.brand;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={opt.hint}
+              disabled={disabled}
+              onClick={() => onChange(opt.id)}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: on ? "none" : `1px solid ${T.surfaceBorder}`,
+                cursor: disabled ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: "inherit",
+                background: on ? accent : T.surfaceAlt,
+                color: on ? "#fff" : T.textMid,
+                opacity: disabled ? 0.65 : 1,
+                transition: "all 0.15s",
+                maxWidth: "100%",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      {hintBox && active?.hint ? (
+        <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.45, marginTop: 10, padding: "10px 12px", background: T.surfaceAlt, borderRadius: 8, border: `1px solid ${T.surfaceBorder}` }}>
+          <strong style={{ color: T.textMid }}>{active.label}</strong>
+          {" — "}
+          {active.hint}
+        </div>
+      ) : null}
     </Field>
   );
 }

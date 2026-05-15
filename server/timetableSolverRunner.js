@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { getTimetableSolverRuntime } from "./config/env.js";
 import { runTimetableEngine } from "./engine.js";
+import { estimateCpSatLessonDecisionVars } from "./services/cpsatSolveRequestBuilder.js";
 
 function mergeSolverReport(result, solverMeta) {
   return {
@@ -35,20 +36,35 @@ function runExperimentalInWorker(data, timeoutMs) {
     }, timeoutMs);
     worker.on("message", (msg) => {
       if (msg?.ok) finish(resolve, msg.out);
-      else finish(reject, new Error(msg?.error || "WORKER_FAILED"));
+      else {
+        const err = new Error(msg?.error || "WORKER_FAILED");
+        if (msg?.cpSatValidation) err.cpSatValidation = msg.cpSatValidation;
+        finish(reject, err);
+      }
     });
     worker.on("error", (err) => finish(reject, err));
   });
 }
 
 /**
- * Runs the timetable engine with optional experimental solver (env-driven), timeout, and legacy fallback.
+ * Runs the timetable engine with optional experimental / CP-SAT / hybrid solver (env-driven), timeout, and legacy fallback.
  * Default path is synchronous legacy `runTimetableEngine` (TIMETABLE_SOLVER=legacy).
+ * `hybrid` attempts the CP-SAT worker pipeline first (same preflight and wiring as `cp_sat`), then runs legacy on failure.
+ *
+ * @param {object} data - tenant state payload for the engine
+ * @param {{ timetableSolver?: string }} [options] - optional per-request mode (UI / API `timetableSolver`); env used for URL, timeouts, caps
  */
-export async function runTimetableGenerationEngine(data) {
-  const { mode: requested, timeoutMs } = getTimetableSolverRuntime();
+export async function runTimetableGenerationEngine(data, options = {}) {
+  const { mode: requested, timeoutMs, cpSatUrl, cpSatMaxDecisionVars } = getTimetableSolverRuntime(options.timetableSolver);
+  const hybridRequested = requested === "hybrid";
+  const wantsCpSatPipeline = requested === "cp_sat" || hybridRequested;
+
   const baseMeta = {
     requested,
+    timetableSolverSource:
+      options?.timetableSolver !== undefined && options?.timetableSolver !== null && String(options.timetableSolver).trim() !== ""
+        ? "request"
+        : "env",
     timeoutMs,
     applied: "legacy",
     workerUsed: false,
@@ -56,22 +72,62 @@ export async function runTimetableGenerationEngine(data) {
     fallbackDetail: null,
   };
 
-  if (requested !== "experimental") {
+  const hybridMeta = (patch) => (hybridRequested ? patch : {});
+
+  if (requested === "legacy") {
     const out = runTimetableEngine(data);
     return mergeSolverReport(out, { ...baseMeta, applied: "legacy" });
   }
 
+  if (wantsCpSatPipeline) {
+    if (!cpSatUrl) {
+      const out = runTimetableEngine(data);
+      return mergeSolverReport(out, {
+        ...baseMeta,
+        applied: "legacy",
+        fallbackReason: "cp_sat_url_missing",
+        fallbackDetail: "Set CP_SAT_SOLVER_URL (e.g. http://127.0.0.1:8790/solve) to run the CP-SAT sidecar.",
+        ...hybridMeta({ hybridStage: "legacy_preflight" }),
+      });
+    }
+    const est = estimateCpSatLessonDecisionVars(data);
+    if (est > cpSatMaxDecisionVars) {
+      const out = runTimetableEngine(data);
+      return mergeSolverReport(out, {
+        ...baseMeta,
+        applied: "legacy",
+        fallbackReason: "cp_sat_size_cap",
+        fallbackDetail: String(est),
+        ...hybridMeta({ hybridStage: "legacy_preflight" }),
+      });
+    }
+  }
+
   try {
-    const out = await runExperimentalInWorker(data, timeoutMs);
-    return mergeSolverReport(out, { ...baseMeta, applied: "experimental", workerUsed: true });
+    const out = await runExperimentalInWorker({ ...data, __timetableSolverRequestMode: requested }, timeoutMs);
+    const applied = wantsCpSatPipeline ? "cp_sat" : "experimental";
+    return mergeSolverReport(out, {
+      ...baseMeta,
+      applied,
+      workerUsed: true,
+      ...hybridMeta(applied === "cp_sat" ? { hybridStage: "cp_sat" } : {}),
+    });
   } catch (e) {
     const isTimeout = e?.message === "TIMETABLE_SOLVER_TIMEOUT" || e?.code === "TIMEOUT";
+    const isCpSatValidation = e?.message === "CP_SAT_VALIDATION_FAILED" && e?.cpSatValidation;
     const out = runTimetableEngine(data);
     return mergeSolverReport(out, {
       ...baseMeta,
       applied: "legacy",
-      fallbackReason: isTimeout ? "timeout" : "error",
-      fallbackDetail: String(e?.message || e),
+      fallbackReason: isTimeout ? "timeout" : isCpSatValidation ? "cp_sat_validation" : "error",
+      fallbackDetail: isCpSatValidation ? JSON.stringify(e.cpSatValidation) : String(e?.message || e),
+      ...(isCpSatValidation
+        ? {
+            validationFailed: true,
+            validationCodes: e.cpSatValidation.codes,
+          }
+        : {}),
+      ...hybridMeta(wantsCpSatPipeline ? { hybridStage: "legacy_fallback" } : {}),
     });
   }
 }

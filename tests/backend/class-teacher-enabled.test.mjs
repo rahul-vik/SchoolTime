@@ -83,9 +83,17 @@ test("class teacher placement runs only when enabled is explicitly true", () => 
   assert.ok(outTrue.report.classTeacherRules.firstPeriodRequested > 0);
 });
 
-test("migrateTenantState sets enabled false when omitted on class teacher preferences", () => {
+test("migrateTenantState preserves legacy class teacher when CT settings were in use", () => {
   const { state } = migrateTenantState({
+    teachers: [{ classTeacherDivisionIds: ["div-a"] }],
     classTeacherPreferences: { ctFirstPeriodDays: ["MONDAY"], schedulingMode: "STRICT" },
+  });
+  assert.equal(state.classTeacherPreferences.enabled, true);
+});
+
+test("migrateTenantState sets enabled false when omitted and no CT usage", () => {
+  const { state } = migrateTenantState({
+    classTeacherPreferences: { schedulingMode: "STRICT" },
   });
   assert.equal(state.classTeacherPreferences.enabled, false);
 });

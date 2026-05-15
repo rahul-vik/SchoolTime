@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect, useId, useState } from "react";
 import { confirmPasswordReset, requestPasswordReset } from "../../api";
 
 function EyeIcon({ off = false }) {
@@ -15,14 +15,19 @@ function EyeIcon({ off = false }) {
 function PasswordInputWithToggle({ label, value, onChange, placeholder, ui }) {
   const { Field, css, T } = ui;
   const [visible, setVisible] = useState(false);
+  const autoId = useId();
+  const controlId = `schooltime-password${autoId.replace(/:/g, "")}`;
   return (
-    <Field label={label}>
+    <Field label={label} htmlFor={controlId}>
       <div style={{ position: "relative" }}>
         <input
+          id={controlId}
+          name="password"
           type={visible ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          autoComplete={visible ? "off" : "current-password"}
           style={{ ...css.input, paddingRight: 40 }}
         />
         <button

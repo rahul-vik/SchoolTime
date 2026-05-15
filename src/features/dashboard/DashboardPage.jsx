@@ -1,86 +1,7 @@
-﻿import { UiIcon } from "../shared/uiPrimitives";
+﻿import { useState, useEffect } from "react";
+import { UiIcon, ExpandableHelpSection } from "../shared/uiPrimitives";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
-import { findEntityById, pickTimetableSnapshotLists } from "../shared/idLookups";
-
-/**
- * Plain-language tips when completion is below 100%, using engine report + school context.
- */
-function buildCompletionInsights({
-  completionPct,
-  timetable,
-  subjects,
-  divisions,
-  standards,
-  teachers,
-  schedulingRules,
-  restrictedTeachers,
-}) {
-  if (!timetable || completionPct >= 100) return { summary: null, bullets: [] };
-
-  const report = timetable.report || {};
-  const unscheduled = [...(report.unscheduled || [])].sort((a, b) => (b.periodsShort || 0) - (a.periodsShort || 0));
-  const required = report.totalRequired || 0;
-  const scheduled = report.totalScheduled || 0;
-  const shortfall = Math.max(0, required - scheduled);
-  const activeRules = (schedulingRules || []).filter((r) => r.isActive).length;
-
-  const { divisions: divList, standards: stdList, subjects: subList } = pickTimetableSnapshotLists(timetable, {
-    divisions,
-    standards,
-    subjects,
-  });
-
-  const divisionLabel = (divisionId) => {
-    const div = findEntityById(divList, divisionId);
-    if (!div) return "A class";
-    const std = findEntityById(stdList, div.standardId);
-    return `Std ${std?.name ?? "?"} — Div ${div.name}`;
-  };
-
-  const summary =
-    shortfall > 0
-      ? `Right now ${scheduled} of ${required} required weekly lesson slots are filled. You still need ${shortfall} more to reach 100%.`
-      : `Completion is ${completionPct}%. Regenerating after you adjust setup can help reach a full schedule.`;
-
-  const bullets = [];
-
-  const topGaps = unscheduled.slice(0, 4);
-  for (const u of topGaps) {
-    const sub = findEntityById(subList, u.subjectId);
-    const name = sub?.name || sub?.code || "that subject";
-    const where = divisionLabel(u.divisionId);
-    const n = u.periodsShort || 0;
-    if (n <= 0) continue;
-    bullets.push(`${where}: schedule ${n} more ${name} lesson${n === 1 ? "" : "s"} per week — ${u.periodsScheduled} of ${u.periodsRequired} scheduled.`);
-  }
-  if (unscheduled.length > topGaps.length) {
-    bullets.push(`Other classes are short too — ${unscheduled.length} gap${unscheduled.length === 1 ? "" : "s"}. Open Timetable → Reports → Division completion.`);
-  }
-
-  bullets.push("Make sure at least one teacher teaches each missing subject in the correct medium, and is allowed for that class under Teacher assignments.");
-
-  if (activeRules > 0) {
-    bullets.push(
-      `You use ${activeRules} active subject preference${activeRules === 1 ? "" : "s"}. Those rules block some period or day combinations—review Subject preferences and turn off any you do not need, then generate again.`,
-    );
-  }
-
-  if (restrictedTeachers > 0 && completionPct < 95) {
-    bullets.push(
-      `${restrictedTeachers} teacher${restrictedTeachers === 1 ? " is" : "s are"} limited to certain classes only. If a subject has few eligible teachers, widen who can teach it or add another teacher.`,
-    );
-  }
-
-  if (teachers.length < 2 && divisions.length > 0) {
-    bullets.push("With very few teachers, heavy timetables are harder to fill. Add teachers or reduce weekly periods where you can.");
-  }
-
-  bullets.push("If the engine never finds a free slot, try adding another teaching day or lesson period, or slightly raising max lessons per day for teachers when policy allows.");
-
-  bullets.push("If one subject simply asks for more hours than the week can hold, lower its weekly period count under Subjects or division allocation.");
-
-  return { summary, bullets: bullets.slice(0, 8) };
-}
+import { buildCompletionInsights } from "../shared/timetableCompletionHints";
 
 export function DashboardPage({ school, subjects, divisions, teachers, standards, timetable, timetableStatus, schedulingRules, navigate, bp, ui }) {
   const { T, BRAND_FONT, css, Btn, ProgressBar, StatusBadge } = ui;
@@ -100,6 +21,23 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
   const divisionsWithoutClassTeacher = timetable
     ? resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers)
     : [];
+  const [expandedHelp, setExpandedHelp] = useState(() => new Set());
+  const toggleHelp = (key) => {
+    setExpandedHelp((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setExpandedHelp(new Set());
+  }, [timetable?.id, timetable?.generatedAt]);
+
+  const showStatusHelpHeading =
+    !bp.isMobile &&
+    (divisionsWithoutClassTeacher.length > 0 || (completionPct < 100 && !!completionInsights.summary));
 
   return (
     <div>
@@ -142,49 +80,57 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
               <ProgressBar value={completionPct} max={100} color={completionPct > 85 ? T.success : T.warning} />
               <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textSoft }}><span>{timetable.report.totalScheduled} scheduled</span><span>{timetable.report.totalRequired} required</span></div>
               <div style={{ marginTop: 10 }}><StatusBadge status={timetable.status} /></div>
+              {showStatusHelpHeading ? (
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.warning, marginTop: 14, marginBottom: 6 }}>Needs your attention</div>
+              ) : null}
               {divisionsWithoutClassTeacher.length > 0 && (
                 <div
                   style={{
-                    marginTop: 14,
-                    padding: "12px 14px",
+                    marginTop: showStatusHelpHeading ? 0 : 14,
+                    padding: "8px 14px 12px",
                     borderRadius: 10,
                     background: `${T.warning}12`,
                     border: `1px solid ${T.warning}44`,
                   }}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <UiIcon name="alert" size={15} stroke={T.warning} />
-                    {divisionsWithoutClassTeacher.length} class{divisionsWithoutClassTeacher.length === 1 ? "" : "es"} without a class teacher
-                  </div>
-                  <p style={{ margin: "0 0 10px", fontSize: 12, color: T.textMid, lineHeight: 1.45 }}>
-                    Assign a class teacher under Teachers → Class teacher assignment for each class below.
-                  </p>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                    {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
-                      <span key={row.divisionId} style={{ ...css.badge(T.warning), fontSize: 11 }}>
-                        {formatDivisionMissingLabel(row, standards)}
-                      </span>
-                    ))}
-                  </div>
-                  <Btn onClick={() => navigate("teachers")} size="sm" variant="ghost">
-                    Open Teachers →
-                  </Btn>
+                  <ExpandableHelpSection
+                    T={T}
+                    open={expandedHelp.has("classTeacher")}
+                    onToggle={() => toggleHelp("classTeacher")}
+                    heading={`${divisionsWithoutClassTeacher.length} class${divisionsWithoutClassTeacher.length === 1 ? "" : "es"} without a class teacher`}
+                  >
+                    <p style={{ margin: "0 0 10px", fontSize: 12, color: T.textMid, lineHeight: 1.45 }}>
+                      Assign a class teacher under Teachers → Class teacher assignment for each class below.
+                    </p>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                      {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
+                        <span key={row.divisionId} style={{ ...css.badge(T.warning), fontSize: 11 }}>
+                          {formatDivisionMissingLabel(row, standards)}
+                        </span>
+                      ))}
+                    </div>
+                    <Btn onClick={() => navigate("teachers")} size="sm" variant="ghost">
+                      Open Teachers →
+                    </Btn>
+                  </ExpandableHelpSection>
                 </div>
               )}
               {completionPct < 100 && completionInsights.summary && (
                 <div
                   style={{
                     marginTop: 16,
-                    padding: "14px 16px",
+                    padding: "8px 16px 14px",
                     background: `${T.warning}14`,
                     borderRadius: 12,
                     border: `1px solid ${T.warning}40`,
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 10, display: "flex", alignItems: "flex-start", gap: 8, lineHeight: 1.35 }}>
-                    <UiIcon name="alert" size={18} stroke={T.warning} style={{ flexShrink: 0, marginTop: 1 }} />
-                    <span>How to get closer to 100%</span>
-                  </div>
+                  <ExpandableHelpSection
+                    T={T}
+                    open={expandedHelp.has("completion")}
+                    onToggle={() => toggleHelp("completion")}
+                    heading="How to get closer to 100%"
+                  >
                   <p style={{ margin: "0 0 12px", fontSize: 13, color: T.textMid, lineHeight: 1.5 }}>{completionInsights.summary}</p>
                   <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12.5, color: T.textMid, lineHeight: 1.55 }}>
                     {completionInsights.bullets.map((line, i) => (
@@ -197,6 +143,7 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
                     <Btn onClick={() => navigate("teachers")} variant="ghost" size="sm">Teachers</Btn>
                     <Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Subject preferences</Btn>
                   </div>
+                  </ExpandableHelpSection>
                 </div>
               )}
             </div>

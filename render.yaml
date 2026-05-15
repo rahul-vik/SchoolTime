@@ -1,0 +1,60 @@
+# Render Blueprint — SchoolTime API + optional CP-SAT sidecar
+# Docs: https://render.com/docs/blueprint-spec
+#
+# After deploy, on the **API** service set:
+#   CP_SAT_SOLVER_URL=https://schooltime-cpsat.onrender.com/solve
+#   (or the Internal URL from the Render dashboard if both services are in the same region)
+#   CP_SAT_SOLVER_SECRET=<same value on both services>
+#   TIMETABLE_SOLVER_TIMEOUT_MS=90000
+
+services:
+  - type: web
+    name: schooltime-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_CLIENT
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: schooltime-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: CP_SAT_SOLVER_URL
+        sync: false
+      - key: CP_SAT_SOLVER_SECRET
+        generateValue: true
+      - key: TIMETABLE_SOLVER_TIMEOUT_MS
+        value: "90000"
+
+  - type: web
+    name: schooltime-cpsat
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./solver/cpsat/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: CP_SAT_SOLVER_SECRET
+        fromService:
+          name: schooltime-api
+          type: web
+          envVarKey: CP_SAT_SOLVER_SECRET
+
+databases:
+  - name: schooltime-db
+    plan: basic-256mb
+    databaseName: schooltime
+    user: schooltime
