@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+import { formatIncludeOnlyRuleLabel } from "../shared/schedulingRuleLabels.js";
 import { defaultWorkingDaysFallback, normalizeActiveWeekdays, slotActiveOnAllWeekdays } from "../../../shared/periodSlotDays.js";
 
 export function PeriodsPage({ periodSlots, setPeriodSlots, workingDays, notify, ui }) {
@@ -324,7 +325,7 @@ function applyRuleContradictionGuards(draft, meta) {
 }
 
 export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPreferences, setClassTeacherPreferences, subjects, divisions, standards, periodSlots, workingDays, notify, helpers, ui }) {
-  const { T, css, Btn, EmptyState, Modal, Input, Select, Field } = ui;
+  const { T, css, Btn, EmptyState, Modal, Input, PillSelect, Field } = ui;
   const { getSlotMeta } = helpers;
   const { isMobile } = useBreakpoint();
   const [modal, setModal] = useState(null);
@@ -392,25 +393,8 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
       case "EXCLUDE_DAY":
         if (Array.isArray(rule.dayOfWeekList) && rule.dayOfWeekList.length > 0) return `Not scheduled on: ${rule.dayOfWeekList.join(", ")}`;
         return rule.dayOfWeek ? `Not scheduled on ${rule.dayOfWeek}` : "No day specified";
-      case "INCLUDE_ONLY": {
-        const divIds = Array.isArray(rule.divisionIds) && rule.divisionIds.length > 0
-          ? rule.divisionIds
-          : rule.divisionId
-            ? [rule.divisionId]
-            : [];
-        const divLabels = divIds.map((id) => {
-          const d = (divisions || []).find((x) => x.id === id);
-          return d ? divisionDisplayName(d, standards) : id;
-        });
-        const dn = divLabels.length ? divLabels.join(", ") : "No divisions";
-        const mode = rule.includeMode || "PRESET_LAST_LESSON";
-        if (mode === "CUSTOM" && Array.isArray(rule.allowedCells) && rule.allowedCells.length > 0) {
-          const bits = rule.allowedCells.map((c) => `${c.dayOfWeek} slot ${c.slotNumber}`).join(", ");
-          return `Only in: ${bits} — ${dn}`;
-        }
-        const wd = rule.includeWeekday || "FRIDAY";
-        return lastLesson ? `Only last lesson (slot ${lastLesson}) on ${wd} — ${dn}` : `Only on ${wd} last lesson — ${dn}`;
-      }
+      case "INCLUDE_ONLY":
+        return formatIncludeOnlyRuleLabel(rule, { divisions, standards, lastLessonSlot: lastLesson });
       default: return "";
     }
   };
@@ -718,7 +702,17 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
 
       {modal && (
         <Modal title={modal === "add" ? "Add Placement Preference" : "Edit Placement Preference"} onClose={() => setModal(null)} width={520}>
-          <Select label="Subject" value={form.subjectId} onChange={(v) => setForm((p) => ({ ...p, subjectId: v }))} options={subjects.map((s) => ({ value: s.id, label: `${s.name} (${s.code})` }))} placeholder="Select subject" />
+          <PillSelect
+            label="Subject"
+            value={form.subjectId}
+            onChange={(v) => setForm((p) => ({ ...p, subjectId: v }))}
+            options={subjects.map((s) => ({
+              id: s.id,
+              label: s.code || s.name,
+              hint: s.name,
+              accent: s.colorHex || T.brand,
+            }))}
+          />
           <Field label="">
             <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
               <input

@@ -42,9 +42,9 @@ This document defines a **versioned** JSON contract between the Node process (Sc
 | `timeLimitSec` | number | derived from `TIMETABLE_SOLVER_TIMEOUT_MS` in `server/config/env.js` | Internal solver search limit (should be slightly below Node’s worker timeout). |
 | `proveOptimality` | boolean | `false` | If `true`, allow solver to strive for proof within `timeLimitSec`. |
 | `randomSeed` | integer | `1` | Reproducibility for tests. |
-| `objectiveProfile` | string | `"MAX_SCHEDULED_THEN_MIN_SOFT"` | Named profile (extend enum in minor contract bumps). |
+| `objectiveProfile` | string | `"FULL_DEMAND_THEN_MIN_FRAGMENTATION"` | Named profile. Current reference sidecar: full placement of weekly demand (hard), then minimize **`MIN_TEACHER_DAY_FRAGMENTATION_PROXY`** (count of teacher occupied vs free transitions across adjacent lesson slots, including fixed lessons). Legacy alias still accepted: `MAX_SCHEDULED_THEN_MIN_SOFT` (same behavior). Optional partial-demand / lexicographic extensions are described in minor bumps of this doc. |
 | `lexicographic` | string[] | optional | Ordered objective names when profile is `"LEXICOGRAPHIC"`. |
-| `softRuleMode` | string | `"MATCH_LEGACY_STRICT"` | One of: `MATCH_LEGACY_STRICT`, `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL`, `ALL_HARD` (see [CONSTRAINT_MAP.md](./CONSTRAINT_MAP.md)). |
+| `softRuleMode` | string | `"MATCH_LEGACY_STRICT"` | One of: `MATCH_LEGACY_STRICT`, `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL`, `ALL_HARD` (see [CONSTRAINT_MAP.md](./CONSTRAINT_MAP.md)). `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL` also aligns with **`tenant.classTeacherPreferences.schedulingMode`** in `BEST_FIT` / `OPTIMAL`: day/slot exclusion rules are ignored when building CP-SAT domains (same relaxation family as legacy `ignoreSoftRules` passes). `INCLUDE_ONLY`, inactive slots, capacities, continuity, and locks stay hard. |
 | `emitInfeasibilityHints` | boolean | `false` | If true, populate `infeasibility` on `INFEASIBLE` when supported (IIS / tagged constraints). |
 | `maxResponseEntries` | number | optional | Safety cap for response size during pilot. |
 
@@ -140,9 +140,23 @@ Preserve compatibility with existing clients by nesting new fields:
   },
   "cpsat": {
     "orToolsVersion": "9.x",
-    "objectiveValue": -42,
-    "bestBound": -43,
-    "solutionCount": 3
+    "objectiveValue": 12,
+    "solverStatus": "FEASIBLE",
+    "cpSatStatus": "FEASIBLE",
+    "demandSummary": {
+      "placedCount": 120,
+      "totalCount": 120,
+      "placedWeight": 480,
+      "totalWeight": 480,
+      "unplacedDemands": []
+    },
+    "objectives": {
+      "profile": "FULL_DEMAND_THEN_MIN_FRAGMENTATION",
+      "primary": "MAX_WEIGHTED_DEMAND_FULL_COVERAGE",
+      "placedDemandWeight": 480,
+      "secondary": "MIN_TEACHER_DAY_FRAGMENTATION_PROXY",
+      "secondaryPenalty": 12
+    }
   }
 }
 ```
@@ -237,7 +251,7 @@ Preserve compatibility with existing clients by nesting new fields:
 
 - **Recommended:** HTTP `POST` to a localhost sidecar from the worker thread, or a subprocess with **JSON on stdin / stdout** for dev simplicity.
 - **Production:** authenticate sidecar (shared secret or mTLS); never expose without network isolation.
-- **Timeouts:** align with `getTimetableSolverRuntime()`; worker already maps overrun to legacy (`server/timetableSolverRunner.js`).
+- **Timeouts:** align with `getTimetableSolverRuntime()`; worker already maps overrun to legacy (`server/timetableSolverRunner.js`). **`TIMETABLE_SOLVER=hybrid`** uses the same CP-SAT worker request path as **`cp_sat`**, then runs the legacy engine if CP-SAT does not yield the final timetable.
 
 ---
 

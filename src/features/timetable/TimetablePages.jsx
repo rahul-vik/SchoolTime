@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from "react";
-import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
+import { UiIcon, useBreakpoint, ExpandableHelpSection } from "../shared/uiPrimitives";
 import {
   findClassTeacherForDivision,
   teacherFullName,
@@ -14,8 +14,29 @@ import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 import { normalizeTenantSchoolOrdering, sortDivisionsByStandardOrder } from "../../../shared/schoolDisplayOrder.js";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
 import { findEntityById, pickTimetableSnapshotLists } from "../shared/idLookups";
+import { buildCompletionInsights, formatUnscheduledGapLabel } from "../shared/timetableCompletionHints";
+import { TimetableGeneratingPanel } from "./TimetableGeneratingPanel";
 
 /** Timetable entries use slot numbers from the generation snapshot; grid columns must match or lessons appear under Break/Lunch headers. */
+const TIMETABLE_SOLVER_PILLS = [
+  {
+    id: "hybrid",
+    label: "Hybrid (recommended)",
+    hint: "Tries the advanced solver first. If the Python helper is not running, the app still builds a timetable using the built-in method.",
+  },
+  {
+    id: "cp_sat",
+    label: "CP-SAT only",
+    hint: "Uses only the Python helper (OR-Tools). Start it with npm run solver:cpsat and set CP_SAT_SOLVER_URL in .env — otherwise create may fail or fall back depending on server settings.",
+  },
+];
+
+const SCHEDULING_MODE_PILLS = [
+  { id: "STRICT", label: "Strict", hint: "Honor day and slot excludes on every pass." },
+  { id: "BEST_FIT", label: "Best fit", hint: "May relax day and slot excludes to improve coverage (fixed-only placement stays hard)." },
+  { id: "OPTIMAL", label: "Optimal", hint: "More search passes than best fit — still not a guaranteed global optimum." },
+];
+
 function periodGridForTimetableView(timetable, periodSlots, workingDays) {
   const snap = timetable?.sourceState;
   const rawWd = Array.isArray(snap?.workingDays) && snap.workingDays.length > 0 ? snap.workingDays : workingDays;
@@ -28,8 +49,25 @@ function periodGridForTimetableView(timetable, periodSlots, workingDays) {
   };
 }
 
-export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, timetable, divisions, subjects, teachers, standards, notify, navigate, schedulingRules, classTeacherPreferences, setClassTeacherPreferences, ui }) {
-  const { T, css, Btn, ProgressBar, Modal, Select } = ui;
+export function GeneratePage({
+  timetableStatus,
+  generatingProgress,
+  onGenerate,
+  timetable,
+  divisions,
+  subjects,
+  teachers,
+  standards,
+  notify,
+  navigate,
+  schedulingRules,
+  classTeacherPreferences,
+  setClassTeacherPreferences,
+  timetableSolver,
+  setTimetableSolver,
+  ui,
+}) {
+  const { T, css, Btn, ProgressBar, Modal, PillSelect } = ui;
   const { isMobile } = useBreakpoint();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const activeRules = schedulingRules.filter((r) => r.isActive);
@@ -47,6 +85,12 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
     { label: "Subjects assigned to teachers", ok: teachers.some((t) => (t.subjectIds || []).length > 0), count: teachers.filter((t) => (t.subjectIds || []).length > 0).length, nav: "teachers" },
   ];
   const isReady = readiness.every((r) => r.ok);
+
+  useEffect(() => {
+    if (!setTimetableSolver) return;
+    const allowed = new Set(TIMETABLE_SOLVER_PILLS.map((p) => p.id));
+    if (!allowed.has(timetableSolver)) setTimetableSolver("hybrid");
+  }, [timetableSolver, setTimetableSolver]);
 
   const summaryCols = isMobile ? "1fr" : "1fr 1fr";
 
@@ -67,29 +111,62 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
       </div>
 
       <div style={{ ...css.card, marginBottom: 16, padding: isMobile ? 16 : 20 }}>
+        <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Timetable engine (this run)</h3>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          {TIMETABLE_SOLVER_PILLS.map((p) => {
+            const active = timetableSolver === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                title={p.hint}
+                disabled={timetableStatus === "GENERATING"}
+                onClick={() => setTimetableSolver?.(p.id)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  border: active ? "none" : `1px solid ${T.surfaceBorder}`,
+                  cursor: timetableStatus === "GENERATING" ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: active ? T.brand : T.surfaceAlt,
+                  color: active ? "#fff" : T.textMid,
+                  opacity: timetableStatus === "GENERATING" ? 0.65 : 1,
+                  transition: "all 0.15s",
+                  maxWidth: "100%",
+                  textAlign: "center",
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.45, padding: "10px 12px", background: T.surfaceAlt, borderRadius: 8, border: `1px solid ${T.surfaceBorder}` }}>
+          <strong style={{ color: T.textMid }}>{TIMETABLE_SOLVER_PILLS.find((x) => x.id === timetableSolver)?.label || "Hybrid (recommended)"}</strong>
+          {" — "}
+          {TIMETABLE_SOLVER_PILLS.find((x) => x.id === timetableSolver)?.hint}
+        </div>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 16, padding: isMobile ? 16 : 20 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Placement Preferences</h3>
         {activeRules.length === 0
           ? <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.warning + "10", borderRadius: 8, border: `1px solid ${T.warning + "30"}` }}><UiIcon name="alert" size={15} stroke={T.warning} /><span style={{ fontSize: 13, color: T.warning, flex: 1 }}>No placement preferences set yet.</span><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Set →</Btn></div>
           : <div><div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{activeRules.map((r) => { const sub = subjects.find((s) => s.id === r.subjectId); return <span key={r.id} style={{ ...css.badge(sub?.colorHex || T.CORE), gap: 4 }}><UiIcon name="preferences" size={12} stroke="currentColor" />{sub?.code}</span>; })}</div><Btn onClick={() => navigate("rules")} variant="ghost" size="sm">Review Preferences →</Btn></div>}
         <div style={{ marginTop: 12 }}>
-          <Select
-            label="Scheduling Mode"
+          <PillSelect
+            label="Scheduling mode"
             value={schedulingMode}
             onChange={(v) => setClassTeacherPreferences?.((p) => ({ ...(p || {}), schedulingMode: v }))}
-            options={[
-              { value: "STRICT", label: "Strict — honor day/slot excludes" },
-              { value: "BEST_FIT", label: "Best fit — may relax day/slot excludes for coverage" },
-              { value: "OPTIMAL", label: "Optimal — more search passes (still not globally optimal)" },
-            ]}
+            options={SCHEDULING_MODE_PILLS}
+            disabled={timetableStatus === "GENERATING"}
           />
         </div>
       </div>
 
       <div style={{ ...css.card, padding: isMobile ? 16 : 20 }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 700 }}>Generation Summary</h3>
-        <p style={{ fontSize: 13, color: T.textSoft, margin: "0 0 16px" }}>
-          Generation uses your classes, subjects, teachers, period grid, working days, teacher caps, placement preferences, and class-teacher rules (when enabled). It is a fast greedy scheduler with optional extra passes—not a guaranteed global optimum.
-        </p>
+        <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>Generation Summary</h3>
         <div style={{ display: "grid", gridTemplateColumns: summaryCols, gap: 10, marginBottom: 20 }}>
           {[
             { label: "Classes", value: divisions.length },
@@ -105,14 +182,12 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
         </div>
 
         {timetableStatus === "GENERATING" ? (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 13, fontWeight: 700, color: T.brand }}>Generating…</span><span style={{ fontSize: 13, fontWeight: 800, color: T.brand }}>{generatingProgress}%</span></div>
-            <ProgressBar value={generatingProgress} max={100} color={T.brand} height={8} />
-            <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 600 }}>Working…</span>
-              <span style={{ ...css.badge(T.brand), fontSize: 11 }}>Placing lessons and free periods</span>
-            </div>
-          </div>
+          <TimetableGeneratingPanel
+            progress={generatingProgress}
+            timetableSolver={timetableSolver}
+            T={T}
+            ProgressBar={ProgressBar}
+          />
         ) : timetableStatus === "GENERATED" ? (
           <div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, padding: 14, background: T.success + "10", borderRadius: 10, border: `1px solid ${T.success + "30"}` }}>
@@ -154,10 +229,21 @@ export function GeneratePage({ timetableStatus, generatingProgress, onGenerate, 
   );
 }
 
-export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, onUndoManualEdit, notify, navigate, helpers, ui }) {
+export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, schedulingRules, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, onUndoManualEdit, notify, navigate, helpers, ui }) {
   const { T, css, Btn, EmptyState } = ui;
   const { TimetableGrid } = helpers;
-  const { isMobile } = useBreakpoint();
+  const { isMobile, isDesktop } = useBreakpoint();
+  const [expandedIssues, setExpandedIssues] = useState(() => new Set());
+  const [optimizationHelpOpen, setOptimizationHelpOpen] = useState(false);
+
+  const toggleIssueSection = (key) => {
+    setExpandedIssues((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const manualEditCount = timetable
     ? Math.max(
@@ -179,6 +265,11 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onUndoManualEdit, manualEditCount]);
+
+  useEffect(() => {
+    setExpandedIssues(new Set());
+    setOptimizationHelpOpen(false);
+  }, [timetable?.id, timetable?.generatedAt]);
 
   if (timetableStatus === "DRAFT" || !timetable) {
     return (
@@ -202,6 +293,21 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
     subjects,
   });
   const { periodSlots: gridPeriodSlots, workingDays: gridWorkingDays } = periodGridForTimetableView(timetable, periodSlots, workingDays);
+  const rulesForHints = (schedulingRules && schedulingRules.length > 0)
+    ? schedulingRules
+    : (timetable?.sourceState?.schedulingRules || []);
+  const restrictedTeachers = teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length;
+  const gapInsights = buildCompletionInsights({
+    completionPct: timetable?.score || 0,
+    timetable,
+    subjects,
+    divisions,
+    standards,
+    teachers,
+    schedulingRules: rulesForHints,
+    restrictedTeachers,
+  });
+  const unscheduledList = timetable.report?.unscheduled || [];
   const hasFreeConf = selTeacher && ((selTeacher.freeMorningPeriods || 0) > 0 || (selTeacher.freeEveningPeriods || 0) > 0);
   const topRejectionReasons = Object.entries(timetable.report?.rejections || {})
     .filter(([, count]) => Number(count) > 0)
@@ -216,78 +322,78 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
       .join(" ");
   const recommendationByReason = {
     DIVISION_BLOCKED: {
-      title: "Teacher blocked for division",
-      detail: "Open Teachers and add missing class assignment for teachers handling this subject.",
+      title: "Teacher not allowed for that class",
+      detail: "In Teachers, assign the teacher to that division, or remove the “only these classes” limit.",
       nav: "teachers",
     },
     DIVISION_OCCUPIED: {
-      title: "Division slots already full",
-      detail: "Open Rules and reduce hard constraints that force too many fixed placements.",
+      title: "That class already has another lesson in the slot",
+      detail: "In Preferences, reduce fixed “only this period” rules, or lower weekly hours for subjects fighting for the same slots.",
       nav: "rules",
     },
     DAY_RULE_BLOCKED: {
-      title: "Day exclusion too strict",
-      detail: "Open Rules and remove day exclusions for the most constrained subjects first.",
+      title: "Subject blocked on that day",
+      detail: "In Preferences, remove or soften “do not teach on this day” for subjects that still need periods.",
       nav: "rules",
     },
     SLOT_RULE_BLOCKED: {
-      title: "Slot exclusion too strict",
-      detail: "Open Rules and relax boundary/slot locks for one subject at a time.",
+      title: "Subject blocked in that period",
+      detail: "In Preferences, remove “do not use first/last period” (or similar) for subjects with gaps.",
       nav: "rules",
     },
     SUBJECT_MAX_PER_DAY: {
-      title: "Subject daily cap reached",
-      detail: "Open Subjects and increase max per day where academically acceptable.",
+      title: "Too many lessons for that subject on one day",
+      detail: "In Subjects, raise “max per day” for that subject, or spread hours across more days.",
       nav: "subjects",
     },
     TEACHER_SLOT_TAKEN: {
-      title: "Teacher clashes in same slot",
-      detail: "Open Teachers and assign at least one alternate teacher for overloaded subjects.",
+      title: "Teacher already busy in that period",
+      detail: "In Teachers, add another teacher for that subject, or reduce their load on other classes.",
       nav: "teachers",
     },
     TEACHER_FREE_PERIOD_RULE: {
-      title: "Manual free-period rules blocking placements",
-      detail: "Open Rules and move manual free-period reservations away from busy slots.",
+      title: "Teacher must stay free in that period",
+      detail: "In Preferences or Teachers, reduce reserved free periods, or move them to quieter slots.",
       nav: "rules",
     },
     TEACHER_DAILY_CAPACITY: {
-      title: "Daily capacity reached",
-      detail: "Open Teachers and reduce free periods or split load across more teachers.",
+      title: "Teacher hit daily lesson limit",
+      detail: "In Teachers, raise max lessons per day, reduce free periods, or share the subject with another teacher.",
       nav: "teachers",
     },
     TEACHER_MORNING_CAPACITY: {
-      title: "Morning capacity reached",
-      detail: "Open Teachers and reduce morning free-period count for overloaded teachers.",
+      title: "Teacher has too many morning free periods",
+      detail: "In Teachers, lower “free morning periods” so more morning slots can be used.",
       nav: "teachers",
     },
     TEACHER_EVENING_CAPACITY: {
-      title: "Evening capacity reached",
-      detail: "Open Teachers and reduce evening free-period count for overloaded teachers.",
+      title: "Teacher has too many end-of-day free periods",
+      detail: "In Teachers, lower “free evening periods” so more last periods can be used.",
       nav: "teachers",
     },
     TEACHER_WEEKLY_CAPACITY: {
-      title: "Weekly capacity reached",
-      detail: "Open Teachers and distribute the subject across more qualified teachers.",
+      title: "Teacher hit weekly lesson limit",
+      detail: "In Teachers, raise max per week, or assign a second teacher for that subject.",
       nav: "teachers",
     },
     CONTINUITY_LIMIT: {
-      title: "Continuity rule blocking consecutive classes",
-      detail: "Open Teachers and relax max continuous limits for constrained teachers.",
+      title: "Too many back-to-back lessons",
+      detail: "In Teachers, relax “max continuous periods” for that teacher or subject.",
       nav: "teachers",
     },
     CROSS_DIVISION_CONTINUITY_DAY: {
-      title: "Cross-division continuity blocked",
-      detail: "Open Teachers and distribute classes to avoid same-day continuity conflicts.",
+      title: "Teacher cannot teach two classes back-to-back across divisions",
+      detail: "In Teachers, split classes across teachers or adjust continuity limits.",
       nav: "teachers",
     },
     NO_ELIGIBLE_SUBJECT: {
-      title: "No eligible teacher found",
-      detail: "Open Teachers and verify subject + medium mapping for this subject.",
+      title: "No teacher matched subject and medium",
+      detail: "In Teachers, tick the subject and medium, and allow that class in teacher assignments.",
       nav: "teachers",
     },
     NON_LESSON_SLOT: {
-      title: "Placement on break or lunch row",
-      detail: "Fixed-period or slot rules may target a non-teaching row. Open Periods and ensure fixed slots use Lesson-type rows only.",
+      title: "Tried to place a lesson on break or lunch",
+      detail: "In Periods, use lesson rows only for fixed placement; in Preferences, pick a teaching period.",
       nav: "periods",
     },
   };
@@ -311,11 +417,11 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
           ))}
         </div>
         {viewMode === "division" ? (
-          <select value={selectedDivisionId} onChange={(e) => setSelectedDivisionId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 150, flex: isMobile ? "1 1 100%" : 1 }}>
+          <select id="timetable-division" name="timetableDivision" aria-label="Select division" value={selectedDivisionId} onChange={(e) => setSelectedDivisionId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 150, flex: isMobile ? "1 1 100%" : 1 }}>
             {sortDivisionsByStandardOrder(divisions, standards).map((d) => { const s = standards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
           </select>
         ) : (
-          <select value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 160, flex: isMobile ? "1 1 100%" : 1 }}>
+          <select id="timetable-teacher" name="timetableTeacher" aria-label="Select teacher" value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 160, flex: isMobile ? "1 1 100%" : 1 }}>
             {teachers.map((t) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
           </select>
         )}
@@ -366,48 +472,84 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
           </div>
           {generatedLabel ? <div style={{ fontSize: 11, color: T.textSoft, textAlign: "left", marginLeft: 0, marginTop: "auto" }}>Generated: <span style={{ color: T.textMid, fontWeight: 700 }}>{generatedLabel}</span></div> : null}
         </div>
-        {divisionsWithoutClassTeacher.length > 0 && (
-          <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px", border: `1px solid ${T.warning}40` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-              <UiIcon name="alert" size={14} stroke={T.warning} />
-              {divisionsWithoutClassTeacher.length} class{divisionsWithoutClassTeacher.length === 1 ? "" : "es"} have no class teacher
-            </div>
-            <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 8 }}>
-              Assign under Teachers → Class teacher assignment so reports and exports stay accurate.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
-                <span key={row.divisionId} style={css.badge(T.warning)}>
-                  {formatDivisionMissingLabel(row, standards)}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        {timetable.report?.unscheduled?.length > 0 && (
-          <div style={{ ...css.card, flex: "2 1 220px", padding: "14px 16px" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: T.warning, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-              <UiIcon name="alert" size={14} stroke={T.warning} />
-              {timetable.report.unscheduled.length} class-subject entries still need periods
-            </div>
-            <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 8 }}>
-              This means required weekly periods could not be fully placed for the entries below.
-            </div>
-            <div style={{ fontSize: 11, color: T.info, marginBottom: 8 }}>
-              Need help fixing this? See Scheduling diagnostics below.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {timetable.report.unscheduled.slice(0, 6).map((u, i) => {
-                const s = findEntityById(reportSubjects, u.subjectId);
-                const d = findEntityById(reportDivisions, u.divisionId);
-                const std = d ? findEntityById(reportStandards, d.standardId) : null;
-                return (
-                  <span key={i} style={css.badge(T.warning)}>
-                    Std {std?.name || "?"} - Div {d?.name || "?"} - {s?.code || "SUB"}: short by {u.periodsShort}
-                  </span>
-                );
-              })}
-            </div>
+        {(divisionsWithoutClassTeacher.length > 0 || unscheduledList.length > 0) && (
+          <div style={{ ...css.card, flex: isMobile ? "1 1 100%" : "2 1 300px", minWidth: isMobile ? "min(100%, 320px)" : 280, padding: "10px 16px", border: `1px solid ${T.warning}40` }}>
+            {isDesktop ? (
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.warning, marginBottom: 6 }}>Needs your attention</div>
+            ) : null}
+            {divisionsWithoutClassTeacher.length > 0 ? (
+              <ExpandableHelpSection
+                T={T}
+                open={expandedIssues.has("classTeacher")}
+                onToggle={() => toggleIssueSection("classTeacher")}
+                heading={`${divisionsWithoutClassTeacher.length} class${divisionsWithoutClassTeacher.length === 1 ? "" : "es"} have no class teacher`}
+              >
+                <p style={{ fontSize: 11, color: T.textSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
+                  In Teachers, open <strong style={{ color: T.textMid }}>Class teacher assignment</strong> for each class below so reports and exports stay accurate.
+                </p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  {divisionsWithoutClassTeacher.slice(0, 8).map((row) => (
+                    <span key={row.divisionId} style={css.badge(T.warning)}>
+                      {formatDivisionMissingLabel(row, standards)}
+                    </span>
+                  ))}
+                </div>
+                <Btn onClick={() => navigate("teachers")} size="sm" variant="ghost">Teachers</Btn>
+              </ExpandableHelpSection>
+            ) : null}
+            {divisionsWithoutClassTeacher.length > 0 && unscheduledList.length > 0 ? (
+              <div style={{ height: 1, background: T.surfaceBorder, margin: "4px 0" }} aria-hidden="true" />
+            ) : null}
+            {unscheduledList.length > 0 ? (
+              <ExpandableHelpSection
+                T={T}
+                open={expandedIssues.has("gaps")}
+                onToggle={() => toggleIssueSection("gaps")}
+                heading={`${unscheduledList.length} class–subject rows still need more lessons`}
+              >
+                {gapInsights.summary ? (
+                  <p style={{ fontSize: 12, color: T.textMid, margin: "0 0 12px", lineHeight: 1.5 }}>{gapInsights.summary}</p>
+                ) : null}
+                {gapInsights.bullets.length > 0 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      What to do
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11.5, color: T.textMid, lineHeight: 1.5 }}>
+                      {gapInsights.bullets.map((line, i) => (
+                        <li key={i} style={{ marginBottom: 6 }}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textMid, marginBottom: 6 }}>Examples (largest gaps)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  {[...unscheduledList]
+                    .sort((a, b) => (b.periodsShort || 0) - (a.periodsShort || 0))
+                    .slice(0, 8)
+                    .map((u) => (
+                      <div
+                        key={`${u.divisionId}-${u.subjectId}`}
+                        style={{ fontSize: 11, color: T.textMid, padding: "6px 10px", background: T.warning + "10", borderRadius: 6, border: `1px solid ${T.warning}30` }}
+                      >
+                        {formatUnscheduledGapLabel(u, { subjects: reportSubjects, divisions: reportDivisions, standards: reportStandards })}
+                      </div>
+                    ))}
+                </div>
+                {unscheduledList.length > 8 ? (
+                  <p style={{ fontSize: 11, color: T.textSoft, margin: "0 0 10px" }}>
+                    Plus {unscheduledList.length - 8} more — open Reports → Division completion for the full list.
+                  </p>
+                ) : null}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <Btn onClick={() => navigate("teachers")} size="sm" variant="ghost">Teachers</Btn>
+                  <Btn onClick={() => navigate("rules")} size="sm" variant="ghost">Preferences</Btn>
+                  <Btn onClick={() => navigate("subjects")} size="sm" variant="ghost">Subjects</Btn>
+                  <Btn onClick={() => navigate("reports")} size="sm" variant="ghost">Reports</Btn>
+                  <Btn onClick={() => navigate("generate")} size="sm">Create again</Btn>
+                </div>
+              </ExpandableHelpSection>
+            ) : null}
           </div>
         )}
       </div>
@@ -444,19 +586,32 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         )}
       </div>
       {timetable.report?.optimization && (
-        <div style={{ ...css.card, marginTop: 12, padding: "14px 16px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: T.info, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-            <UiIcon name="preferences" size={14} stroke={T.info} />
-            Scheduling diagnostics
-          </div>
+        <div style={{ ...css.card, marginTop: 12, padding: "10px 16px" }}>
+          <ExpandableHelpSection
+            T={T}
+            tone="info"
+            open={optimizationHelpOpen}
+            onToggle={() => setOptimizationHelpOpen((v) => !v)}
+            heading="Why some slots could not be filled"
+          >
           <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.5 }}>
-            Mode: <strong>{timetable.report.optimization.mode || "STRICT"}</strong><br />
-            Search passes: <strong>{timetable.report.optimization.searchPasses ?? 0}</strong><br />
-            Soft relax placements: <strong>{timetable.report.optimization.softRuleRelaxPlacements ?? 0}</strong>
+            Scheduling mode:{" "}
+            <strong>
+              {(timetable.report.optimization.mode || "STRICT") === "STRICT"
+                ? "Strict — never skips blocked days or periods"
+                : (timetable.report.optimization.mode || "") === "OPTIMAL"
+                  ? "Optimal — more attempts; may relax some day/slot blocks"
+                  : "Best fit — may relax some day/slot blocks to place more lessons"}
+            </strong>
+            <br />
+            Extra placement attempts: <strong>{timetable.report.optimization.searchPasses ?? 0}</strong>
+            <br />
+            Times a blocked day or period was ignored to place a lesson:{" "}
+            <strong>{timetable.report.optimization.softRuleRelaxPlacements ?? 0}</strong>
           </div>
           {topRejectionReasons.length > 0 && (
             <div style={{ marginTop: 8, fontSize: 11, color: T.textSoft }}>
-              Top rejections: {topRejectionReasons.map(([reason, count]) => `${formatRejectionReason(reason)} (${count})`).join(" · ")}
+              Most common blockers: {topRejectionReasons.map(([reason, count]) => `${formatRejectionReason(reason)} (${count})`).join(" · ")}
             </div>
           )}
           {recommendedFixes.length > 0 && (
@@ -469,12 +624,13 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
                   </div>
                   <div>{fix.detail}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Btn size="sm" variant="ghost" onClick={() => navigate(fix.nav)}>Open {fix.nav === "teachers" ? "Teachers" : fix.nav === "subjects" ? "Subjects" : "Rules"} →</Btn>
+                    <Btn size="sm" variant="ghost" onClick={() => navigate(fix.nav)}>Open {fix.nav === "teachers" ? "Teachers" : fix.nav === "subjects" ? "Subjects" : fix.nav === "periods" ? "Periods" : "Preferences"} →</Btn>
                   </div>
                 </div>
               ))}
             </div>
           )}
+          </ExpandableHelpSection>
         </div>
       )}
     </div>
@@ -527,6 +683,138 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
     return limit?.weeklyPeriods !== undefined ? Math.max(1, Number(limit.weeklyPeriods) || 1) : Math.max(1, Number(sub.weeklyPeriods) || 1);
   };
 
+  /** Lesson-like placements only (excludes free periods / break / lunch rows on the teacher grid). */
+  const countTeacherTeachingPeriods = (teacherId) =>
+    (timetable.entries || []).filter(
+      (e) =>
+        String(e.teacherId) === String(teacherId) &&
+        !e.isFreePeriod &&
+        e.subjectId &&
+        e.slotType !== "BREAK" &&
+        e.slotType !== "LUNCH",
+    ).length;
+
+  const teacherSubjectsExplicit = Array.isArray(sourceState.teacherSubjects) ? sourceState.teacherSubjects : [];
+
+  /** Action hints when teaching load is clearly below the weekly ceiling (bar uses teaching periods only). */
+  const buildTeacherUnderutilizationHints = (teacher, teachingAssigned, max) => {
+    const pctTeaching = max > 0 ? (teachingAssigned / max) * 100 : 0;
+    const shortfall = max - teachingAssigned;
+    const underUtilized =
+      max >= 4 && shortfall >= 2 && (pctTeaching < 45 || teachingAssigned === 0);
+    if (!underUtilized) return [];
+
+    const hints = [];
+    const subjIds = teacher.subjectIds || [];
+    const mediums = teacher.mediumIds || [];
+
+    if (subjIds.length === 0) {
+      hints.push({
+        key: "no-subjects",
+        text: "No subjects are assigned to this teacher, so the engine cannot place lessons with them.",
+        nav: "teachers",
+        navLabel: "Teachers",
+      });
+      return hints;
+    }
+
+    const subjectsForTeacher = subjIds
+      .map((id) => reportSubjects.find((s) => String(s.id) === String(id)))
+      .filter(Boolean);
+
+    const assignedDivIds = teacher.assignedDivisionIds || [];
+    if (assignedDivIds.length > 0) {
+      let anyApplicability = false;
+      for (const divId of assignedDivIds) {
+        const div = reportDivisions.find((d) => String(d.id) === String(divId));
+        if (!div) continue;
+        if (mediums.length > 0 && !mediums.includes(div.mediumId)) continue;
+        for (const sub of subjectsForTeacher) {
+          if (subjectAppliesToDivision(sub, div)) {
+            anyApplicability = true;
+            break;
+          }
+        }
+        if (anyApplicability) break;
+      }
+      if (!anyApplicability) {
+        hints.push({
+          key: "scoped-no-subject-fit",
+          text: "They are limited to specific classes, but none of their subjects apply to the standard, medium, or division scope of those classes. Update each subject’s class selection (standards/mediums) or adjust which classes this teacher may teach.",
+          nav: "subjects",
+          navLabel: "Subjects",
+        });
+      }
+      const mediumMismatch = assignedDivIds.some((id) => {
+        const div = reportDivisions.find((d) => String(d.id) === String(id));
+        return div && mediums.length > 0 && !mediums.includes(div.mediumId);
+      });
+      if (mediumMismatch) {
+        hints.push({
+          key: "medium-mismatch",
+          text: "Their medium list does not include the medium of at least one class they are limited to. Add that medium on the teacher, or change the class limit list.",
+          nav: "teachers",
+          navLabel: "Teachers",
+        });
+      }
+    }
+
+    if (teacherSubjectsExplicit.some((ts) => String(ts.teacherId) === String(teacher.id))) {
+      hints.push({
+        key: "explicit-ts",
+        text: "Teacher–subject assignment rows are in use: confirm each row includes the right divisions and that subjects still apply to those standards.",
+        nav: "teachers",
+        navLabel: "Teachers",
+      });
+    }
+
+    const unscheduled = timetable?.report?.unscheduled || [];
+    const shortSubjects = unscheduled.filter((u) => subjIds.includes(String(u.subjectId)));
+    if (shortSubjects.length > 0) {
+      hints.push({
+        key: "unscheduled-demand",
+        text: `Weekly periods are still short for ${shortSubjects.length} class–subject row(s) involving subjects this teacher teaches. Add alternate teachers, relax placement preferences, or review scheduling mode.`,
+        nav: "rules",
+        navLabel: "Preferences",
+      });
+    }
+
+    if ((Number(teacher.freeMorningPeriods) || 0) + (Number(teacher.freeEveningPeriods) || 0) >= 3) {
+      hints.push({
+        key: "free-frac",
+        text: "High morning/evening free-period counts shrink how many lessons can be assigned. Lower those numbers if you want a heavier teaching load on the timetable.",
+        nav: "teachers",
+        navLabel: "Teachers",
+      });
+    }
+
+    const schedMode = sourceState.classTeacherPreferences?.schedulingMode || "STRICT";
+    if (schedMode === "STRICT" && hints.length < 5) {
+      hints.push({
+        key: "best-fit",
+        text: "Strict scheduling keeps day/slot rules tight. Try Best fit or Optimal on Create, then generate again if coverage is the priority.",
+        nav: "generate",
+        navLabel: "Create",
+      });
+    }
+
+    if (Number(teacher.maxPerWeek || 0) > 0 && Number(teacher.maxPerWeek) <= 12 && teachingAssigned < max - 2) {
+      hints.push({
+        key: "max-week",
+        text: `Weekly cap is set to ${Number(teacher.maxPerWeek)}. If you expect more lessons than this, raise Max periods / week (and Max / day if needed).`,
+        nav: "teachers",
+        navLabel: "Teachers",
+      });
+    }
+
+    const seen = new Set();
+    return hints.filter((h) => {
+      if (seen.has(h.key)) return false;
+      seen.add(h.key);
+      return true;
+    });
+  };
+
   const subjectHours = reportSubjects.map((sub) => {
     const byStd = {};
     const reqByStd = {};
@@ -548,7 +836,7 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
   });
 
   const teacherWorkload = reportTeachers.map((t) => {
-    const assigned = timetable.entries.filter((e) => e.teacherId === t.id).length;
+    const teachingAssigned = countTeacherTeachingPeriods(t.id);
     const lessonSlots = (reportPeriodSlots || []).filter((s) => s.slotType === "LESSON");
     const lunchNums = (reportPeriodSlots || []).filter((s) => s.slotType === "LUNCH").map((s) => s.slotNumber);
     const firstAfterLunch = lunchNums.length > 0
@@ -559,9 +847,12 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
     const derivedMaxPerDay = Math.max(0, Math.min(lessonSlots.length, Math.max(0, morningLessonCount - Number(t.freeMorningPeriods || 0)) + Math.max(0, eveningLessonCount - Number(t.freeEveningPeriods || 0))));
     const derivedMaxPerWeek = Math.max(30, derivedMaxPerDay * (reportWorkingDays?.length || 0));
     const max = Math.max(1, Number(t.maxPerWeek || 0) > 0 ? Number(t.maxPerWeek) : derivedMaxPerWeek);
-    const pct = Math.round((assigned / max) * 100);
-    return { teacher: t, assigned, max, pct };
+    const pct = Math.round((teachingAssigned / max) * 100);
+    const workloadHints = buildTeacherUnderutilizationHints(t, teachingAssigned, max);
+    return { teacher: t, assigned: teachingAssigned, max, pct, workloadHints };
   });
+
+  const anyTeacherUnderutilized = teacherWorkload.some((tw) => (tw.workloadHints || []).length > 0);
 
   const divReportCols = isMobile ? "1fr" : "repeat(auto-fill,minmax(250px,1fr))";
 
@@ -595,6 +886,24 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
 
       {activeReport === "teacher-workload" && (
         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 14 }}>
+          {anyTeacherUnderutilized ? (
+            <div
+              style={{
+                ...css.card,
+                padding: "12px 14px",
+                background: T.info + "0e",
+                border: `1px solid ${T.info}38`,
+                fontSize: 12,
+                color: T.textMid,
+                lineHeight: 1.45,
+              }}
+            >
+              <strong style={{ color: T.info }}>Under-used teaching capacity</strong>
+              <span style={{ display: "block", marginTop: 4, fontWeight: 500 }}>
+                Some teachers are well below their weekly teaching ceiling. Suggestions appear only on those cards — follow the links to fix configuration, then create the timetable again.
+              </span>
+            </div>
+          ) : null}
           {teacherWorkload.map((tw) => {
             const ctCount = (tw.teacher.classTeacherDivisionIds || []).length;
             const wlColor = tw.pct > 90 ? T.danger : tw.pct > 70 ? T.warning : T.success;
@@ -655,9 +964,47 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
                   <ProgressBar value={tw.assigned} max={tw.max} color={wlColor} />
                 </div>
                 <div style={{ fontSize: 11, color: T.textSoft, marginTop: isMobile ? 8 : 6 }}>
-                  <strong style={{ color: T.textMid }}>{tw.pct}%</strong> teaching load
-                  {ctCount === 0 ? "" : " · bar = periods only"}
+                  <strong style={{ color: T.textMid }}>{tw.pct}%</strong> teaching load (lesson periods only)
+                  {ctCount === 0 ? "" : " · bar = teaching periods"}
                 </div>
+                {(tw.workloadHints || []).length > 0 ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: "10px 12px",
+                      background: T.info + "0d",
+                      borderRadius: 8,
+                      border: `1px solid ${T.info}33`,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 800, color: T.info, marginBottom: 8 }}>What to do next</div>
+                    <ul
+                      style={{
+                        margin: 0,
+                        paddingLeft: 18,
+                        fontSize: 11,
+                        color: T.textMid,
+                        lineHeight: 1.5,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                      }}
+                    >
+                      {tw.workloadHints.map((h) => (
+                        <li key={h.key} style={{ listStyleType: "disc" }}>
+                          <span>{h.text}</span>
+                          {h.nav ? (
+                            <div style={{ marginTop: 4 }}>
+                              <Btn type="button" size="sm" variant="ghost" onClick={() => navigate(h.nav)}>
+                                {h.navLabel} →
+                              </Btn>
+                            </div>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {ctCount === 1 ? (
                   <div style={{ fontSize: 10, color: T.warning, marginTop: 4, lineHeight: 1.35 }}>
                     Also class teacher — extra duty not included in the bar above.

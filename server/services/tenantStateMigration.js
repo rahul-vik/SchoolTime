@@ -212,7 +212,16 @@ export function migrateTenantState(inputState) {
 
   if (state.classTeacherPreferences != null && typeof state.classTeacherPreferences === "object") {
     const raw = state.classTeacherPreferences;
-    const nextEnabled = resolveClassTeacherEnabled(raw, {});
+    const legacyImplicitEnabled =
+      raw.enabled === undefined &&
+      ((Array.isArray(raw.ctFirstPeriodDays) && raw.ctFirstPeriodDays.length > 0) ||
+        Number(raw.dailyPrimaryMinPeriods) > 0 ||
+        (Array.isArray(state.teachers) &&
+          state.teachers.some((t) => (t.classTeacherDivisionIds || []).length > 0)));
+    const nextEnabled =
+      raw.enabled === undefined
+        ? legacyImplicitEnabled
+        : resolveClassTeacherEnabled(raw, {});
     if (raw.enabled !== nextEnabled) {
       state.classTeacherPreferences = { ...raw, enabled: nextEnabled };
       changed = true;

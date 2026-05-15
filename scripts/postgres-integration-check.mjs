@@ -17,7 +17,7 @@ async function main() {
   await initDb();
 
   const schema = await db.get("SELECT schema_version FROM schema_metadata WHERE id = 1");
-  assert(schema?.schema_version === 1, `Unexpected schema version: ${schema?.schema_version}`);
+  assert(schema?.schema_version === 4, `Unexpected schema version: ${schema?.schema_version}`);
 
   const orgId = randomUUID();
   const userId = randomUUID();

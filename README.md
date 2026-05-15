@@ -43,7 +43,7 @@ See `LICENSE` for full text.
 - New registrations start with **clean demo tenant data**: standards **1–10** with one section **A** each (English medium), core subjects plus **Computer Lab** and **PE**, one class teacher per division plus shared subject teachers, a Mon–Fri period grid, and sample scheduling rules (**PE** avoids first morning / last lesson; **Computer Lab** not on Monday)
 - After generate: **Edit** timetable to swap two lesson or free cells; **Undo last** (or **Ctrl+Z** / **⌘Z** when not typing in a field) reverses swaps one at a time from the edit history
 - **Timetable view alignment:** the Timetable grid uses **`sourceState.periodSlots`** and **`sourceState.workingDays`** from the generation run when present so columns match **`entries`** slot numbers (avoids lessons appearing under Break/Lunch headers after Periods are edited). Unscheduled badges and Dashboard completion hints resolve class names from the same run snapshot with stable id matching (`src/features/shared/idLookups.js`).
-- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable). Placement is **greedy constraint-satisfying** (not a proven global optimum). Optional env **`TIMETABLE_SOLVER=experimental`** runs the same scheduling core inside a worker with timeout and **automatic fallback** to legacy on failure (see `docs/ARCHITECTURE.md`).
+- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable). Placement is **greedy constraint-satisfying** (not a proven global optimum). On **Create**, a **pill selector** sends optional **`timetableSolver`** with each generate request (`hybrid` or `cp_sat`; hybrid is recommended) so you are not limited to server env alone; `report.solver.timetableSolverSource` records `request` vs `env`. Server env **`TIMETABLE_SOLVER`** still sets the default when using API without that field; **`experimental`** runs the same scheduling core inside a worker with timeout and **automatic fallback** to legacy on failure; **`cp_sat`** / **`hybrid`** add an OR-Tools sidecar path when `CP_SAT_SOLVER_URL` is set (see `docs/ARCHITECTURE.md`).
 - Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
@@ -117,8 +117,14 @@ Based on `.env.example`:
 - `RATE_LIMIT_MAX` - requests/minute/IP
 - `CORS_ORIGIN` - allowed frontend origin(s)
 - `DB_CLIENT` - current runtime DB engine (`sqlite` default)
-- `TIMETABLE_SOLVER` - `legacy` (default) or `experimental` (worker-wrapped run; v0 still uses the greedy engine; reserved for future CP-SAT style solvers)
-- `TIMETABLE_SOLVER_TIMEOUT_MS` - wall-clock cap for the experimental worker before fallback (default `30000`, max `300000`)
+- `TIMETABLE_SOLVER` - `legacy` (default), `experimental` (worker + timeout; delegates to greedy for isolation tests), or `cp_sat` (CP-SAT sidecar when `CP_SAT_SOLVER_URL` is set; otherwise falls back to legacy with `report.solver.fallbackReason`)
+- `TIMETABLE_SOLVER_TIMEOUT_MS` - wall-clock cap for the experimental / `cp_sat` worker before legacy fallback (default `30000`, max `300000`)
+- `CP_SAT_SOLVER_URL` - optional; e.g. `http://127.0.0.1:8790/solve` (Python sidecar in `solver/cpsat/service.py`). On Render, deploy the sidecar as a second Web Service — see **`docs/RENDER_CP_SAT.md`** and `render.yaml`. The sidecar model enforces the same **hard** placement rules as the greedy engine for teacher/division packing, `INCLUDE_ONLY`, inactive period weekdays, `maxPerDay`, teacher morning/evening/weekly caps, continuity, and cross-division continuity (see `docs/ARCHITECTURE.md`). Day/slot “soft” excludes can be relaxed when `classTeacherPreferences.schedulingMode` is `BEST_FIT` / `OPTIMAL` or when the request uses `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL` (see `planning/global-optimal-solver/JSON_CONTRACT.md`).
+- `CP_SAT_SOLVER_SECRET` - optional shared secret; Node sends `Authorization: Bearer …` when set
+- `CP_SAT_MAX_DECISION_VARS` - optional rough guard before calling the sidecar (default `5000000`); above this, the runner uses legacy greedy with `fallbackReason` `cp_sat_size_cap`
+- `CP_SAT_FALLBACK_ON_VALIDATION` - when `true` (default), if the CP-SAT result passes the HTTP adapter but fails **post-solve** hard checks (`validateTimetableRun` ERROR severities), the runner **replaces** the result with legacy greedy and sets `report.solver.fallbackReason` to `cp_sat_validation` (codes in `report.solver.validationCodes`). Set to `false` to keep the CP-SAT grid and surface `report.cpsat.validationFailed` / `validationCodes` instead.
+- `CP_SAT_RANDOM_SEED` / `CP_SAT_EMIT_IIS` / `CP_SAT_MAX_RESPONSE_ENTRIES` - optional advanced tuning (see `server/config/env.js` / request builder)
+- **CP-SAT coverage (v1):** the sidecar enforces a **hard subset** aligned with `planning/global-optimal-solver/CONSTRAINT_MAP.md` (division slot uniqueness, teacher time conflicts, `INCLUDE_ONLY`, day/slot excludes, inactive period days, `freePeriodRules`, `fixedSlots`, one teacher per division+subject). It does **not** yet mirror every greedy heuristic (teacher morning/evening/weekly capacity curves, streak continuity, cross-division continuity, class-teacher auto-placement). Infeasible or rejected CP-SAT responses fall back to legacy.
 - `DATABASE_URL` - required for Postgres migration / Postgres runtime
 - `VITE_API_BASE_URL` - frontend API base URL
 - `CREATOR_PORTAL_PASSWORD` - optional; enables `/creator` portal login (use a long random value; for production prefer `CREATOR_PORTAL_PASSWORD_HASH`)
@@ -141,6 +147,7 @@ Based on `.env.example`:
 - `npm run build` - production frontend build
 - `npm run preview` - preview built frontend
 - `npm run smoke:prod` - smoke test engine + PDF/Excel export pipeline
+- `npm run export:last-run` - write latest `timetable_runs` row to **`Results/SchoolTime-last-run.json`** (full bundle), **`Results/SchoolTime-last-run-summary.json`** (meta + report only), and a dated archive **`Results/SchoolTime-timetable-run-YYYY-MM-DD-<runId>.json`** (uses same `.env` / DB as the API)
 - `npm run audit:security` - security audit for prod dependencies (high+)
 - `npm run migrate:postgres` - migrate SQLite data into Postgres schema
 - `npm run test:postgres:integration` - integration check for Postgres adapter + schema guard
@@ -151,7 +158,7 @@ Based on `.env.example`:
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 - `npm run check:versioning` - strict local SemVer + branch/version contract validation
 - `npm run test:backend:validation` - rule-level backend unit tests for timetable validation + auto-fix safety
-- `npm run test:backend:engine` - timetable engine (`INCLUDE_ONLY`, inactive period days) and tenant state migration (prune invalid cells, disable impossible rules)
+- `npm run solver:cpsat` - start local CP-SAT JSON sidecar (requires Python + `pip install -r solver/cpsat/requirements.txt`)
 - `npm run verify:push` - runs the same checks as CI (build, smoke, security audit, versioning; on `release/*` and `hotfix/*` branches also simulates release governance vs `origin/main`). Invoked automatically before each `git push` via Husky after `npm install`
 
 ### Pre-push verification (Husky)

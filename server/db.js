@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { ENV } from "./config/env.js";
+import { migrateSqliteSchema, SQLITE_SCHEMA_VERSION } from "./db/sqliteMigrations.js";
 
 const { Pool } = pg;
 const DB_CLIENT = String(process.env.DB_CLIENT || "sqlite").toLowerCase();
@@ -164,6 +165,14 @@ async function initSqlite() {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(sqliteBootstrapSql);
+  migrateSqliteSchema(sqlite);
+  const meta = sqlite.prepare("SELECT schema_version FROM schema_metadata WHERE id = 1").get();
+  const actual = Number(meta?.schema_version || 0);
+  if (actual !== SQLITE_SCHEMA_VERSION) {
+    throw new Error(
+      `SQLite schema version mismatch after migration: expected ${SQLITE_SCHEMA_VERSION}, got ${actual}.`,
+    );
+  }
 }
 
 async function initPostgres() {

@@ -42,7 +42,10 @@ export function createTimetableRoutes(db) {
   };
 
   router.post("/timetable/generate", async (req, res) => {
-    const migrated = migrateTenantState(req.body);
+    const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? { ...req.body } : {};
+    const timetableSolver = typeof rawBody.timetableSolver === "string" ? rawBody.timetableSolver.trim() : undefined;
+    delete rawBody.timetableSolver;
+    const migrated = migrateTenantState(rawBody);
     const parsed = schemas.tenantStateSchema.safeParse(migrated.state);
     if (!parsed.success) return res.status(400).json({ error: "Invalid generation payload", details: parsed.error.issues });
     const runId = randomUUID();
@@ -53,7 +56,7 @@ export function createTimetableRoutes(db) {
         if (credits <= 0) throw new Error("NO_CREDITS");
         await tx.run("UPDATE licenses SET credits_remaining = ?, updated_at = ? WHERE org_id = ?", credits - 1, nowIso(), req.auth.orgId);
         await writeCreditLedger(tx, req.auth.orgId, -1, "TIMETABLE_GENERATION", { runId });
-        const result = await runTimetableGenerationEngine(parsed.data);
+        const result = await runTimetableGenerationEngine(parsed.data, { timetableSolver });
         const validation = validateTimetableRun({ state: parsed.data, entries: result.entries, runId });
         const autoFix = applyLowRiskAutoFixes({ entries: result.entries, findings: validation.findings });
         const finalFindings = autoFix.findings;
