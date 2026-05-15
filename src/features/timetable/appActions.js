@@ -18,13 +18,13 @@ export function generateTimetableFlow({
   setTimetableStatus("GENERATING");
   setGeneratingProgress(0);
   const iv = setInterval(
-    () => setGeneratingProgress((p) => (p >= 88 ? p : p + Math.floor(Math.random() * 14) + 4)),
-    280,
+    () => setGeneratingProgress((p) => (p >= 88 ? p : p + Math.floor(Math.random() * 10) + 3)),
+    400,
   );
-  setTimeout(async () => {
-    clearInterval(iv);
+  (async () => {
     try {
       const resp = await apiGenerateTimetable(payload);
+      clearInterval(iv);
       setGeneratingProgress(100);
       setTimetable({
         ...resp.timetable,
@@ -48,10 +48,12 @@ export function generateTimetableFlow({
       }
       navigate("timetable");
     } catch (err) {
+      clearInterval(iv);
+      setGeneratingProgress(0);
       setTimetableStatus("FAILED");
       notify(err.message || "Generation failed", "danger");
     }
-  }, 1200);
+  })();
 }
 
 /** Apply swapped subject/teacher to a LESSON grid cell; free slots use null ids + isFreePeriod. */

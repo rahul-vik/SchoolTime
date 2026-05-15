@@ -629,11 +629,10 @@ async function createPdfReportsExport(state, entries) {
   ensureSpace(headerH + subjectsFiltered.length * rowH + 16);
 
   let cx = REPORT_PDF_MARGIN;
-  doc.font("Helvetica-Bold").fontSize(8).fillColor(REPORT_HDR_TEXT);
   cols.forEach((h, i) => {
     doc.roundedRect(cx, y, wAdj[i], headerH, 3).fillColor(REPORT_HDR_FILL).fill();
     doc.roundedRect(cx, y, wAdj[i], headerH, 3).strokeColor(REPORT_BORDER).lineWidth(0.5).stroke();
-    doc.text(String(h).toUpperCase(), cx + 4, y + 6, { width: wAdj[i] - 8, ellipsis: true });
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(REPORT_HDR_TEXT).text(String(h).toUpperCase(), cx + 4, y + 6, { width: wAdj[i] - 8, ellipsis: true });
     cx += wAdj[i];
   });
   y += headerH;
@@ -665,11 +664,10 @@ async function createPdfReportsExport(state, entries) {
   const twW = twWFracs.map((f) => innerW * f);
   ensureSpace(headerH + teacherWorkload.length * rowH + 8);
   cx = REPORT_PDF_MARGIN;
-  doc.font("Helvetica-Bold").fontSize(8).fillColor(REPORT_HDR_TEXT);
   twCols.forEach((h, i) => {
     doc.roundedRect(cx, y, twW[i], headerH, 3).fillColor(REPORT_HDR_FILL).fill();
     doc.roundedRect(cx, y, twW[i], headerH, 3).strokeColor(REPORT_BORDER).lineWidth(0.5).stroke();
-    doc.text(String(h).toUpperCase(), cx + 4, y + 6, { width: twW[i] - 8 });
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(REPORT_HDR_TEXT).text(String(h).toUpperCase(), cx + 4, y + 6, { width: twW[i] - 8 });
     cx += twW[i];
   });
   y += headerH;

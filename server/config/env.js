@@ -74,12 +74,42 @@ function buildEnv() {
   };
 }
 
-/** Read per-request (tests can override process.env between calls). */
-export function getTimetableSolverRuntime() {
-  const raw = String(process.env.TIMETABLE_SOLVER || "legacy").trim().toLowerCase();
-  const mode = raw === "experimental" ? "experimental" : "legacy";
+/** Normalize solver mode; unknown values fall back to `legacy`. */
+export function normalizeTimetableSolverMode(raw) {
+  const s = String(raw ?? "legacy").trim().toLowerCase();
+  if (s === "experimental") return "experimental";
+  if (s === "cp_sat") return "cp_sat";
+  if (s === "hybrid") return "hybrid";
+  return "legacy";
+}
+
+/**
+ * Solver connection settings from env. `overrideMode` (from API/UI) replaces `TIMETABLE_SOLVER` for **mode only**
+ * when it is a non-empty string (per-request generate).
+ */
+export function getTimetableSolverRuntime(overrideMode) {
+  const mode =
+    overrideMode !== undefined && overrideMode !== null && String(overrideMode).trim() !== ""
+      ? normalizeTimetableSolverMode(overrideMode)
+      : normalizeTimetableSolverMode(process.env.TIMETABLE_SOLVER);
   const timeoutMs = Math.min(300_000, toPositiveInt(process.env.TIMETABLE_SOLVER_TIMEOUT_MS, 30_000));
-  return { mode, timeoutMs };
+  const cpSatUrl = String(process.env.CP_SAT_SOLVER_URL || "").trim();
+  const cpSatSecret = String(process.env.CP_SAT_SOLVER_SECRET || "").trim();
+  const cpSatMaxDecisionVars = toPositiveInt(process.env.CP_SAT_MAX_DECISION_VARS, 5_000_000);
+  const cpSatMaxResponseEntries = process.env.CP_SAT_MAX_RESPONSE_ENTRIES
+    ? toPositiveInt(process.env.CP_SAT_MAX_RESPONSE_ENTRIES, 50_000)
+    : undefined;
+  const rawFb = String(process.env.CP_SAT_FALLBACK_ON_VALIDATION ?? "true").trim().toLowerCase();
+  const cpSatFallbackOnValidation = !(rawFb === "false" || rawFb === "0" || rawFb === "no");
+  return {
+    mode,
+    timeoutMs,
+    cpSatUrl,
+    cpSatSecret,
+    cpSatMaxDecisionVars,
+    cpSatMaxResponseEntries,
+    cpSatFallbackOnValidation,
+  };
 }
 
 function validateEnv(env) {
