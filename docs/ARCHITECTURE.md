@@ -51,13 +51,13 @@ State is mostly managed in `App.jsx` and passed to feature pages as props.
 | `freePeriodRules` | Yes | Blocks teacher on marked cells. |
 | Placement preferences (`schedulingRules`) | Stronger parity in `cp_sat` | `EXCLUDE_DAY` / `EXCLUDE_SLOT` (incl. migrated `NOT_*`), **`INCLUDE_ONLY`**, inactive **`activeWeekdays`**, **`freePeriodRules`**, **`fixedSlots`**, **`maxPerDay`** per division+subject, **teacher daily / morning / evening / weekly caps** (`freeMorningPeriods` / `freeEveningPeriods` / `maxPerDay` / `maxPerWeek`), **per-division+subject single teacher** (greedy lock parity), **continuity** (`maxContinuousSameSubjectPerDivision`, `maxContinuousAnySubjectPerDivision`), **cross-division continuity** (at most one division per teacher per day with adjacent same-teacher lessons). Soft day/slot rules relax when **`options.softRuleMode`** is `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL` or **`classTeacherPreferences.schedulingMode`** is `BEST_FIT` / `OPTIMAL` (legacy-style). |
 | Class teacher: first-period days | Yes | Only when **`classTeacherPreferences.enabled === true`** (explicit toggle). |
-| Class teacher: `dailyPrimaryMinPeriods` | No (stored only) | Validated in tenant state; engine does not place to satisfy it yet. |
+| Class teacher: `dailyPrimaryMinPeriods` (0–2) | Yes | When enabled, each class teacher’s **primary subject** is placed at least N times per working day in their homeroom division (pinned; first-period slots count). |
 | `fixedSlots` | Yes if present in payload | No first-party UI; API/B2B can supply rows. UI “fixed placement” uses **`INCLUDE_ONLY`** rules instead. |
 | `TIMETABLE_SOLVER` | Routing only | **`legacy`** (default): `runTimetableEngine` in-process. **`experimental`**: worker + timeout; delegates to greedy (`server/engineExperimental.js`). **`cp_sat`**: worker calls Python OR-Tools sidecar at **`CP_SAT_SOLVER_URL`** when set; honors **`CP_SAT_MAX_DECISION_VARS`** guard; on missing URL, size cap, transport/solve failure, or infeasible adapter rejection, **fallback** runs legacy in-process (`report.solver.fallbackReason`). **`hybrid`**: same CP-SAT pipeline and preflight as **`cp_sat`**, then **always** runs legacy if CP-SAT does not produce the final result; `report.solver.applied` is **`cp_sat`** when the sidecar wins, else **`legacy`** (with `report.solver.hybridStage` for diagnostics). |
 
 ## Timetable Engine Flow
 
-Located in `server/engine.js`. HTTP generate uses `server/timetableSolverRunner.js` → `runTimetableGenerationEngine` (async) which defaults to the same `runTimetableEngine` implementation.
+Located in `server/engine.js` with greedy tuning helpers in `server/legacyEngineImprovements.js`. HTTP generate uses `server/timetableSolverRunner.js` → `runTimetableGenerationEngine` (async) which defaults to the same `runTimetableEngine` implementation.
 
 Shared weekday logic for period rows lives in **`shared/periodSlotDays.js`** (`slotActiveOnWeekday`, normalization helpers). The engine rejects placements on inactive **(day, slot)** pairs (`SLOT_INACTIVE_THIS_DAY`), skips those cells in placement loops, and applies the same notion to **`INCLUDE_ONLY`**: **CUSTOM** `allowedCells` and **PRESET_LAST_LESSON** matches only count when the underlying period slot is active that day (unknown slot numbers in `allowedCells` never match).
 
@@ -68,20 +68,24 @@ Core sequence:
 1. Normalize slot metadata (morning/after-lunch/boundaries).
 2. **Pre-seed division+subject teacher locks** when **`teacherSubjects`** names exactly one teacher for that pair (avoids the first greedy placement locking the wrong teacher).
 3. Place fixed slots where possible (respecting inactive slots per day and non-lesson slot guard).
-4. Class-teacher first-period placements when enabled.
-5. Main greedy placement: iterate divisions and subjects by priority; for each needed period, **`findEligibleTeacher`** prefers **division specialists** (`assignedDivisionIds` of length 1 for that class) before generalists when there is no explicit `teacherSubjects` list.
-6. **BEST_FIT** / **OPTIMAL** soft passes (relax day/slot excludes only) when those modes are selected.
-7. **Lock repair (up to two rounds):** any **(division, subject)** still short on weekly periods has its existing lessons for that pair removed, the per-pair lock cleared, and gap fill retried—reduces “wrong first teacher” deadlocks. Stats: `report.lockRepair`.
-8. Fill remaining unassigned lesson slots with `isFreePeriod`.
-9. Compute unscheduled requirements and score.
+4. Class-teacher placements when enabled: first-period days (pinned), then **daily primary minimum** (`dailyPrimaryMinPeriods`, 0–2) for the homeroom division.
+5. Main greedy placement: per restart seed, **rotate division order**; within each division, schedule subjects **hardest-first** (difficulty from `INCLUDE_ONLY`, other rules, weekly load, scarce teachers, `priorityWeight` via `sortSubjectsHardestFirst`). For each needed period, **`findEligibleTeacher`** prefers **division specialists** before generalists when there is no explicit `teacherSubjects` list. If a subject cannot finish after scanning days, **backtrack** by undoing the last N **unpinned** placements (fixed slots and pinned class-teacher placements stay pinned) and retry.
+6. **Multi-restart:** run the full greedy attempt multiple times (default **4** / **5** / **3** restarts for **STRICT** / **BEST_FIT** / **OPTIMAL** scheduling mode; override with **`LEGACY_ENGINE_RESTARTS`** or generate body **`legacyEngineOptions.restarts`**). Keep the attempt with the best **score**, then fewest **unscheduled** shorts. Stats: `report.optimization.restartCount`, `winningSeed`, `backtrackAttempts`, `backtrackUndos`, `subjectOrder: "difficulty"`.
+7. **BEST_FIT** / **OPTIMAL** soft passes (relax day/slot excludes only) when those modes are selected; subject order in these passes also uses hardest-first with pass-based rotation.
+8. **Lock repair (up to two rounds):** any **(division, subject)** still short on weekly periods has its existing **unpinned** lessons for that pair removed, the per-pair lock cleared, and gap fill retried—reduces “wrong first teacher” deadlocks. Class-teacher placements are re-applied after lock repair. Stats: `report.lockRepair`, `report.classTeacherRules` (`dailyMin*`).
+9. **Local search** (`server/legacyEngineLocalSearch.js`): lexicographic objective — (1) maximize scheduled periods, (2) minimize unscheduled shorts, (3) minimize soft day/slot rule violations. Tries gap-fill, relocations, and same-division swaps on unpinned lessons. Stats: `report.optimization.localSearch`; summary: `report.objective`. Tune with **`LEGACY_ENGINE_LOCAL_SEARCH_ITERATIONS`** (default `24`, `0` disables) and **`legacyEngineOptions.localSearchIterations`**.
+10. Fill remaining unassigned lesson slots with `isFreePeriod`.
+11. Compute unscheduled requirements and score (aligned with `report.objective`).
 
 This remains **heuristic** for the greedy path; the optional **`cp_sat`** sidecar uses OR-Tools on a model aligned with the same hard rules as `canPlaceAssignment` / `canAssignTeacherForSlot` where linearized (see the table above and `solver/cpsat/service.py`).
+
+**Legacy engine env (greedy tuning):** **`LEGACY_ENGINE_RESTARTS`**, **`LEGACY_ENGINE_BACKTRACK_DEPTH`** (default `4`). Optional generate-only object **`legacyEngineOptions`**: `{ restarts?, backtrackDepth?, maxBacktrackRounds? }` (stripped before tenant Zod validation, passed through the solver runner).
 
 **Scheduling rules vs optimization:** The engine is **constraint-satisfying and greedy**, not a global optimizer. **`STRICT`** never relaxes placement preferences. In **`BEST_FIT`** / **`OPTIMAL`**, only **day/slot exclusion** rules (`EXCLUDE_DAY`, `EXCLUDE_SLOT`, and legacy `NOT_*` / `BOTH_BOUNDARY`) are skipped when `ignoreSoftRules` is set during the extra search passes; **`INCLUDE_ONLY`**, inactive period days, teacher/division locks, continuity caps, free-period rules, and weekly/daily subject limits stay **hard** in every pass. **`OPTIMAL`** runs more rotated passes than **`BEST_FIT`** to improve fill rate, not to prove optimality.
 
 **Rule activity:** Exclude rules treat `isActive` as **on** when the field is missing (`isActive !== false`), matching **`INCLUDE_ONLY`** and migrated tenant state.
 
-**API-only inputs:** **`fixedSlots`** is honored by the engine if present in generate payload; there is no Rules UI for it yet. **`dailyPrimaryMinPeriods`** on class-teacher preferences is stored and validated in state but **not** applied by placement (first-period placement for class teachers is the supported preference block).
+**API-only inputs:** **`fixedSlots`** is honored by the engine if present in generate payload; there is no Rules UI for it yet. Class-teacher **`dailyPrimaryMinPeriods`** (0–2) is configured under **Preferences → Class Teacher Rules** and enforced by the legacy engine when rules are enabled.
 
 ### Solver selection (`TIMETABLE_SOLVER`)
 

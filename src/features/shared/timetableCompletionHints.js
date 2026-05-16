@@ -1,4 +1,4 @@
-import { findEntityById, pickTimetableSnapshotLists } from "./idLookups.js";
+import { findEntityById, resolveReportLists } from "./idLookups.js";
 
 /**
  * Plain-language summary and fix steps when a timetable did not place every required lesson.
@@ -27,10 +27,11 @@ export function buildCompletionInsights({
     return { summary: null, bullets: [] };
   }
 
-  const { divisions: divList, standards: stdList, subjects: subList } = pickTimetableSnapshotLists(timetable, {
+  const { divisions: divList, standards: stdList, subjects: subList } = resolveReportLists(timetable, {
     divisions,
     standards,
     subjects,
+    teachers,
   });
 
   const divisionLabel = (divisionId) => {

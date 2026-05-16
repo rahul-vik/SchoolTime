@@ -12,8 +12,11 @@ export function generateTimetableFlow({
   creditsRemaining,
   notify,
   navigate,
+  onGenerationStart,
   onSuccess,
+  onGenerationFailed,
 }) {
+  onGenerationStart?.();
   setTimetable(null);
   setTimetableStatus("GENERATING");
   setGeneratingProgress(0);
@@ -51,6 +54,7 @@ export function generateTimetableFlow({
       clearInterval(iv);
       setGeneratingProgress(0);
       setTimetableStatus("FAILED");
+      await onGenerationFailed?.();
       notify(err.message || "Generation failed", "danger");
     }
   })();

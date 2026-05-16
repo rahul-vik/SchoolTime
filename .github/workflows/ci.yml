@@ -30,6 +30,15 @@ jobs:
       - name: Backend/export smoke test
         run: npm run smoke:prod
 
+      - name: Backend engine and validation tests
+        run: npm run test:backend:engine
+
+      - name: Backend validation autofix tests
+        run: npm run test:backend:validation
+
+      - name: Shared module tests
+        run: npm run test:shared
+
       - name: Security audit (high+)
         run: npm run audit:security
 

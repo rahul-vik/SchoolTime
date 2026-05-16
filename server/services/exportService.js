@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../shared/reportHoursLabels.js";
 import { slotActiveOnWeekday, sortWorkingDaysCanonical } from "../../shared/periodSlotDays.js";
+import { scopeTenantForScheduling, subjectAppliesToDivision } from "../../shared/divisionScheduling.js";
 import { normalizeTenantSchoolOrdering } from "../../shared/schoolDisplayOrder.js";
 
 function withExportSchoolOrdering(state) {
@@ -15,7 +16,20 @@ function withExportSchoolOrdering(state) {
     ord.workingDays.length > 0
       ? ord.workingDays
       : sortWorkingDaysCanonical(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"]);
-  return { ...state, standards: ord.standards, divisions: ord.divisions, workingDays: wd };
+  const scoped = scopeTenantForScheduling({ ...state, standards: ord.standards, divisions: ord.divisions });
+  const activeStandardIds = new Set(scoped.divisions.map((d) => String(d.standardId)));
+  const standards = ord.standards.filter((s) => activeStandardIds.has(String(s.id)));
+  const subjects = scoped.subjects.filter((sub) =>
+    scoped.divisions.some((div) => subjectAppliesToDivision(sub, div)),
+  );
+  return {
+    ...state,
+    standards,
+    divisions: scoped.divisions,
+    subjects,
+    teachers: scoped.teachers,
+    workingDays: wd,
+  };
 }
 
 /** Parse data URL from Settings → school logo for PDF/Excel embedding (PNG/JPEG only for Excel). */

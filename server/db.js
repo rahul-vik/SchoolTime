@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { ENV } from "./config/env.js";
+import { migratePostgresSchema, POSTGRES_SCHEMA_VERSION } from "./db/postgresMigrations.js";
 import { migrateSqliteSchema, SQLITE_SCHEMA_VERSION } from "./db/sqliteMigrations.js";
 
 const { Pool } = pg;
 const DB_CLIENT = String(process.env.DB_CLIENT || "sqlite").toLowerCase();
-const EXPECTED_POSTGRES_SCHEMA_VERSION = 4;
+const EXPECTED_POSTGRES_SCHEMA_VERSION = POSTGRES_SCHEMA_VERSION;
 
 let sqlite = null;
 let pgPool = null;
@@ -187,6 +188,7 @@ async function initPostgres() {
   const schemaPath = path.resolve("server", "db", "postgres-schema.sql");
   const schemaSql = fs.readFileSync(schemaPath, "utf8");
   await pgPool.query(schemaSql);
+  await migratePostgresSchema(pgPool);
   const meta = await pgPool.query("SELECT schema_version FROM schema_metadata WHERE id = 1");
   const actual = Number(meta.rows?.[0]?.schema_version || 0);
   if (actual !== EXPECTED_POSTGRES_SCHEMA_VERSION) {

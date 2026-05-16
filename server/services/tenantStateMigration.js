@@ -1,10 +1,22 @@
 import { ensurePeriodSlotsActiveWeekdays, slotActiveOnWeekday } from "../../shared/periodSlotDays.js";
+import {
+  normalizeDivisionSchedulingFields,
+  normalizeSubjectSchedulingFields,
+  normalizeTeacherSchedulingFields,
+} from "../../shared/divisionScheduling.js";
 import { normalizeTenantSchoolOrdering } from "../../shared/schoolDisplayOrder.js";
-import { resolveClassTeacherEnabled } from "../../shared/classTeacherPreferences.js";
+import { normalizeClassTeacherPreferences } from "./classTeacherPreferencesNormalize.js";
+
+function normalizeDivision(division) {
+  const next = normalizeDivisionSchedulingFields(division);
+  const changed = division?.schedulingPaused === undefined || division?.schedulingPaused !== next.schedulingPaused;
+  return { value: next, changed };
+}
 
 function normalizeSubject(subject) {
   let changed = false;
-  const next = { ...subject };
+  const next = normalizeSubjectSchedulingFields({ ...subject });
+  if (subject?.schedulingPaused === undefined || subject.schedulingPaused !== next.schedulingPaused) changed = true;
   if (!next.divisionScopeMode) {
     next.divisionScopeMode = "ALL_IN_SELECTED_CLASSES";
     changed = true;
@@ -26,7 +38,8 @@ function normalizeSubject(subject) {
 
 function normalizeTeacher(teacher) {
   let changed = false;
-  const next = { ...teacher };
+  const next = normalizeTeacherSchedulingFields({ ...teacher });
+  if (teacher?.schedulingPaused === undefined || teacher.schedulingPaused !== next.schedulingPaused) changed = true;
   const classTeacherDivisionIds = Array.isArray(next.classTeacherDivisionIds) ? next.classTeacherDivisionIds : [];
   if (!Array.isArray(next.classTeacherDivisionIds)) changed = true;
   const singleClassTeacherDivisionId = classTeacherDivisionIds[0] || null;
@@ -159,6 +172,12 @@ export function migrateTenantState(inputState) {
     state.teachers = migratedTeachers.map((m) => m.value);
   }
 
+  if (Array.isArray(state.divisions)) {
+    const migratedDivisions = state.divisions.map((d) => normalizeDivision(d));
+    if (migratedDivisions.some((m) => m.changed)) changed = true;
+    state.divisions = migratedDivisions.map((m) => m.value);
+  }
+
   const wdRaw =
     Array.isArray(state.workingDays) && state.workingDays.length > 0
       ? state.workingDays
@@ -210,22 +229,10 @@ export function migrateTenantState(inputState) {
     state.schedulingRules = migratedRules.map((m) => m.value);
   }
 
-  if (state.classTeacherPreferences != null && typeof state.classTeacherPreferences === "object") {
-    const raw = state.classTeacherPreferences;
-    const legacyImplicitEnabled =
-      raw.enabled === undefined &&
-      ((Array.isArray(raw.ctFirstPeriodDays) && raw.ctFirstPeriodDays.length > 0) ||
-        Number(raw.dailyPrimaryMinPeriods) > 0 ||
-        (Array.isArray(state.teachers) &&
-          state.teachers.some((t) => (t.classTeacherDivisionIds || []).length > 0)));
-    const nextEnabled =
-      raw.enabled === undefined
-        ? legacyImplicitEnabled
-        : resolveClassTeacherEnabled(raw, {});
-    if (raw.enabled !== nextEnabled) {
-      state.classTeacherPreferences = { ...raw, enabled: nextEnabled };
-      changed = true;
-    }
+  const prevCt = JSON.stringify(state.classTeacherPreferences ?? null);
+  state.classTeacherPreferences = normalizeClassTeacherPreferences(state.classTeacherPreferences, state.teachers);
+  if (JSON.stringify(state.classTeacherPreferences) !== prevCt) {
+    changed = true;
   }
 
   return { state, changed };

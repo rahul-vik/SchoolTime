@@ -8,7 +8,7 @@ test("sortWorkingDaysCanonical orders Mon→Sun and dedupes", () => {
   assert.equal(WEEKDAY_CANONICAL_ORDER[0], "MONDAY");
 });
 
-test("sortStandardsAscending prefers sortOrder then numeric name", () => {
+test("sortStandardsAscending orders by numeric standard name (1, 2, 10)", () => {
   const out = sortStandardsAscending([
     { id: "b", name: "10", sortOrder: 3 },
     { id: "a", name: "2", sortOrder: 2 },

@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
-import { normalizeTenantSchoolOrdering } from "../../../shared/schoolDisplayOrder.js";
+import { countPausedDivisions, divisionsForScheduling, isDivisionSchedulingPaused } from "../../../shared/divisionScheduling.js";
+import { normalizeTenantSchoolOrdering, sortStandardsAscending } from "../../../shared/schoolDisplayOrder.js";
 import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 
 export function SetupPage({ school, setSchool, mediums, setMediums, workingDays, setWorkingDays, notify, onConfirmSave, ui }) {
@@ -184,7 +185,7 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
         if (!normalizedName) return;
         const key = `${std.id}:${normalizedName}`;
         if (existingDivKeySet.has(key) || addedDivKeySet.has(key)) return;
-        newDivs.push({ id: `d${Date.now()}-${i}-${j}`, standardId: std.id, mediumId: pm?.id || "m1", name: normalizedName });
+        newDivs.push({ id: `d${Date.now()}-${i}-${j}`, standardId: std.id, mediumId: pm?.id || "m1", name: normalizedName, schedulingPaused: false });
         addedDivKeySet.add(key);
       });
     });
@@ -211,10 +212,20 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
       return;
     }
     const pm = getPrimary();
-    setDivisions((p) => [...p, { id: `d${Date.now()}`, standardId: addDivModal, mediumId: newDiv.mediumId || pm?.id, name: normalizedName }]);
+    setDivisions((p) => [...p, { id: `d${Date.now()}`, standardId: addDivModal, mediumId: newDiv.mediumId || pm?.id, name: normalizedName, schedulingPaused: false }]);
     setNewDiv({ name: "", mediumId: "" });
     setAddDivModal(null);
     notify("Division added");
+  };
+
+  const activeDivisionCount = divisionsForScheduling(divisions).length;
+  const pausedDivisionCount = countPausedDivisions(divisions);
+  const setDivisionPaused = (divId, paused) => {
+    setDivisions((p) => p.map((d) => (d.id === divId ? { ...d, schedulingPaused: paused } : d)));
+  };
+  const setStandardDivisionsPaused = (stdId, paused) => {
+    setDivisions((p) => p.map((d) => (d.standardId === stdId ? { ...d, schedulingPaused: paused } : d)));
+    notify(paused ? "All divisions paused for timetable" : "All divisions resumed for timetable", "info");
   };
 
   const stdGrid = isMobile ? "1fr" : "repeat(auto-fill, minmax(270px, 1fr))";
@@ -222,13 +233,14 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 18 }}>
-        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Standards & Divisions</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{standards.length} standards · {divisions.length} divisions</p></div>
+        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Standards & Divisions</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{standards.length} standards · {divisions.length} divisions · {activeDivisionCount} active{pausedDivisionCount > 0 ? ` · ${pausedDivisionCount} paused` : ""}</p></div>
         <Btn onClick={openQuickAdd} size="sm" fullWidth={isMobile}>+ Quick Add</Btn>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: stdGrid, gap: 14 }}>
-        {[...standards].sort((a, b) => a.sortOrder - b.sortOrder).map((std) => {
+        {sortStandardsAscending(standards).map((std) => {
           const divs = divisions.filter((d) => d.standardId === std.id);
+          const stdAllPaused = divs.length > 0 && divs.every((d) => isDivisionSchedulingPaused(d));
           const mgMap = {};
           divs.forEach((d) => { const m = mediums.find((x) => x.id === d.mediumId); const k = m?.name || "?"; mgMap[k] = (mgMap[k] || 0) + 1; });
           return (
@@ -236,13 +248,28 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 13 }}>S{std.name}</div>
-                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>Standard {std.name}</div><div style={{ fontSize: 11, color: T.textSoft }}>{divs.length} division{divs.length !== 1 ? "s" : ""}</div></div>
+                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>Standard {std.name}</div><div style={{ fontSize: 11, color: T.textSoft }}>{divs.length} division{divs.length !== 1 ? "s" : ""}{stdAllPaused ? "· paused" : ""}</div></div>
                 </div>
-                <Btn onClick={() => { setStandards((p) => p.filter((s) => s.id !== std.id)); setDivisions((p) => p.filter((d) => d.standardId !== std.id)); notify("Standard removed"); }} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {divs.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setStandardDivisionsPaused(std.id, !stdAllPaused)}
+                      title={stdAllPaused ? "Resume all divisions in this standard" : "Pause all divisions in this standard"}
+                      aria-label={stdAllPaused ? "Resume standard" : "Pause standard"}
+                      style={{ background: T.surfaceAlt, border: `1px solid ${stdAllPaused ? T.danger : T.surfaceBorder}`, borderRadius: 8, width: 32, height: 32, cursor: "pointer", color: stdAllPaused ? T.danger : T.textMid, display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <UiIcon name={stdAllPaused ? "play" : "pause"} size={15} stroke="currentColor" />
+                    </button>
+                  ) : null}
+                  <Btn onClick={() => { setStandards((p) => p.filter((s) => s.id !== std.id)); setDivisions((p) => p.filter((d) => d.standardId !== std.id)); notify("Standard removed"); }} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
+                </div>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {divs.map((div) => (
                   <DivisionPill key={div.id} div={div} mediums={mediums}
+                    schedulingPaused={isDivisionSchedulingPaused(div)}
+                    onTogglePaused={() => setDivisionPaused(div.id, !isDivisionSchedulingPaused(div))}
                     onRemove={() => setDivisions((p) => p.filter((d) => d.id !== div.id))}
                     onMediumChange={(mid) => setDivisions((p) => p.map((d) => d.id === div.id ? { ...d, mediumId: mid } : d))} />
                 ))}
@@ -262,9 +289,9 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
       {showImport && (
         <Modal title="Quick Add — Standards & Divisions" onClose={closeQuickAdd} width={540}>
           <div style={{ background: T.surfaceAlt, padding: 12, borderRadius: 8, marginBottom: 14, fontSize: 12, color: T.textMid, fontFamily: "monospace", lineHeight: 1.8 }}>
-            <div>4 A-C → Standard 4, divisions A, B, C</div>
-            <div>5 A-B → Standard 5, divisions A, B</div>
-            <div>7 &nbsp;&nbsp;&nbsp;→ Standard 7, division A (default)</div>
+            <div>4 A-C ? Standard 4, divisions A, B, C</div>
+            <div>5 A-B ? Standard 5, divisions A, B</div>
+            <div>7 &nbsp;&nbsp;&nbsp;? Standard 7, division A (default)</div>
           </div>
           <div style={{ padding: "8px 12px", background: T.brand + "08", borderRadius: 8, marginBottom: 12, fontSize: 12, color: T.textMid }}>Default medium: <strong>{getPrimary()?.name || "None"}</strong>. You can change it for each division later.</div>
           <textarea
@@ -301,3 +328,5 @@ export function StandardsPage({ standards, setStandards, divisions, setDivisions
     </div>
   );
 }
+
+

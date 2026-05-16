@@ -51,7 +51,10 @@ Response includes:
 
 ## Timetable
 
-- `POST /timetable/generate` — requires `canConfigureTimetable`; body is the tenant state object **plus an optional** string field **`timetableSolver`**: `legacy` (default greedy), `experimental`, `cp_sat`, or `hybrid`. When present, it **overrides** server env `TIMETABLE_SOLVER` for **that request only** (timeouts, `CP_SAT_SOLVER_URL`, and caps still come from env). The field is stripped before `migrateTenantState` / Zod validation. Response `report.solver` includes **`timetableSolverSource`**: `request` | `env`. See `TIMETABLE_SOLVER` / `CP_SAT_SOLVER_URL` in `docs/ARCHITECTURE.md`.
+- `POST /timetable/generate` — requires `canConfigureTimetable`; body is the tenant state object **plus optional** fields stripped before `migrateTenantState` / Zod validation:
+  - **`timetableSolver`** (string): `legacy` (default greedy), `experimental`, `cp_sat`, or `hybrid`. Overrides server env `TIMETABLE_SOLVER` for **that request only** (timeouts, `CP_SAT_SOLVER_URL`, and caps still come from env).
+  - **`legacyEngineOptions`** (object, advanced): tunes greedy when legacy runs — `{ "restarts"?, "backtrackDepth"?, "maxBacktrackRounds"?, "localSearchIterations"?, "localSearchCandidates"? }`. Env defaults: `LEGACY_ENGINE_*` (see `docs/ARCHITECTURE.md`).
+  Response `report.solver` includes **`timetableSolverSource`**: `request` | `env`. See `TIMETABLE_SOLVER` / `CP_SAT_SOLVER_URL` in `docs/ARCHITECTURE.md`.
 - `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
 - **`POST /timetable/generate` response** — body includes `timetable` with `entries`, `report`, `score`, `status`, `runId`, `generatedAt`, and **`sourceState`**: the validated tenant payload the engine used for that run (same snapshot persisted as `timetable_runs.state_json` and merged into `tenant_state` in the generate transaction).
 - **`GET /timetable/latest` response** — `{ run, timetable }` where `timetable` includes `entries`, `report`, `runId`, `generatedAt`, and **`sourceState`** parsed from the latest row’s `state_json` when present (older rows may omit it; clients fall back to live `GET /state` lists).
@@ -128,7 +131,7 @@ Unhandled errors that reach the Express error handler are persisted to `platform
   - `entries`
   - `score`
   - `status`
-  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization`, `rejections`, `durationMs`, **`solver`** — `{ requested, applied, timetableSolverSource, timeoutMs, workerUsed, fallbackReason?, fallbackDetail?, hybridStage? }` — `timetableSolverSource` is `request` when the client sent `timetableSolver` on generate, else `env`; worker routing from `TIMETABLE_SOLVER` / per-request override (`hybridStage` when `requested` is `hybrid`), optional **`experimental`** prototype metadata when the experimental path runs, optional **`cpsat`** fields when the CP-SAT sidecar responded)
+  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization` (legacy: restarts/backtrack/localSearch stats), **`objective`** (`totalScheduled`, `unscheduledShort`, `softViolations`, `score`), `rejections`, `durationMs`, **`solver`** — `{ requested, applied, timetableSolverSource, timeoutMs, workerUsed, fallbackReason?, fallbackDetail?, hybridStage? }` — `timetableSolverSource` is `request` when the client sent `timetableSolver` on generate, else `env`; worker routing from `TIMETABLE_SOLVER` / per-request override (`hybridStage` when `requested` is `hybrid`), optional **`experimental`** prototype metadata when the experimental path runs, optional **`cpsat`** fields when the CP-SAT sidecar responded)
 
 ## Client Integration
 

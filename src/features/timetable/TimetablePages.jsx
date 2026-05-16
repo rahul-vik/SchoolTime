@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import { UiIcon, useBreakpoint, ExpandableHelpSection } from "../shared/uiPrimitives";
 import {
   findClassTeacherForDivision,
@@ -13,9 +13,20 @@ import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from 
 import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 import { normalizeTenantSchoolOrdering, sortDivisionsByStandardOrder } from "../../../shared/schoolDisplayOrder.js";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
-import { findEntityById, pickTimetableSnapshotLists } from "../shared/idLookups";
+import {
+  countPausedSubjects,
+  countPausedTeachers,
+  divisionsForScheduling,
+  scopeTenantForScheduling,
+  subjectsForScheduling,
+} from "../../../shared/divisionScheduling.js";
+import { findEntityById, isEntityIdInList, resolveReportLists, resolveTimetableViewLists } from "../shared/idLookups";
 import { buildCompletionInsights, formatUnscheduledGapLabel } from "../shared/timetableCompletionHints";
 import { TimetableGeneratingPanel } from "./TimetableGeneratingPanel";
+import { timetableRunKey } from "./timetableRunKey";
+import { TeacherEditorModal } from "../academics/TeacherEditorModal.jsx";
+import { getTeacherEffectiveCapacity } from "../../../shared/teacherCapacity.js";
+import { sortTeacherWorkloadRowsAsc } from "../../../shared/teacherWorkload.js";
 
 /** Timetable entries use slot numbers from the generation snapshot; grid columns must match or lessons appear under Break/Lunch headers. */
 const TIMETABLE_SOLVER_PILLS = [
@@ -78,10 +89,16 @@ export function GeneratePage({
       ? resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers)
       : [];
 
+  const activeDivisions = divisionsForScheduling(divisions);
+  const pausedDivisionCount = divisions.length - activeDivisions.length;
+  const activeSubjects = subjectsForScheduling(subjects);
+  const pausedSubjectCount = countPausedSubjects(subjects);
+  const pausedTeacherCount = countPausedTeachers(teachers);
+  const scopedTeachers = scopeTenantForScheduling({ divisions, subjects, teachers, schedulingRules: [] }).teachers;
   const readiness = [
-    { label: "Classes added", ok: divisions.length > 0, count: divisions.length, nav: "standards" },
-    { label: "Subjects added", ok: subjects.length > 0, count: subjects.length, nav: "subjects" },
-    { label: "Teachers added", ok: teachers.length > 0, count: teachers.length, nav: "teachers" },
+    { label: "Classes active for scheduling", ok: activeDivisions.length > 0, count: activeDivisions.length, nav: "standards" },
+    { label: "Subjects active for scheduling", ok: activeSubjects.length > 0, count: activeSubjects.length, nav: "subjects" },
+    { label: "Teachers in scheduling scope", ok: scopedTeachers.length > 0, count: scopedTeachers.length, nav: "teachers" },
     { label: "Subjects assigned to teachers", ok: teachers.some((t) => (t.subjectIds || []).length > 0), count: teachers.filter((t) => (t.subjectIds || []).length > 0).length, nav: "teachers" },
   ];
   const isReady = readiness.every((r) => r.ok);
@@ -109,6 +126,18 @@ export function GeneratePage({
           ))}
         </div>
       </div>
+
+      {pausedDivisionCount > 0 || pausedSubjectCount > 0 || pausedTeacherCount > 0 ? (
+        <div style={{ ...css.card, marginBottom: 16, padding: "12px 16px", background: T.warning + "10", border: `1px solid ${T.warning}33` }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.warning, marginBottom: 4 }}>Paused items excluded</div>
+          <div style={{ fontSize: 12, color: T.textMid, lineHeight: 1.45 }}>
+            {pausedDivisionCount > 0 ? <><strong>{pausedDivisionCount}</strong> division{pausedDivisionCount !== 1 ? "s" : ""} paused under Standards. </> : null}
+            {pausedSubjectCount > 0 ? <><strong>{pausedSubjectCount}</strong> subject{pausedSubjectCount !== 1 ? "s" : ""} paused under Subjects. </> : null}
+            {pausedTeacherCount > 0 ? <><strong>{pausedTeacherCount}</strong> teacher{pausedTeacherCount !== 1 ? "s" : ""} paused under Teachers. </> : null}
+            Only active classes, subjects, and teachers in scope will be scheduled.
+          </div>
+        </div>
+      ) : null}
 
       <div style={{ ...css.card, marginBottom: 16, padding: isMobile ? 16 : 20 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Timetable engine (this run)</h3>
@@ -144,7 +173,7 @@ export function GeneratePage({
         </div>
         <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.45, padding: "10px 12px", background: T.surfaceAlt, borderRadius: 8, border: `1px solid ${T.surfaceBorder}` }}>
           <strong style={{ color: T.textMid }}>{TIMETABLE_SOLVER_PILLS.find((x) => x.id === timetableSolver)?.label || "Hybrid (recommended)"}</strong>
-          {" — "}
+          {" · "}
           {TIMETABLE_SOLVER_PILLS.find((x) => x.id === timetableSolver)?.hint}
         </div>
       </div>
@@ -269,7 +298,33 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   useEffect(() => {
     setExpandedIssues(new Set());
     setOptimizationHelpOpen(false);
-  }, [timetable?.id, timetable?.generatedAt]);
+  }, [timetable?.runId, timetable?.generatedAt]);
+
+  const gridRunKey = timetableRunKey(timetable);
+  const liveLists = useMemo(
+    () => ({ divisions, standards, subjects, teachers }),
+    [divisions, standards, subjects, teachers],
+  );
+  const viewLists = useMemo(() => {
+    if (timetableStatus === "DRAFT" || !timetable) {
+      return { divisions: [], standards: [], subjects: [], teachers: [] };
+    }
+    return resolveTimetableViewLists(timetable, liveLists);
+  }, [timetable, timetableStatus, liveLists]);
+
+  useEffect(() => {
+    if (viewLists.divisions.length === 0) return;
+    if (!isEntityIdInList(viewLists.divisions, selectedDivisionId)) {
+      setSelectedDivisionId(viewLists.divisions[0]?.id ?? null);
+    }
+  }, [gridRunKey, viewLists.divisions, selectedDivisionId, setSelectedDivisionId]);
+
+  useEffect(() => {
+    if (viewLists.teachers.length === 0) return;
+    if (!isEntityIdInList(viewLists.teachers, selectedTeacherId)) {
+      setSelectedTeacherId(viewLists.teachers[0]?.id ?? null);
+    }
+  }, [gridRunKey, viewLists.teachers, selectedTeacherId, setSelectedTeacherId]);
 
   if (timetableStatus === "DRAFT" || !timetable) {
     return (
@@ -287,11 +342,10 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const teacherCtLabels = selTeacher ? classTeacherDivisionLabels(selTeacher, divisions, standards) : [];
   const generatedLabel = timetable?.generatedAt ? formatDateTimeIndian(timetable.generatedAt, null) : null;
   const divisionsWithoutClassTeacher = resolveDivisionsMissingClassTeacher(timetable.report, divisions, teachers);
-  const { divisions: reportDivisions, standards: reportStandards, subjects: reportSubjects } = pickTimetableSnapshotLists(timetable, {
-    divisions,
-    standards,
-    subjects,
-  });
+  const reportDivisions = viewLists.divisions;
+  const reportStandards = viewLists.standards;
+  const reportSubjects = viewLists.subjects;
+  const reportTeachers = viewLists.teachers;
   const { periodSlots: gridPeriodSlots, workingDays: gridWorkingDays } = periodGridForTimetableView(timetable, periodSlots, workingDays);
   const rulesForHints = (schedulingRules && schedulingRules.length > 0)
     ? schedulingRules
@@ -323,27 +377,27 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const recommendationByReason = {
     DIVISION_BLOCKED: {
       title: "Teacher not allowed for that class",
-      detail: "In Teachers, assign the teacher to that division, or remove the “only these classes” limit.",
+      detail: "In Teachers, assign the teacher to that division, or remove the \"only these classes\" limit.",
       nav: "teachers",
     },
     DIVISION_OCCUPIED: {
       title: "That class already has another lesson in the slot",
-      detail: "In Preferences, reduce fixed “only this period” rules, or lower weekly hours for subjects fighting for the same slots.",
+      detail: "In Preferences, reduce fixed \"only this period\" rules, or lower weekly hours for subjects fighting for the same slots.",
       nav: "rules",
     },
     DAY_RULE_BLOCKED: {
       title: "Subject blocked on that day",
-      detail: "In Preferences, remove or soften “do not teach on this day” for subjects that still need periods.",
+      detail: "In Preferences, remove or soften \"do not teach on this day\" for subjects that still need periods.",
       nav: "rules",
     },
     SLOT_RULE_BLOCKED: {
       title: "Subject blocked in that period",
-      detail: "In Preferences, remove “do not use first/last period” (or similar) for subjects with gaps.",
+      detail: "In Preferences, remove \"do not use first/last period\" (or similar) for subjects with gaps.",
       nav: "rules",
     },
     SUBJECT_MAX_PER_DAY: {
       title: "Too many lessons for that subject on one day",
-      detail: "In Subjects, raise “max per day” for that subject, or spread hours across more days.",
+      detail: "In Subjects, raise \"max per day\" for that subject, or spread hours across more days.",
       nav: "subjects",
     },
     TEACHER_SLOT_TAKEN: {
@@ -363,12 +417,12 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
     },
     TEACHER_MORNING_CAPACITY: {
       title: "Teacher has too many morning free periods",
-      detail: "In Teachers, lower “free morning periods” so more morning slots can be used.",
+      detail: "In Teachers, lower \"free morning periods\" so more morning slots can be used.",
       nav: "teachers",
     },
     TEACHER_EVENING_CAPACITY: {
       title: "Teacher has too many end-of-day free periods",
-      detail: "In Teachers, lower “free evening periods” so more last periods can be used.",
+      detail: "In Teachers, lower \"free evening periods\" so more last periods can be used.",
       nav: "teachers",
     },
     TEACHER_WEEKLY_CAPACITY: {
@@ -378,7 +432,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
     },
     CONTINUITY_LIMIT: {
       title: "Too many back-to-back lessons",
-      detail: "In Teachers, relax “max continuous periods” for that teacher or subject.",
+      detail: "In Teachers, relax \"max continuous periods\" for that teacher or subject.",
       nav: "teachers",
     },
     CROSS_DIVISION_CONTINUITY_DAY: {
@@ -418,11 +472,11 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         </div>
         {viewMode === "division" ? (
           <select id="timetable-division" name="timetableDivision" aria-label="Select division" value={selectedDivisionId} onChange={(e) => setSelectedDivisionId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 150, flex: isMobile ? "1 1 100%" : 1 }}>
-            {sortDivisionsByStandardOrder(divisions, standards).map((d) => { const s = standards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
+            {reportDivisions.map((d) => { const s = reportStandards.find((x) => x.id === d.standardId); return <option key={d.id} value={d.id}>Std {s?.name} - Div {d.name}</option>; })}
           </select>
         ) : (
           <select id="timetable-teacher" name="timetableTeacher" aria-label="Select teacher" value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)} style={{ ...css.input, width: isMobile ? "100%" : "auto", minWidth: isMobile ? 0 : 160, flex: isMobile ? "1 1 100%" : 1 }}>
-            {teachers.map((t) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
+            {reportTeachers.map((t) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
           </select>
         )}
         <Btn onClick={() => { setIsEditMode((p) => !p); if (isEditMode) setPendingSwap(null); }} variant={isEditMode ? "primary" : "ghost"} size="sm" style={isMobile ? { alignSelf: "flex-start" } : undefined}>{isEditMode ? "Edit Mode On" : "Edit"}</Btn>
@@ -447,7 +501,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
               Manual edits: {manualEditCount}
             </span>
             {onUndoManualEdit ? (
-              <Btn size="sm" variant="ghost" title="Undo last swap (Ctrl+Z or ⌘Z)" onClick={() => onUndoManualEdit()}>
+              <Btn size="sm" variant="ghost" title="Undo last swap (Ctrl+Z)" onClick={() => onUndoManualEdit()}>
                 Undo last
               </Btn>
             ) : null}
@@ -457,7 +511,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
 
       {isEditMode && (
         <div style={{ padding: "10px 14px", background: T.info + "14", borderRadius: 8, marginBottom: 14, fontSize: 13, color: T.info, fontWeight: 500 }}>
-          {pendingSwap ? "Cell selected — tap another lesson or free period to swap." : "Tap one lesson or free period, then another to swap. Use Undo last or Ctrl+Z (⌘Z) to reverse the last swap."}
+          {pendingSwap ? "Cell selected · tap another lesson or free period to swap." : "Tap one lesson or free period, then another to swap. Use Undo last or Ctrl+Z to reverse the last swap."}
         </div>
       )}
 
@@ -538,7 +592,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
                 </div>
                 {unscheduledList.length > 8 ? (
                   <p style={{ fontSize: 11, color: T.textSoft, margin: "0 0 10px" }}>
-                    Plus {unscheduledList.length - 8} more — open Reports → Division completion for the full list.
+                    Plus {unscheduledList.length - 8} more · open Reports → Division completion for the full list.
                   </p>
                 ) : null}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -558,7 +612,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         <div style={{ marginBottom: 12, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div style={{ minWidth: 0, flex: "1 1 200px" }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
-              {viewMode === "division" && currentDiv ? `Std ${currentStd?.name} — Div ${currentDiv.name}` : viewMode === "teacher" && selTeacher ? `${selTeacher.firstName} ${selTeacher.lastName}` : ""}
+              {viewMode === "division" && currentDiv ? `Std ${currentStd?.name} · Div ${currentDiv.name}` : viewMode === "teacher" && selTeacher ? `${selTeacher.firstName} ${selTeacher.lastName}` : ""}
             </h3>
             {viewMode === "division" && currentDiv && (
               <div style={{ fontSize: 11, color: T.textSoft, marginTop: 4, fontWeight: 500 }}>
@@ -577,7 +631,7 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             ))}
           </div>
         </div>
-        <TimetableGrid timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={gridPeriodSlots} workingDays={gridWorkingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
+        <TimetableGrid key={gridRunKey} timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={gridPeriodSlots} workingDays={gridWorkingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
         {viewMode === "teacher" && hasFreeConf && (
           <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.textMid, textAlign: "center", lineHeight: 1.4 }}>
             Free periods:{" "}
@@ -637,25 +691,46 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   );
 }
 
-export function ReportsPage({ timetable, divisions, subjects, teachers, standards, workingDays, periodSlots, navigate, ui }) {
-  const { T, css, Btn, EmptyState, ProgressBar } = ui;
+export function ReportsPage({
+  timetable,
+  divisions,
+  subjects,
+  teachers,
+  setTeachers,
+  mediums,
+  standards,
+  workingDays,
+  periodSlots,
+  navigate,
+  notify,
+  ui,
+}) {
+  const { T, css, Btn, EmptyState, ProgressBar, Modal, Input, Select, Field } = ui;
   const { isMobile } = useBreakpoint();
   const [activeReport, setActiveReport] = useState("subject-hours");
+  const [editingTeacherId, setEditingTeacherId] = useState(null);
+  useEffect(() => {
+    setActiveReport("subject-hours");
+  }, [timetable?.runId, timetable?.generatedAt]);
   const generatedLabel = timetable?.generatedAt ? formatDateTimeIndian(timetable.generatedAt, null) : null;
   const sourceState = timetable?.sourceState || {};
-  const reportSlice = normalizeTenantSchoolOrdering({
-    standards: sourceState.standards || standards || [],
+  const reportLive = {
     divisions: sourceState.divisions || divisions || [],
-    workingDays: sourceState.workingDays || workingDays || [],
-  });
-  const reportDivisions = reportSlice.divisions;
-  const reportStandards = reportSlice.standards;
+    standards: sourceState.standards || standards || [],
+    subjects: sourceState.subjects || subjects || [],
+    teachers: teachers?.length ? teachers : sourceState.teachers || [],
+    schedulingRules: sourceState.schedulingRules,
+  };
+  const {
+    divisions: reportDivisions,
+    standards: reportStandards,
+    subjects: reportSubjects,
+    teachers: reportTeachers,
+  } = resolveReportLists(timetable, reportLive);
   const reportWorkingDays =
-    reportSlice.workingDays.length > 0
-      ? reportSlice.workingDays
+    (sourceState.workingDays || workingDays || []).length > 0
+      ? sourceState.workingDays || workingDays
       : ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
-  const reportSubjects = sourceState.subjects || subjects || [];
-  const reportTeachers = sourceState.teachers || teachers || [];
   const reportPeriodSlots = sourceState.periodSlots || periodSlots || [];
   if (!timetable) {
     return (
@@ -835,22 +910,16 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
     return { subject: sub, byStandard: byStd, requiredByStandard: reqByStd, requiredAvg, requiredLabel };
   });
 
-  const teacherWorkload = reportTeachers.map((t) => {
-    const teachingAssigned = countTeacherTeachingPeriods(t.id);
-    const lessonSlots = (reportPeriodSlots || []).filter((s) => s.slotType === "LESSON");
-    const lunchNums = (reportPeriodSlots || []).filter((s) => s.slotType === "LUNCH").map((s) => s.slotNumber);
-    const firstAfterLunch = lunchNums.length > 0
-      ? lessonSlots.filter((s) => s.slotNumber > Math.max(...lunchNums)).sort((a, b) => a.slotNumber - b.slotNumber)[0]?.slotNumber ?? null
-      : null;
-    const morningLessonCount = lessonSlots.filter((s) => (firstAfterLunch ? s.slotNumber < firstAfterLunch : s.slotNumber <= Math.ceil(lessonSlots.length / 2))).length;
-    const eveningLessonCount = lessonSlots.length - morningLessonCount;
-    const derivedMaxPerDay = Math.max(0, Math.min(lessonSlots.length, Math.max(0, morningLessonCount - Number(t.freeMorningPeriods || 0)) + Math.max(0, eveningLessonCount - Number(t.freeEveningPeriods || 0))));
-    const derivedMaxPerWeek = Math.max(30, derivedMaxPerDay * (reportWorkingDays?.length || 0));
-    const max = Math.max(1, Number(t.maxPerWeek || 0) > 0 ? Number(t.maxPerWeek) : derivedMaxPerWeek);
-    const pct = Math.round((teachingAssigned / max) * 100);
-    const workloadHints = buildTeacherUnderutilizationHints(t, teachingAssigned, max);
-    return { teacher: t, assigned: teachingAssigned, max, pct, workloadHints };
-  });
+  const teacherWorkload = sortTeacherWorkloadRowsAsc(
+    reportTeachers.map((t) => {
+      const teachingAssigned = countTeacherTeachingPeriods(t.id);
+      const { effectiveWeekly } = getTeacherEffectiveCapacity(t, reportPeriodSlots, reportWorkingDays);
+      const max = Math.max(1, effectiveWeekly);
+      const pct = Math.round((teachingAssigned / max) * 100);
+      const workloadHints = buildTeacherUnderutilizationHints(t, teachingAssigned, max);
+      return { teacher: t, assigned: teachingAssigned, max, pct, workloadHints };
+    }),
+  );
 
   const anyTeacherUnderutilized = teacherWorkload.some((tw) => (tw.workloadHints || []).length > 0);
 
@@ -915,7 +984,27 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
             );
             const nameBlock = (
               <>
-                <div style={{ fontWeight: 700, fontSize: isMobile ? 15 : undefined }}>{tw.teacher.firstName} {tw.teacher.lastName}</div>
+                <button
+                  type="button"
+                  onClick={() => setEditingTeacherId(tw.teacher.id)}
+                  title="Edit teacher settings"
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontWeight: 700,
+                    fontSize: isMobile ? 15 : 14,
+                    color: T.brand,
+                    textDecoration: "underline",
+                    textDecorationColor: T.brand + "55",
+                    textUnderlineOffset: 3,
+                  }}
+                >
+                  {tw.teacher.firstName} {tw.teacher.lastName}
+                </button>
                 <div style={{ fontSize: 11, color: T.textSoft }}>{tw.teacher.employeeCode}</div>
               </>
             );
@@ -965,7 +1054,7 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
                 </div>
                 <div style={{ fontSize: 11, color: T.textSoft, marginTop: isMobile ? 8 : 6 }}>
                   <strong style={{ color: T.textMid }}>{tw.pct}%</strong> teaching load (lesson periods only)
-                  {ctCount === 0 ? "" : " · bar = teaching periods"}
+                  {ctCount === 0 ? "" : "  — bar = teaching periods"}
                 </div>
                 {(tw.workloadHints || []).length > 0 ? (
                   <div
@@ -995,8 +1084,8 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
                           <span>{h.text}</span>
                           {h.nav ? (
                             <div style={{ marginTop: 4 }}>
-                              <Btn type="button" size="sm" variant="ghost" onClick={() => navigate(h.nav)}>
-                                {h.navLabel} →
+                              <Btn type="button" size="sm" variant="ghost" onClick={() => (h.nav === "teachers" ? setEditingTeacherId(tw.teacher.id) : navigate(h.nav))}>
+                                {h.nav === "teachers" ? "Edit teacher" : h.navLabel} →
                               </Btn>
                             </div>
                           ) : null}
@@ -1034,7 +1123,7 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
               <div key={div.id} style={css.card}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, gap: 10 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>Std {std?.name} — Div {div.name}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>Std {std?.name} · Div {div.name}</div>
                     <div style={{ fontSize: 11, color: T.textSoft }}>
                       {divSubjects.length} subject{divSubjects.length !== 1 ? "s" : ""}
                     </div>
@@ -1080,6 +1169,24 @@ export function ReportsPage({ timetable, divisions, subjects, teachers, standard
         <div style={{ marginTop: 10, textAlign: "right", fontSize: 11, color: T.textSoft }}>
           Generated: <span style={{ color: T.textMid, fontWeight: 700 }}>{generatedLabel}</span>
         </div>
+      ) : null}
+
+      {editingTeacherId ? (
+        <TeacherEditorModal
+          mode="edit"
+          teacherId={editingTeacherId}
+          teachers={teachers}
+          setTeachers={setTeachers}
+          subjects={subjects}
+          mediums={mediums}
+          divisions={divisions}
+          standards={standards}
+          periodSlots={periodSlots}
+          workingDays={workingDays}
+          notify={notify}
+          onClose={() => setEditingTeacherId(null)}
+          ui={{ T, css, Btn, Modal, Input, Select, Field }}
+        />
       ) : null}
     </div>
   );
@@ -1250,7 +1357,7 @@ export function ExportsPage({ exportJobs, onExport, onDownload, onRemoveExportJo
             {exportJobs.map((job) => (
               <div key={job.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", background: T.surfaceAlt, borderRadius: 8 }}>
                 <UiIcon name={job.type === "PDF" ? "downloads" : "reports"} size={16} stroke={T.textMid} style={{ flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{job.type} — {job.scope.replace(/_/g, " ")}</div><div style={{ fontSize: 11, color: T.textSoft }}>{formatTimeIndian(job.queuedAt, "")}</div></div>
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{job.type} · {job.scope.replace(/_/g, " ")}</div><div style={{ fontSize: 11, color: T.textSoft }}>{formatTimeIndian(job.queuedAt, "")}</div></div>
                 <StatusBadge status={job.status} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 96, justifyContent: "flex-end" }}>
                   <div style={{ width: 44, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1307,3 +1414,4 @@ export function ExportsPage({ exportJobs, onExport, onDownload, onRemoveExportJo
     </div>
   );
 }
+
