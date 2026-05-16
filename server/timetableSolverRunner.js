@@ -1,8 +1,27 @@
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { getTimetableSolverRuntime } from "./config/env.js";
+import { buildSchedulingScopeReport, scopeTenantForScheduling } from "../shared/divisionScheduling.js";
 import { runTimetableEngine } from "./engine.js";
 import { estimateCpSatLessonDecisionVars } from "./services/cpsatSolveRequestBuilder.js";
+
+function prepareEnginePayload(data, options) {
+  const scoped = scopeTenantForScheduling(withLegacyEngineOptions(data, options));
+  const schedulingScope = buildSchedulingScopeReport(scoped);
+  const engineData = { ...scoped };
+  delete engineData._schedulingScope;
+  return { engineData, schedulingScope };
+}
+
+function withSchedulingScopeReport(result, schedulingScope) {
+  return {
+    ...result,
+    report: {
+      ...(result.report || {}),
+      schedulingScope,
+    },
+  };
+}
 
 function mergeSolverReport(result, solverMeta) {
   return {
@@ -52,9 +71,17 @@ function runExperimentalInWorker(data, timeoutMs) {
  * `hybrid` attempts the CP-SAT worker pipeline first (same preflight and wiring as `cp_sat`), then runs legacy on failure.
  *
  * @param {object} data - tenant state payload for the engine
- * @param {{ timetableSolver?: string }} [options] - optional per-request mode (UI / API `timetableSolver`); env used for URL, timeouts, caps
+ * @param {{ timetableSolver?: string, legacyEngineOptions?: { restarts?: number, backtrackDepth?: number, maxBacktrackRounds?: number } }} [options] - optional per-request mode (UI / API `timetableSolver`); env used for URL, timeouts, caps; `legacyEngineOptions` tunes greedy multi-restart/backtrack when legacy runs
  */
+function withLegacyEngineOptions(data, options) {
+  if (options?.legacyEngineOptions && typeof options.legacyEngineOptions === "object" && !Array.isArray(options.legacyEngineOptions)) {
+    return { ...data, legacyEngineOptions: options.legacyEngineOptions };
+  }
+  return data;
+}
+
 export async function runTimetableGenerationEngine(data, options = {}) {
+  const { engineData, schedulingScope } = prepareEnginePayload(data, options);
   const { mode: requested, timeoutMs, cpSatUrl, cpSatMaxDecisionVars } = getTimetableSolverRuntime(options.timetableSolver);
   const hybridRequested = requested === "hybrid";
   const wantsCpSatPipeline = requested === "cp_sat" || hybridRequested;
@@ -75,13 +102,13 @@ export async function runTimetableGenerationEngine(data, options = {}) {
   const hybridMeta = (patch) => (hybridRequested ? patch : {});
 
   if (requested === "legacy") {
-    const out = runTimetableEngine(data);
+    const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
     return mergeSolverReport(out, { ...baseMeta, applied: "legacy" });
   }
 
   if (wantsCpSatPipeline) {
     if (!cpSatUrl) {
-      const out = runTimetableEngine(data);
+      const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
       return mergeSolverReport(out, {
         ...baseMeta,
         applied: "legacy",
@@ -90,9 +117,9 @@ export async function runTimetableGenerationEngine(data, options = {}) {
         ...hybridMeta({ hybridStage: "legacy_preflight" }),
       });
     }
-    const est = estimateCpSatLessonDecisionVars(data);
+    const est = estimateCpSatLessonDecisionVars(engineData);
     if (est > cpSatMaxDecisionVars) {
-      const out = runTimetableEngine(data);
+      const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
       return mergeSolverReport(out, {
         ...baseMeta,
         applied: "legacy",
@@ -104,7 +131,10 @@ export async function runTimetableGenerationEngine(data, options = {}) {
   }
 
   try {
-    const out = await runExperimentalInWorker({ ...data, __timetableSolverRequestMode: requested }, timeoutMs);
+    const out = withSchedulingScopeReport(
+      await runExperimentalInWorker({ ...engineData, __timetableSolverRequestMode: requested }, timeoutMs),
+      schedulingScope,
+    );
     const applied = wantsCpSatPipeline ? "cp_sat" : "experimental";
     return mergeSolverReport(out, {
       ...baseMeta,
@@ -115,7 +145,7 @@ export async function runTimetableGenerationEngine(data, options = {}) {
   } catch (e) {
     const isTimeout = e?.message === "TIMETABLE_SOLVER_TIMEOUT" || e?.code === "TIMEOUT";
     const isCpSatValidation = e?.message === "CP_SAT_VALIDATION_FAILED" && e?.cpSatValidation;
-    const out = runTimetableEngine(data);
+    const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
     return mergeSolverReport(out, {
       ...baseMeta,
       applied: "legacy",

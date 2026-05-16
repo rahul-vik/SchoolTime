@@ -15,7 +15,7 @@ Build a reliable, practical school timetable system with clear UX, predictable e
    - Shared minimal helpers: `shared/` (importable by server and Vite client when dependency-free), including **`shared/periodSlotDays.js`** for period-slot weekday activity (keep engine, exports, validation, and UI in sync)
 2. Do not break core flows:
    - Auth/session
-   - Timetable generation
+   - Timetable generation (legacy greedy: multi-restart, hardest-first ordering, backtracking — see `docs/ARCHITECTURE.md`)
    - Reports
    - PDF/Excel downloads
 3. Keep changes backward-compatible unless explicitly approved.

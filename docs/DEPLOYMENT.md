@@ -159,6 +159,17 @@ Run the Python solver as its **own** Render Web Service (not inside the Node pro
 
 Existing users are unchanged until `CP_SAT_SOLVER_URL` is set; Hybrid in the UI then uses CP-SAT when the sidecar is healthy.
 
+### Existing production customers (safe upgrades)
+
+Deploying a new API version should **not** require manual data fixes for normal schools. On startup the API runs:
+
+1. **SQLite schema migration** (`server/db/sqliteMigrations.js`) — additive columns only (`users.is_active`, `timetable_runs.state_json`, `schema_metadata`). Existing rows keep working; no table drops.
+2. **Postgres schema migration** (`server/db/postgresMigrations.js`) — same additive columns when `DB_CLIENT=postgres`, after `postgres-schema.sql`.
+3. **Tenant state migration** — every `tenant_state` row is normalized (period `activeWeekdays`, scheduling rules, class-teacher **`enabled`** preserved when legacy CT settings were in use).
+4. **Timetable run snapshot backfill** — old runs missing `state_json` get a copy of the org’s current `tenant_state` so grids line up with entries (does not change lessons or scores).
+
+Optional CP-SAT / Hybrid only activate when you set `CP_SAT_SOLVER_URL`; without it, generation stays on the improved **legacy** greedy path.
+
 ### Tenant state upgrades (existing schools)
 
 Tenant configuration is JSON in `tenant_state.state_json`. Newer fields (for example per-period `activeWeekdays`) do not require a separate SQL migration for SQLite; the API runs **`migrateTenantState`** when tenant state is loaded, on save, on generate/export paths, and **on every API process startup** (including production): all `tenant_state` rows are scanned and updated when migration changes the payload—same logic as the backfill script below.
@@ -168,6 +179,8 @@ Optional manual backfill (dry-run first, then apply)—for example if you need t
 ```bash
 npm run migrate:tenant-state:backfill
 npm run migrate:tenant-state:backfill:apply
+npm run migrate:timetable-run-state
+npm run migrate:timetable-run-state:apply
 ```
 
 Migration notes for scheduling rules:

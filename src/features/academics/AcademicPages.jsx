@@ -1,6 +1,26 @@
 ﻿import { useMemo, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
 import { formatTeacherFreePeriodsShort } from "../shared/timetableDisplayHelpers";
+import {
+  countPausedSubjects,
+  countPausedTeachers,
+  isSubjectSchedulingPaused,
+  isTeacherSchedulingPaused,
+  subjectsForScheduling,
+} from "../../../shared/divisionScheduling.js";
+import { SchedulingPauseButton, schedulingPausedOutlineStyle, schedulingPausedRowStyle } from "../shared/assignmentComponents";
+import { ListSearchFilterBar, filterSubjectsList, filterTeachersList } from "./academicListFilters";
+import {
+  formatTeacherCapacitySummary,
+  getTeacherComputedCapacity,
+  normalizeTeacherCapacityOnSave,
+} from "./teacherCapacity.js";
+import { TeacherWorkloadIndicator } from "./TeacherWorkloadIndicator.jsx";
+import {
+  buildTeacherWorkloadStats,
+  hasTimetableForWorkload,
+  sortTeachersByWorkloadAsc,
+} from "../../../shared/teacherWorkload.js";
 
 export function SubjectsPage({ subjects, setSubjects, standards, divisions, mediums, notify, ui }) {
   const { T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field } = ui;
@@ -8,6 +28,8 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [subjectStep, setSubjectStep] = useState(1);
+  const [subjectSearch, setSubjectSearch] = useState("");
+  const [filterStandardIds, setFilterStandardIds] = useState([]);
   const cats = ["LANGUAGE", "CORE", "NON_CORE", "PRACTICAL", "EXTRA_CURRICULAR"];
   const catColors = { LANGUAGE: "#7c3aed", CORE: "#0369a1", NON_CORE: "#0891b2", PRACTICAL: "#059669", EXTRA_CURRICULAR: "#d97706" };
   const catPriorityDefaults = { CORE: 10, LANGUAGE: 8, NON_CORE: 6, PRACTICAL: 4, EXTRA_CURRICULAR: 3 };
@@ -24,7 +46,22 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
     divisionIncludeIds: [],
     divisionExcludeIds: [],
     divisionLimits: [],
+    schedulingPaused: false,
   };
+  const activeSubjectCount = subjectsForScheduling(subjects).length;
+  const pausedSubjectCount = countPausedSubjects(subjects);
+  const setSubjectPaused = (subjectId, paused) => {
+    setSubjects((p) => p.map((s) => (s.id === subjectId ? { ...s, schedulingPaused: paused } : s)));
+    notify(paused ? "Subject paused for timetable" : "Subject resumed for timetable", "info");
+  };
+  const standardFilterOptions = useMemo(
+    () => (standards || []).map((s) => ({ id: s.id, label: `Std ${s.name}` })),
+    [standards],
+  );
+  const filteredSubjects = useMemo(
+    () => filterSubjectsList(subjects, { search: subjectSearch, standardIds: filterStandardIds }),
+    [subjects, subjectSearch, filterStandardIds],
+  );
   const standardSet = new Set((form.standardIds || []).map((id) => String(id)));
   const eligibleDivisions = (divisions || []).filter((d) => standardSet.has(String(d.standardId)));
   const eligibleDivisionIdSet = new Set(eligibleDivisions.map((d) => d.id));
@@ -168,7 +205,7 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
       divisionExcludeIds: cleanedExclude,
       divisionLimits: cleanedLimits,
     };
-    if (modal === "add") setSubjects((p) => [...p, { ...payload, id: `sub${Date.now()}`, isActive: true }]);
+    if (modal === "add") setSubjects((p) => [...p, { ...payload, id: `sub${Date.now()}`, isActive: true, schedulingPaused: false }]);
     else setSubjects((p) => p.map((s) => s.id === form.id ? { ...s, ...payload } : s));
     setModal(null); notify(modal === "add" ? "Subject added" : "Subject updated");
   };
@@ -176,18 +213,38 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 18 }}>
-        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Subjects</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{subjects.length} subjects</p></div>
+        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Subjects</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{subjects.length} subjects · {activeSubjectCount} active{pausedSubjectCount > 0 ? ` · ${pausedSubjectCount} paused` : ""}</p></div>
         <Btn onClick={() => { setForm({ ...blank }); setSubjectStep(1); setModal("add"); }} size="sm" fullWidth={isMobile}>+ Add Subject</Btn>
       </div>
+      <ListSearchFilterBar
+        search={subjectSearch}
+        onSearchChange={setSubjectSearch}
+        searchPlaceholder="Search by subject name or code…"
+        searchInputId="subjects-list-search"
+        filteredCount={filteredSubjects.length}
+        totalCount={subjects.length}
+        filters={[
+          {
+            key: "standards",
+            label: "Standards (multi-select)",
+            options: standardFilterOptions,
+            selectedIds: filterStandardIds,
+            onChange: setFilterStandardIds,
+          },
+        ]}
+      />
       <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>
         {isMobile ? (
           <div style={{ display: "grid", gap: 10, padding: 10 }}>
-            {subjects.map((sub) => (
-              <div key={sub.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: 10, background: T.surface }}>
+            {filteredSubjects.map((sub) => {
+              const paused = isSubjectSchedulingPaused(sub);
+              return (
+              <div key={sub.id} style={{ border: `1px solid ${T.surfaceBorder}`, borderRadius: 10, padding: 10, background: T.surface, opacity: paused ? 0.85 : 1, ...schedulingPausedOutlineStyle(paused) }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <SchedulingPauseButton paused={paused} entityLabel="subject" onToggle={() => setSubjectPaused(sub.id, !paused)} />
                     <div style={{ width: 9, height: 9, borderRadius: "50%", background: sub.colorHex, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{sub.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{sub.name}{paused ? " (paused)" : ""}</span>
                   </div>
                   <code style={{ background: T.surfaceAlt, padding: "2px 6px", borderRadius: 4, fontSize: 11 }}>{sub.code}</code>
                 </div>
@@ -201,7 +258,8 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
                   <Btn onClick={() => { setSubjects((p) => p.filter((s) => s.id !== sub.id)); notify("Subject removed"); }} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         ) : (
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
@@ -210,9 +268,9 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
                 {["Subject", "Code", "Category", "Applicability", "Division Rules", "Priority", ""].map((h) => <th key={h} style={{ padding: "11px 14px", textAlign: "left", fontSize: 11, fontWeight: 700, color: T.textSoft, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.surfaceBorder}` }}>{h}</th>)}
               </tr></thead>
               <tbody>
-                {subjects.map((sub, i) => (
-                  <tr key={sub.id} style={{ borderBottom: `1px solid ${T.surfaceBorder}`, background: i % 2 === 0 ? T.surface : T.surfaceAlt + "60" }}>
-                    <td style={{ padding: "11px 14px" }}><div style={{ display: "flex", alignItems: "center", gap: 9 }}><div style={{ width: 9, height: 9, borderRadius: "50%", background: sub.colorHex, flexShrink: 0 }} /><span style={{ fontWeight: 700, fontSize: 13 }}>{sub.name}</span></div></td>
+                {filteredSubjects.map((sub, i) => (
+                  <tr key={sub.id} style={{ borderBottom: `1px solid ${T.surfaceBorder}`, background: i % 2 === 0 ? T.surface : T.surfaceAlt + "60", ...schedulingPausedRowStyle(isSubjectSchedulingPaused(sub)) }}>
+                    <td style={{ padding: "11px 14px" }}><div style={{ display: "flex", alignItems: "center", gap: 9 }}><SchedulingPauseButton paused={isSubjectSchedulingPaused(sub)} entityLabel="subject" onToggle={() => setSubjectPaused(sub.id, !isSubjectSchedulingPaused(sub))} /><div style={{ width: 9, height: 9, borderRadius: "50%", background: sub.colorHex, flexShrink: 0 }} /><span style={{ fontWeight: 700, fontSize: 13, opacity: isSubjectSchedulingPaused(sub) ? 0.75 : 1 }}>{sub.name}{isSubjectSchedulingPaused(sub) ? " (paused)" : ""}</span></div></td>
                     <td style={{ padding: "11px 14px" }}><code style={{ background: T.surfaceAlt, padding: "2px 6px", borderRadius: 4, fontSize: 11 }}>{sub.code}</code></td>
                     <td style={{ padding: "11px 14px" }}><span style={css.badge(catColors[sub.category] || T.CORE)}>{sub.category.replace(/_/g, " ")}</span></td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.textMid }}>
@@ -231,7 +289,11 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
             </table>
           </div>
         )}
-        {subjects.length === 0 && <EmptyState iconKey="subject" title="No subjects yet" desc="Add subjects to configure your timetable" action={<Btn onClick={() => { setForm({ ...blank }); setModal("add"); }}>Add First Subject</Btn>} />}
+        {subjects.length === 0 ? (
+          <EmptyState iconKey="subject" title="No subjects yet" desc="Add subjects to configure your timetable" action={<Btn onClick={() => { setForm({ ...blank }); setModal("add"); }}>Add First Subject</Btn>} />
+        ) : filteredSubjects.length === 0 ? (
+          <EmptyState iconKey="search" title="No matches" desc="Try clearing search or filters." action={<Btn onClick={() => { setSubjectSearch(""); setFilterStandardIds([]); }} variant="ghost">Clear filters</Btn>} />
+        ) : null}
       </div>
 
       {modal && (
@@ -433,14 +495,60 @@ export function SubjectsPage({ subjects, setSubjects, standards, divisions, medi
   );
 }
 
-export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisions, standards, periodSlots, workingDays, notify, helpers, ui }) {
-  const { T, css, Btn, EmptyState, Modal, Input, Select, Field } = ui;
+export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisions, standards, periodSlots, workingDays, timetable, timetableStatus, notify, helpers, ui }) {
+  const { T, css, Btn, EmptyState, Modal, Input, Select, Field, ProgressBar } = ui;
   const { isMobile } = useBreakpoint();
   const formSectionGap = 14;
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [teacherStep, setTeacherStep] = useState(1);
-  const blank = { firstName: "", lastName: "", employeeCode: "", email: "", maxPerDay: 0, maxPerWeek: 0, mediumIds: mediums.length > 0 ? [mediums[0].id] : [], subjectIds: [], primarySubjectId: "", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 1, maxContinuousAnySubjectPerDivision: 1, assignedDivisionIds: [], classTeacherDivisionIds: [], primaryClassTeacherDivisionId: null };
+  const [teacherSearch, setTeacherSearch] = useState("");
+  const [teacherFilterStandardIds, setTeacherFilterStandardIds] = useState([]);
+  const [teacherFilterSubjectIds, setTeacherFilterSubjectIds] = useState([]);
+  const blank = { firstName: "", lastName: "", employeeCode: "", email: "", maxPerDay: 0, maxPerWeek: 0, mediumIds: mediums.length > 0 ? [mediums[0].id] : [], subjectIds: [], primarySubjectId: "", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 1, maxContinuousAnySubjectPerDivision: 1, assignedDivisionIds: [], classTeacherDivisionIds: [], primaryClassTeacherDivisionId: null, schedulingPaused: false };
+
+  const teacherStandardFilterOptions = useMemo(
+    () => (standards || []).map((std) => ({ id: std.id, label: `Std ${std.name}` })),
+    [standards],
+  );
+  const teacherSubjectFilterOptions = useMemo(
+    () => (subjects || []).map((sub) => ({ id: sub.id, label: sub.code || sub.name })),
+    [subjects],
+  );
+  const showTimetableWorkload = hasTimetableForWorkload(timetable, timetableStatus);
+  const workloadByTeacherId = useMemo(() => {
+    if (!showTimetableWorkload) return null;
+    const map = new Map();
+    for (const t of teachers || []) {
+      map.set(String(t.id), buildTeacherWorkloadStats(t, timetable, periodSlots, workingDays));
+    }
+    return map;
+  }, [showTimetableWorkload, teachers, timetable, periodSlots, workingDays]);
+  const filteredTeachers = useMemo(() => {
+    const list = filterTeachersList(
+      teachers,
+      { search: teacherSearch, standardIds: teacherFilterStandardIds, subjectIds: teacherFilterSubjectIds },
+      subjects,
+      divisions,
+    );
+    if (!showTimetableWorkload || !workloadByTeacherId) return list;
+    return sortTeachersByWorkloadAsc(list, workloadByTeacherId);
+  }, [
+    teachers,
+    teacherSearch,
+    teacherFilterStandardIds,
+    teacherFilterSubjectIds,
+    subjects,
+    divisions,
+    showTimetableWorkload,
+    workloadByTeacherId,
+  ]);
+
+  const pausedTeacherCount = countPausedTeachers(teachers);
+  const setTeacherPaused = (teacherId, paused) => {
+    setTeachers((p) => p.map((t) => (t.id === teacherId ? { ...t, schedulingPaused: paused } : t)));
+    notify(paused ? "Teacher paused for timetable" : "Teacher resumed for timetable", "info");
+  };
 
   const openAdd = () => { setForm({ ...blank, mediumIds: mediums.length > 0 ? [mediums[0].id] : [], divisionSubjectExclusions: [] }); setTeacherStep(1); setModal("add"); };
   const openEdit = (t) => {
@@ -476,15 +584,10 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
       return;
     }
     const cleanedPrimaryClassTeacherDivisionId = cleanedClassTeacherDivisionIds[0] || null;
-    const computedCapacity = getComputedCapacity(form);
-    const configuredMaxPerDayRaw = Number(form.maxPerDay || 0);
-    const configuredMaxPerWeekRaw = Number(form.maxPerWeek || 0);
-    const configuredMaxPerDay = configuredMaxPerDayRaw > 0 ? configuredMaxPerDayRaw : computedCapacity.maxPerDay;
-    const configuredMaxPerWeek = configuredMaxPerWeekRaw > 0 ? configuredMaxPerWeekRaw : computedCapacity.maxPerWeek;
+    const capacityFields = normalizeTeacherCapacityOnSave(form, periodSlots, workingDays);
     const nextForm = {
       ...form,
-      maxPerDay: Math.max(1, Math.min(computedCapacity.maxPerDay, configuredMaxPerDay)),
-      maxPerWeek: Math.max(1, Math.min(computedCapacity.maxPerWeek, configuredMaxPerWeek)),
+      ...capacityFields,
       maxContinuousSameSubjectPerDivision: Math.max(1, Number(form.maxContinuousSameSubjectPerDivision || 2)),
       maxContinuousAnySubjectPerDivision: Math.max(1, Number(form.maxContinuousAnySubjectPerDivision || 3)),
       classTeacherDivisionIds: cleanedClassTeacherDivisionIds,
@@ -497,7 +600,7 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
         }))
         .filter((row) => row.subjectIds.length > 0),
     };
-    if (modal === "add") setTeachers((p) => [...p, { ...nextForm, id: `t${Date.now()}`, isActive: true }]);
+    if (modal === "add") setTeachers((p) => [...p, { ...nextForm, id: `t${Date.now()}`, isActive: true, schedulingPaused: false }]);
     else setTeachers((p) => p.map((t) => t.id === form.id ? { ...t, ...nextForm } : t));
     setModal(null);
     notify(modal === "add" ? "Teacher added" : "Teacher updated");
@@ -523,15 +626,7 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
   }, [periodSlots, lessonSlots]);
   const morningLessonCount = useMemo(() => lessonSlots.filter((s) => (firstAfterLunch ? s.slotNumber < firstAfterLunch : s.slotNumber <= Math.ceil(lessonSlots.length / 2))).length, [lessonSlots, firstAfterLunch]);
   const eveningLessonCount = lessonSlots.length - morningLessonCount;
-  const getComputedCapacity = (teacherLike) => {
-    const fm = Math.max(0, Number(teacherLike.freeMorningPeriods || 0));
-    const fe = Math.max(0, Number(teacherLike.freeEveningPeriods || 0));
-    const sessionAllowed = Math.max(0, morningLessonCount - fm) + Math.max(0, eveningLessonCount - fe);
-    const maxPerDay = Math.max(0, Math.min(lessonSlots.length, sessionAllowed));
-    const maxPerWeek = Math.max(30, maxPerDay * (workingDays?.length || 0));
-    return { maxPerDay, maxPerWeek };
-  };
-  const formComputedCapacity = getComputedCapacity(form || {});
+  const formComputedCapacity = getTeacherComputedCapacity(form || {}, periodSlots, workingDays);
   const classTeacherOwnerByDivision = useMemo(() => {
     const map = new Map();
     for (const t of teachers || []) {
@@ -609,15 +704,40 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
   return (
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 18 }}>
-        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Teachers</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{teachers.length} teachers · {teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length} with division restrictions</p></div>
+        <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700 }}>Teachers</h2><p style={{ margin: "3px 0 0", fontSize: 12, color: T.textSoft }}>{teachers.length} teachers · {teachers.length - pausedTeacherCount} active{pausedTeacherCount > 0 ? ` · ${pausedTeacherCount} paused` : ""} · {teachers.filter((t) => (t.assignedDivisionIds || []).length > 0).length} with division restrictions</p></div>
         <Btn onClick={openAdd} size="sm" fullWidth={isMobile}>+ Add Teacher</Btn>
       </div>
 
+      <ListSearchFilterBar
+        search={teacherSearch}
+        onSearchChange={setTeacherSearch}
+        searchPlaceholder="Search by name, code, or email…"
+        searchInputId="teachers-list-search"
+        filteredCount={filteredTeachers.length}
+        totalCount={teachers.length}
+        filters={[
+          {
+            key: "standards",
+            label: "Standards taught (multi-select)",
+            options: teacherStandardFilterOptions,
+            selectedIds: teacherFilterStandardIds,
+            onChange: setTeacherFilterStandardIds,
+          },
+          {
+            key: "subjects",
+            label: "Subjects taught (multi-select)",
+            options: teacherSubjectFilterOptions,
+            selectedIds: teacherFilterSubjectIds,
+            onChange: setTeacherFilterSubjectIds,
+          },
+        ]}
+      />
+
       <div style={{ display: "grid", gridTemplateColumns: teacherGrid, gap: 14 }}>
-        {teachers.map((t) => {
+        {filteredTeachers.map((t) => {
           const subs = subjects.filter((s) => (t.subjectIds || []).includes(s.id));
           const hasFree = (t.freeMorningPeriods || 0) > 0 || (t.freeEveningPeriods || 0) > 0;
-          const computedCapacity = getComputedCapacity(t);
+          const capacitySummary = formatTeacherCapacitySummary(t, periodSlots, workingDays);
           const assigned = t.assignedDivisionIds || [];
           const isRestricted = assigned.length > 0;
           const classTeacherDivIds = t.classTeacherDivisionIds || [];
@@ -641,13 +761,15 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
             return Object.entries(byStd).map(([std, divNames]) => `${std}: ${divNames.join(",")}`).join(" · ");
           })();
 
+          const teacherPaused = isTeacherSchedulingPaused(t);
           return (
-            <div key={t.id} style={{ ...css.card, padding: isMobile ? 16 : 20 }}>
+            <div key={t.id} style={{ ...css.card, padding: isMobile ? 16 : 20, opacity: teacherPaused ? 0.85 : 1, ...schedulingPausedOutlineStyle(teacherPaused) }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  <SchedulingPauseButton paused={teacherPaused} entityLabel="teacher" onToggle={() => setTeacherPaused(t.id, !teacherPaused)} size={15} />
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: `hsl(${(t.employeeCode?.charCodeAt(1) || 0) * 20},55%,45%)`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 900, fontSize: 14, flexShrink: 0 }}>{t.firstName[0]}{t.lastName[0]}</div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.firstName} {t.lastName}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.firstName} {t.lastName}{teacherPaused ? " (paused)" : ""}</div>
                     <div style={{ fontSize: 11, color: T.textSoft }}>{t.employeeCode}</div>
                   </div>
                 </div>
@@ -662,7 +784,7 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textSoft, marginBottom: 6 }}>
-                <span>Auto max {computedCapacity.maxPerDay}/day · {computedCapacity.maxPerWeek}/wk</span>
+                <span>{capacitySummary}</span>
                 <span>{mediums.filter((m) => (t.mediumIds || []).includes(m.id)).map((m) => m.code).join(", ")}</span>
               </div>
               <div style={{ fontSize: 11, color: T.textSoft, marginBottom: 6 }}>
@@ -687,10 +809,22 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
                   <span style={{ color: T.info, fontWeight: 600 }}>{formatTeacherFreePeriodsShort(t.freeMorningPeriods, t.freeEveningPeriods)}</span>
                 </div>
               )}
+
+              {showTimetableWorkload && workloadByTeacherId?.has(String(t.id)) ? (
+                <TeacherWorkloadIndicator
+                  workload={workloadByTeacherId.get(String(t.id))}
+                  T={T}
+                  ProgressBar={ProgressBar}
+                />
+              ) : null}
             </div>
           );
         })}
-        {teachers.length === 0 && <EmptyState iconKey="teacher" title="No teachers yet" desc="Add teachers and assign them to divisions" action={<Btn onClick={openAdd}>Add First Teacher</Btn>} />}
+        {teachers.length === 0 ? (
+          <EmptyState iconKey="teacher" title="No teachers yet" desc="Add teachers and assign them to divisions" action={<Btn onClick={openAdd}>Add First Teacher</Btn>} />
+        ) : filteredTeachers.length === 0 ? (
+          <EmptyState iconKey="search" title="No matches" desc="Try clearing search or filters." action={<Btn onClick={() => { setTeacherSearch(""); setTeacherFilterStandardIds([]); setTeacherFilterSubjectIds([]); }} variant="ghost">Clear filters</Btn>} />
+        ) : null}
       </div>
 
       {modal && (

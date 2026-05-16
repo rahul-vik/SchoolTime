@@ -19,6 +19,7 @@ alwaysApply: true
 - **Timetable run snapshot:** each generate persists **`state_json`** on the run; the client **`timetable.sourceState`** must drive in-app grid period columns and report-id lookups when showing that run so live **`tenant_state`** edits do not misalign **`entries`** with Break/Lunch headers.
 - **Canonical ordering:** **`workingDays`** are always ordered Monday→Sunday (subset); **`standards`** ascending ( **`sortOrder`**, else numeric **`name`**, else name); **`divisions`** follow standard order then division name. Applied in **`migrateTenantState`**, client **`tenantState.js`**, **`runTimetableEngine`**, exports, and key UI (see **`shared/schoolDisplayOrder.js`**).
 - Keep teacher allocation deterministic per run: for the same division+subject, avoid mixing multiple teachers unless explicitly requested as a team-teaching feature.
+- **Legacy greedy engine** (`server/engine.js`, `server/legacyEngineImprovements.js`, `server/legacyEngineLocalSearch.js`): multi-restart, hardest-first, backtrack, and local search with **`report.objective`** must stay documented in `README.md` / `docs/ARCHITECTURE.md` / `docs/API.md` when behavior or env knobs change; optional generate field **`legacyEngineOptions`** is stripped before tenant Zod validation.
 - Do not break `npm run dev:all`, `npm run build`, or API compatibility without explicit approval.
 
 ## Quality Gate
