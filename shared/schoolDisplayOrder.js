@@ -1,6 +1,6 @@
 /**
  * Canonical ordering for tenant UI, engine, exports, and persisted state.
- * Standards: ascending by sortOrder when set, else numeric name, else name string.
+ * Standards: ascending by numeric name when the name is a number (1, 2, 10), else sortOrder, else name string.
  * Divisions: by standard order, then division name.
  * Working days: Monday → Sunday (subset keeps calendar order).
  */
@@ -9,12 +9,14 @@ import { sortWorkingDaysCanonical } from "./periodSlotDays.js";
 
 /** Numeric sort key for a standard (lower = earlier). */
 function standardRank(s) {
-  const so = Number(s?.sortOrder);
-  if (Number.isFinite(so)) return { tier: 0, n: so, s: "" };
   const raw = String(s?.name ?? "").trim();
+  if (raw !== "") {
+    const asNum = Number(raw);
+    if (Number.isFinite(asNum)) return { tier: 0, n: asNum, s: raw };
+  }
+  const so = Number(s?.sortOrder);
+  if (Number.isFinite(so)) return { tier: 1, n: so, s: "" };
   if (raw === "") return { tier: 2, n: Number.POSITIVE_INFINITY, s: "" };
-  const asNum = Number(raw);
-  if (Number.isFinite(asNum)) return { tier: 1, n: asNum, s: raw };
   return { tier: 2, n: Number.POSITIVE_INFINITY, s: raw };
 }
 

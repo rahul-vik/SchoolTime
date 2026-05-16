@@ -659,12 +659,40 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
             })}
           </div>
         </Field>
-        <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0" }}>
-          Selected days apply first-period class teacher priority for the assigned class teacher class. Turn the toggle on to apply this block; leaving it off matches generation (class teacher placement stays disabled).
-        </p>
-        <p style={{ fontSize: 11, color: T.textSoft, margin: "10px 0 0", lineHeight: 1.45 }}>
-          Note: a stored minimum class-teacher periods-per-day value (if ever set via import/API) is not used for placement yet—the engine only applies first-period priority when rules are enabled.
-        </p>
+        <Field label="Min primary-subject periods per day (homeroom)">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[0, 1, 2].map((n) => {
+              const selected = Number(classTeacherPrefs.dailyPrimaryMinPeriods || 0) === n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={!classTeacherRulesEnabled}
+                  onClick={() => {
+                    if (!classTeacherRulesEnabled) return;
+                    setClassTeacherPreferences((p) => ({ ...(p || {}), dailyPrimaryMinPeriods: n }));
+                  }}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${selected ? T.info : T.surfaceBorder}`,
+                    background: selected ? T.info + "12" : T.surface,
+                    color: selected ? T.info : T.textMid,
+                    opacity: classTeacherRulesEnabled ? 1 : 0.6,
+                    cursor: classTeacherRulesEnabled ? "pointer" : "not-allowed",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {n === 0 ? "Off" : String(n)}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: T.textSoft, margin: "8px 0 0", lineHeight: 1.4 }}>
+            On each working day, place the class teacher teaching their primary subject in the homeroom at least this many times (first-period slots count toward this minimum).
+          </p>
+        </Field>
       </div>
 
 

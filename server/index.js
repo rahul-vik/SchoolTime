@@ -24,6 +24,7 @@ import { createValidationRoutes } from "./routes/validationRoutes.js";
 import { insertPlatformError } from "./services/platformErrorLog.js";
 import { ensurePlatformSettingsDefaults } from "./services/platformSettings.js";
 import { migrateAllPersistedTenantStates } from "./services/tenantStateMigrationRunner.js";
+import { backfillTimetableRunStateJson } from "./services/timetableRunStateBackfill.js";
 import { ENV } from "./config/env.js";
 import { getAppReleaseMeta } from "./services/appReleaseMeta.js";
 
@@ -33,6 +34,12 @@ await ensurePlatformSettingsDefaults(db);
   const m = await migrateAllPersistedTenantStates(db);
   if (m.updated > 0) {
     console.log(`[tenant_state] startup migration persisted for ${m.updated}/${m.scanned} org(s) (invalid JSON rows skipped: ${m.invalid})`);
+  }
+  const runBackfill = await backfillTimetableRunStateJson(db);
+  if (runBackfill.updated > 0) {
+    console.log(
+      `[timetable_runs] backfilled state_json on ${runBackfill.updated}/${runBackfill.scanned} run(s) (skipped: ${runBackfill.skipped})`,
+    );
   }
 }
 

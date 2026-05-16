@@ -1,11 +1,40 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { sortStandardsAscending } from "../../../shared/schoolDisplayOrder.js";
 import { T, UiIcon, css, useBreakpoint } from "./uiPrimitives";
 
-export function DivisionPill({ div, mediums, onRemove, onMediumChange }) {
+/** Red outline/border for paused scheduling entities (divisions, subjects, teachers). */
+export function schedulingPausedOutlineStyle(paused) {
+  if (paused !== true) return {};
+  return { border: `1px solid ${T.danger}`, boxShadow: `0 0 0 1px ${T.danger}44` };
+}
+
+/** Left accent for paused rows in tables/lists. */
+export function schedulingPausedRowStyle(paused) {
+  if (paused !== true) return {};
+  return { boxShadow: `inset 3px 0 0 ${T.danger}` };
+}
+
+export function SchedulingPauseButton({ paused, onToggle, size = 13, entityLabel = "item" }) {
+  const isPaused = paused === true;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={isPaused ? `Resume ${entityLabel} for timetable` : `Pause ${entityLabel} (exclude from timetable)`}
+      aria-label={isPaused ? `Resume ${entityLabel}` : `Pause ${entityLabel}`}
+      style={{ background: "none", border: "none", cursor: "pointer", color: isPaused ? T.danger : T.textMid, padding: 0, lineHeight: 1, display: "flex", alignItems: "center" }}
+    >
+      <UiIcon name={isPaused ? "play" : "pause"} size={size} stroke="currentColor" />
+    </button>
+  );
+}
+
+export function DivisionPill({ div, mediums, onRemove, onMediumChange, schedulingPaused = false, onTogglePaused }) {
   const [showPicker, setShowPicker] = useState(false);
   const ref = useRef(null);
   const med = mediums.find((m) => m.id === div.mediumId);
   const medColor = med?.isPrimary ? T.brand : T.textSoft;
+  const paused = schedulingPaused === true;
 
   useEffect(() => {
     if (!showPicker) return;
@@ -16,7 +45,18 @@ export function DivisionPill({ div, mediums, onRemove, onMediumChange }) {
 
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 6px 5px 10px", background: T.surfaceAlt, borderRadius: 20, border: `1px solid ${T.surfaceBorder}`, fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 6px 5px 10px", background: paused ? T.danger + "08" : T.surfaceAlt, borderRadius: 20, border: `1px solid ${paused ? T.danger : T.surfaceBorder}`, fontSize: 12, opacity: paused ? 0.85 : 1, ...(paused ? { boxShadow: `0 0 0 1px ${T.danger}44` } : {}) }}>
+        {onTogglePaused ? (
+          <button
+            type="button"
+            onClick={onTogglePaused}
+            title={paused ? "Resume division for timetable" : "Pause division (exclude from timetable)"}
+            aria-label={paused ? "Resume division" : "Pause division"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: paused ? T.danger : T.textMid, padding: 0, lineHeight: 1, display: "flex", alignItems: "center" }}
+          >
+            <UiIcon name={paused ? "play" : "pause"} size={13} stroke="currentColor" />
+          </button>
+        ) : null}
         <span style={{ fontWeight: 700 }}>{div.name}</span>
         <button onClick={() => setShowPicker((p) => !p)} title="Change medium" style={{ background: medColor + "18", border: `1px solid ${medColor}30`, borderRadius: 10, padding: "1px 6px", fontSize: 11, fontWeight: 700, color: medColor, cursor: "pointer", lineHeight: 1.5 }}>{med?.code || "?"}</button>
         <button type="button" onClick={onRemove} aria-label="Remove division" style={{ background: "none", border: "none", cursor: "pointer", color: T.textSoft, padding: "0 2px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><UiIcon name="close" size={13} stroke={T.textSoft} /></button>
@@ -42,7 +82,7 @@ export function TeacherDivisionMapper({ assignedDivisionIds, onChange, standards
   const [isUnrestricted, setIsUnrestricted] = useState(assignedDivisionIds.length === 0);
 
   const stdsWithDivs = useMemo(
-    () => [...standards].sort((a, b) => a.sortOrder - b.sortOrder).map((std) => ({ std, divs: divisions.filter((d) => d.standardId === std.id) })).filter((x) => x.divs.length > 0),
+    () => sortStandardsAscending(standards).map((std) => ({ std, divs: divisions.filter((d) => d.standardId === std.id) })).filter((x) => x.divs.length > 0),
     [standards, divisions],
   );
 

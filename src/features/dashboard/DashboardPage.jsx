@@ -33,7 +33,7 @@ export function DashboardPage({ school, subjects, divisions, teachers, standards
 
   useEffect(() => {
     setExpandedHelp(new Set());
-  }, [timetable?.id, timetable?.generatedAt]);
+  }, [timetable?.runId, timetable?.generatedAt]);
 
   const showStatusHelpHeading =
     !bp.isMobile &&
