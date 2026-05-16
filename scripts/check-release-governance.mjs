@@ -58,6 +58,10 @@ if (mainPkg && !parsedMain) {
   fail(`Release governance failed: origin/main package.json version "${mainPkg.version}" is invalid SemVer.`);
 }
 
+const basePkgRaw = compareBase ? run(`git show ${compareBase}:package.json`, "") : "";
+const basePkg = basePkgRaw ? JSON.parse(basePkgRaw) : null;
+const pkgVersionChangedVsBase = Boolean(basePkg && String(basePkg.version || "") !== String(pkg.version || ""));
+
 const requiresReleaseMetaChanges = !mainPkg || String(mainPkg.version || "") !== String(pkg.version || "");
 if (baseBranch === "develop") {
   if (isReleaseBranch) {
@@ -84,11 +88,18 @@ if (baseBranch === "develop") {
     console.log("Release governance check passed (release/hotfix branch into develop).");
     process.exit(0);
   }
-  if (changed.includes("package.json")) {
+  if (pkgVersionChangedVsBase) {
     fail("Release governance failed: package.json version bumps are only allowed on release/* or hotfix/* branches.");
   }
   if (changed.includes("CHANGELOG.md")) {
-    fail("Release governance failed: CHANGELOG.md release entries are only allowed on release/* or hotfix/* branches.");
+    const baseChangelog = run(`git show ${compareBase}:CHANGELOG.md`, "");
+    const topVersion = (text) => {
+      const m = String(text || "").match(/^##\s+\[(\d+\.\d+\.\d+)\]/m);
+      return m ? m[1] : "";
+    };
+    if (topVersion(fs.readFileSync("CHANGELOG.md", "utf8")) !== topVersion(baseChangelog)) {
+      fail("Release governance failed: CHANGELOG.md release entries are only allowed on release/* or hotfix/* branches.");
+    }
   }
   console.log("Release governance check passed.");
   process.exit(0);

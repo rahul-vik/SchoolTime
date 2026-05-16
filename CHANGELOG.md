@@ -2,14 +2,6 @@
 
 All notable changes to SchoolTime are documented in this file.
 
-## [1.0.10] - 2026-05-16
-
-- Production-safe upgrades: additive SQLite/Postgres schema migration, tenant state migration on API startup, and timetable run `state_json` backfill so existing schools keep working without manual SQL.
-- Legacy class-teacher preferences preserved when `enabled` was omitted but CT days or assignments were in use; lock repair no longer strips pinned class-teacher placements.
-- Optional `dailyPrimaryMinPeriods` for class teachers; improved legacy engine (multi-restart, local search); CP-SAT/hybrid paths fall back to legacy when the sidecar is unavailable.
-- Fixed Downloads tab crash (`editingTeacherId` referenced outside Reports page).
-- Added `npm run prod:preflight`, `npm run migrate:all`, `npm run check:tenant`, and expanded production readiness documentation.
-
 ## [1.0.9] - 2026-05-05
 
 - Enforced single-teacher lock for each division-subject during generation so one division cannot receive the same subject from multiple teachers in a run.
