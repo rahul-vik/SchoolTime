@@ -1,3 +1,4 @@
+import { withLiveTimetableReport } from "../../../shared/recomputeTimetableReport.js";
 import { ensurePeriodSlotsActiveWeekdays, sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 import { normalizeTenantSchoolOrdering, orderSubjectStandardIds } from "../../../shared/schoolDisplayOrder.js";
 import { resolveClassTeacherEnabled } from "../../../shared/classTeacherPreferences.js";
@@ -78,7 +79,7 @@ export function applyTenantStateWithFallback(state, seed, setters) {
   setters.setClassTeacherPreferences(normalizeClassTeacherPreferences(state.classTeacherPreferences, seed.classTeacherPreferences, wd));
   if (setters.setExportJobs) setters.setExportJobs(state.exportJobs || []);
   if (setters.setTimetable) {
-    const restored = state.lastGeneratedTimetable || null;
+    const restored = withLiveTimetableReport(state.lastGeneratedTimetable || null);
     setters.setTimetable(restored);
     if (setters.setTimetableStatus) setters.setTimetableStatus(restored ? "GENERATED" : "DRAFT");
   }
