@@ -36,6 +36,18 @@ export function getLegacyMaxBacktrackRounds(data) {
   return 12;
 }
 
+export function getLegacyLockRepairRounds(data) {
+  const override = data?.legacyEngineOptions?.lockRepairRounds;
+  if (override !== undefined && override !== null) {
+    return Math.max(1, Math.min(8, Number(override) || 4));
+  }
+  const env = Number(process.env.LEGACY_ENGINE_LOCK_REPAIR_ROUNDS);
+  if (Number.isFinite(env) && env > 0) {
+    return Math.max(1, Math.min(8, Math.floor(env)));
+  }
+  return 4;
+}
+
 import { compareLexicographicObjective } from "./legacyEngineLocalSearch.js";
 
 export function countUnscheduledShort(report) {

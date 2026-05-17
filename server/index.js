@@ -27,6 +27,8 @@ import { migrateAllPersistedTenantStates } from "./services/tenantStateMigration
 import { backfillTimetableRunStateJson } from "./services/timetableRunStateBackfill.js";
 import { ENV } from "./config/env.js";
 import { getAppReleaseMeta } from "./services/appReleaseMeta.js";
+import { getTimetableSolverRuntime } from "./config/env.js";
+import { isLegacyQualityMaxRecommended } from "./legacyQualityProfile.js";
 
 await initDb();
 await ensurePlatformSettingsDefaults(db);
@@ -68,6 +70,11 @@ app.use(rateLimit({ windowMs: 60 * 1000, max: RATE_LIMIT_MAX, standardHeaders: t
 
 app.get("/api/health", (_req, res) => {
   const release = getAppReleaseMeta();
+  const solverRuntime = getTimetableSolverRuntime();
+  const cpSatConfigured = Boolean(solverRuntime.cpSatUrl);
+  const envDefault = solverRuntime.mode;
+  const recommendedUiDefault =
+    cpSatConfigured || envDefault === "hybrid" || envDefault === "cp_sat" ? "hybrid" : "legacy";
   res.json({
     ok: true,
     env: NODE_ENV,
@@ -78,6 +85,12 @@ app.get("/api/health", (_req, res) => {
       buildNumber: release.buildNumber,
       buildSha: release.buildSha,
       releaseLabel: release.releaseLabel,
+    },
+    timetableSolver: {
+      envDefault,
+      cpSatConfigured,
+      recommendedUiDefault,
+      legacyQualityMaxRecommended: isLegacyQualityMaxRecommended(),
     },
   });
 });
@@ -100,6 +113,11 @@ app.use("/api", authMiddleware, requirePermission(db, "canManageCredits"), creat
 app.use("/api", authMiddleware, requirePermission(db, "canManageApiKeys"), createApiKeyRoutes(db));
 app.use("/api", authMiddleware, requirePermission(db, "canViewAudit"), createAuditRoutes(db));
 app.use("/api", authMiddleware, createValidationRoutes(db));
+// Unmatched tenant /api paths must not fall through to B2B API-key auth (returns misleading 401 "Missing API key").
+app.use("/api", authMiddleware, (req, res, next) => {
+  if (String(req.path || "").startsWith("/b2b")) return next();
+  res.status(404).json({ error: "Unknown API path" });
+});
 app.use("/api", apiKeyAuthMiddleware(db), createB2BRoutes(db));
 
 /** Client closed the socket while Express was reading the JSON body (debounced save, tab close, flaky network). Not an application bug. */

@@ -49,6 +49,22 @@ export function sortDivisionsByStandardOrder(divisions, standardsOrdered) {
   });
 }
 
+/**
+ * Placement priority: higher standards first (e.g. Std 12 before Std 8 before Std 1).
+ * Uses the same standard ranking as sortStandardsAscending, reversed; within a standard, division name ascending.
+ */
+export function sortDivisionsHigherStandardFirst(divisions, standards) {
+  if (!Array.isArray(divisions) || divisions.length === 0) return [];
+  const ascending = sortStandardsAscending(standards || []);
+  const rank = new Map(ascending.map((s, i) => [String(s.id), i]));
+  return [...divisions].sort((a, b) => {
+    const ia = rank.has(String(a.standardId)) ? rank.get(String(a.standardId)) : -1;
+    const ib = rank.has(String(b.standardId)) ? rank.get(String(b.standardId)) : -1;
+    if (ia !== ib) return ib - ia;
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, { numeric: true });
+  });
+}
+
 /** Order subject.standardIds in the same order as standards in school setup (ascending). */
 export function orderSubjectStandardIds(standardIds, standardsOrdered) {
   if (!Array.isArray(standardIds) || standardIds.length === 0) return [];

@@ -11,25 +11,14 @@ import {
   scopeTenantForScheduling,
   isSubjectSchedulingPaused,
   isDivisionSchedulingPaused,
+  divisionsForScheduling,
 } from "./divisionScheduling.js";
+import { countLegallyPlaceableCells } from "./schedulingRulePlacement.js";
+import { getTeacherEffectiveCapacity } from "./teacherCapacity.js";
 
-export function getPeriodSlotMeta(periodSlots) {
-  const slots = periodSlots || [];
-  const ls = slots.filter((s) => s.slotType === "LESSON").sort((a, b) => a.slotNumber - b.slotNumber);
-  if (!ls.length) {
-    return { firstMorning: null, firstAfterLunch: null, lastLesson: null, lessonSlots: ls };
-  }
-  const firstMorning = ls[0].slotNumber;
-  const lastLesson = ls[ls.length - 1].slotNumber;
-  const lunchNums = slots.filter((s) => s.slotType === "LUNCH").map((s) => s.slotNumber);
-  let firstAfterLunch = null;
-  if (lunchNums.length > 0) {
-    const maxL = Math.max(...lunchNums);
-    const after = ls.filter((s) => s.slotNumber > maxL);
-    if (after.length) firstAfterLunch = after[0].slotNumber;
-  }
-  return { firstMorning, firstAfterLunch, lastLesson, lessonSlots: ls };
-}
+import { getPeriodSlotMeta } from "./schedulingRulePlacement.js";
+
+export { getPeriodSlotMeta };
 
 function slotNumbersExcludedBySlotTargets(slotTargets, meta) {
   const s = new Set();
@@ -437,4 +426,129 @@ export function traceUnscheduledRows(state, unscheduled, options = {}) {
     rows: traced,
     bySubject: [...bySubject.values()].sort((a, b) => b.periodsShort - a.periodsShort),
   };
+}
+
+function subjectAppliesToDivision(subject, division) {
+  if (!subject || !division) return false;
+  if (!(subject.standardIds || []).includes(division.standardId)) return false;
+  if (!(subject.mediumIds || []).includes(division.mediumId)) return false;
+  const scopeMode = subject.divisionScopeMode === "CUSTOM_DIVISION_OVERRIDES" ? "CUSTOM_DIVISION_OVERRIDES" : "ALL_IN_SELECTED_CLASSES";
+  if (scopeMode === "ALL_IN_SELECTED_CLASSES") return true;
+  const includeIds = subject.divisionIncludeIds || [];
+  const excludeIds = subject.divisionExcludeIds || [];
+  if (includeIds.length > 0) return includeIds.includes(division.id);
+  if (excludeIds.length > 0) return !excludeIds.includes(division.id);
+  return true;
+}
+
+/**
+ * Feasibility report: required weekly vs legally placeable cells; rough teacher supply vs demand.
+ * Warnings do not block generate; ERROR-level issues can block when wired in routes.
+ */
+export function runTenantFeasibilityReport(state) {
+  const scoped = scopeTenantForScheduling(state);
+  const rules = scoped.schedulingRules || [];
+  const periodSlots = scoped.periodSlots || [];
+  const workingDays = scoped.workingDays || [];
+  const subjectAllocations = scoped.subjectAllocations || [];
+  const divisions = divisionsForScheduling(scoped.divisions || []);
+  const subjects = subjectsForScheduling(scoped.subjects || []);
+  const teachers = scoped.teachers || [];
+
+  const issues = [];
+  const rows = [];
+  let totalRequired = 0;
+  let totalPlaceable = 0;
+
+  for (const div of divisions) {
+    for (const sub of subjects) {
+      if (!subjectAppliesToDivision(sub, div)) continue;
+      const required = getDivisionRequiredWeekly(sub, div.id, subjectAllocations);
+      if (required <= 0) continue;
+      const placeable = countLegallyPlaceableCells({
+        periodSlots,
+        workingDays,
+        rules,
+        subjectId: sub.id,
+        divisionId: div.id,
+      });
+      totalRequired += required;
+      totalPlaceable += Math.min(placeable, required);
+      rows.push({
+        divisionId: div.id,
+        subjectId: sub.id,
+        divisionLabel: divisionLabelFromState(state, div),
+        subjectLabel: sub.code || sub.name,
+        required,
+        placeable,
+        slack: placeable - required,
+      });
+
+      if (placeable < required) {
+        issues.push({
+          code: "SUBJECT_PLACEABLE_CELLS_SHORT",
+          severity: "error",
+          divisionId: div.id,
+          subjectId: sub.id,
+          required,
+          placeable,
+          message: `Class ${divisionLabelFromState(state, div)} · ${sub.code || sub.name}: needs ${required} period(s)/week but only ${placeable} legal cell(s) (INCLUDE_ONLY, inactive slots, or exclude rules).`,
+        });
+      } else if (placeable === required) {
+        issues.push({
+          code: "SUBJECT_PLACEABLE_CELLS_TIGHT",
+          severity: "warning",
+          divisionId: div.id,
+          subjectId: sub.id,
+          required,
+          placeable,
+          message: `Class ${divisionLabelFromState(state, div)} · ${sub.code || sub.name}: weekly demand exactly matches legal cells (${required}) — no slack for retries.`,
+        });
+      }
+    }
+  }
+
+  let demandPeriods = 0;
+  for (const div of divisions) {
+    for (const sub of subjects) {
+      if (!subjectAppliesToDivision(sub, div)) continue;
+      demandPeriods += getDivisionRequiredWeekly(sub, div.id, subjectAllocations);
+    }
+  }
+  let supplyPeriods = 0;
+  for (const t of teachers) {
+    supplyPeriods += getTeacherEffectiveCapacity(t, periodSlots, workingDays).effectiveWeekly;
+  }
+  if (demandPeriods > 0 && supplyPeriods > 0 && demandPeriods > supplyPeriods) {
+    issues.push({
+      code: "TEACHER_SUPPLY_BELOW_DEMAND",
+      severity: "warning",
+      demandPeriods,
+      supplyPeriods,
+      message: `Rough teacher capacity (${supplyPeriods} periods/week across active teachers) is below total class demand (${demandPeriods}). Expect shortages or heavy reuse.`,
+    });
+  }
+
+  const errors = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+
+  return {
+    ok: errors.length === 0,
+    issueCount: issues.length,
+    errorCount: errors.length,
+    warningCount: warnings.length,
+    totalRequired,
+    totalPlaceable,
+    demandPeriods,
+    supplyPeriods,
+    rows,
+    issues,
+    errors,
+    warnings,
+  };
+}
+
+function divisionLabelFromState(state, div) {
+  const st = (state.standards || []).find((s) => String(s.id) === String(div.standardId));
+  return `Std ${st?.name ?? "?"}-${div.name ?? "?"}`;
 }

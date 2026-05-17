@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sortWorkingDaysCanonical, WEEKDAY_CANONICAL_ORDER } from "../../shared/periodSlotDays.js";
-import { normalizeTenantSchoolOrdering, sortStandardsAscending } from "../../shared/schoolDisplayOrder.js";
+import {
+  normalizeTenantSchoolOrdering,
+  sortDivisionsHigherStandardFirst,
+  sortStandardsAscending,
+} from "../../shared/schoolDisplayOrder.js";
 
 test("sortWorkingDaysCanonical orders Mon→Sun and dedupes", () => {
   assert.deepEqual(sortWorkingDaysCanonical(["FRIDAY", "MONDAY", "MONDAY", "WEDNESDAY"]), ["MONDAY", "WEDNESDAY", "FRIDAY"]);
@@ -45,4 +49,21 @@ test("normalizeTenantSchoolOrdering reindexes sortOrder and sorts divisions", ()
     ["dA", "dB", "d1"],
   );
   assert.deepEqual(workingDays, ["TUESDAY", "FRIDAY"]);
+});
+
+test("sortDivisionsHigherStandardFirst places Std 10 before Std 2 before Std 1", () => {
+  const standards = [
+    { id: "s1", name: "1", sortOrder: 1 },
+    { id: "s2", name: "2", sortOrder: 2 },
+    { id: "s10", name: "10", sortOrder: 3 },
+  ];
+  const divisions = [
+    { id: "low", standardId: "s1", name: "A" },
+    { id: "mid", standardId: "s2", name: "A" },
+    { id: "high", standardId: "s10", name: "A" },
+  ];
+  assert.deepEqual(
+    sortDivisionsHigherStandardFirst(divisions, standards).map((d) => d.id),
+    ["high", "mid", "low"],
+  );
 });

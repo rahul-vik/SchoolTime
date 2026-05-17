@@ -95,19 +95,45 @@ test("solver runner experimental completes and tags report", async () => {
 test("solver runner cp_sat without URL falls back to legacy", async () => {
   const prevS = process.env.TIMETABLE_SOLVER;
   const prevU = process.env.CP_SAT_SOLVER_URL;
+  const prevQ = process.env.LEGACY_QUALITY_MAX;
   process.env.TIMETABLE_SOLVER = "cp_sat";
   delete process.env.CP_SAT_SOLVER_URL;
+  delete process.env.LEGACY_QUALITY_MAX;
   try {
     const out = await runTimetableGenerationEngine(tinyPayload);
     assert.equal(out.report.solver.requested, "cp_sat");
     assert.equal(out.report.solver.applied, "legacy");
     assert.equal(out.report.solver.workerUsed, false);
     assert.equal(out.report.solver.fallbackReason, "cp_sat_url_missing");
+    assert.equal(out.report.solver.legacyQualityMax, true);
   } finally {
     if (prevS === undefined) delete process.env.TIMETABLE_SOLVER;
     else process.env.TIMETABLE_SOLVER = prevS;
     if (prevU === undefined) delete process.env.CP_SAT_SOLVER_URL;
     else process.env.CP_SAT_SOLVER_URL = prevU;
+    if (prevQ === undefined) delete process.env.LEGACY_QUALITY_MAX;
+    else process.env.LEGACY_QUALITY_MAX = prevQ;
+  }
+});
+
+test("solver runner explicit legacy with cp_sat configured skips legacyQualityMax when auto", async () => {
+  const prevS = process.env.TIMETABLE_SOLVER;
+  const prevU = process.env.CP_SAT_SOLVER_URL;
+  const prevQ = process.env.LEGACY_QUALITY_MAX;
+  process.env.TIMETABLE_SOLVER = "legacy";
+  process.env.CP_SAT_SOLVER_URL = "http://127.0.0.1:8790/solve";
+  process.env.LEGACY_QUALITY_MAX = "auto";
+  try {
+    const out = await runTimetableGenerationEngine(tinyPayload);
+    assert.equal(out.report.solver.applied, "legacy");
+    assert.equal(out.report.solver.legacyQualityMax, undefined);
+  } finally {
+    if (prevS === undefined) delete process.env.TIMETABLE_SOLVER;
+    else process.env.TIMETABLE_SOLVER = prevS;
+    if (prevU === undefined) delete process.env.CP_SAT_SOLVER_URL;
+    else process.env.CP_SAT_SOLVER_URL = prevU;
+    if (prevQ === undefined) delete process.env.LEGACY_QUALITY_MAX;
+    else process.env.LEGACY_QUALITY_MAX = prevQ;
   }
 });
 

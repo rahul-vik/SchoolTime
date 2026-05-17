@@ -46,7 +46,30 @@ function useTimetableGridLayout(periodSlots, isMobile, isTablet) {
   }, [periodSlots, isMobile, isTablet]);
 }
 
-export function TimetableGrid({ timetable, divisions, teachers, subjects, periodSlots, workingDays, viewMode, selectedId, onCellClick, isEditable, pendingSwap, standards, mediums = [] }) {
+function targetLookupKey(day, slotNumber) {
+  return `${day}|${Number(slotNumber)}`;
+}
+
+export function TimetableGrid({
+  timetable,
+  divisions,
+  teachers,
+  subjects,
+  periodSlots,
+  workingDays,
+  viewMode,
+  selectedId,
+  onCellClick,
+  isEditable,
+  pendingSwap,
+  editSource,
+  editTargetsMap,
+  onCellDrop,
+  addLessonAccent,
+  addTarget,
+  standards,
+  mediums = [],
+}) {
   const bp = useBreakpoint();
   const [activeDay, setActiveDay] = useState(0);
 
@@ -69,8 +92,30 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
       : timetable.entries.find((e) => idEq(e.teacherId, eId) && e.dayOfWeek === day && Number(e.slotNumber) === snN);
   };
 
+  const resolveEditHighlight = (entry, day, slot) => {
+    if (!editSource || !entry || viewMode !== "division") return null;
+    const isSource =
+      editSource.divisionId === entry.divisionId &&
+      editSource.dayOfWeek === day &&
+      Number(editSource.slotNumber) === Number(slot?.slotNumber ?? entry.slotNumber);
+    if (isSource) return { role: "source" };
+    const t = editTargetsMap?.get?.(targetLookupKey(day, slot?.slotNumber ?? entry.slotNumber));
+    if (!t) return { role: "unknown" };
+    if (t.valid && t.kind === "SWAP") return { role: "swap" };
+    if (t.valid && t.kind === "MOVE_TO_FREE") return { role: "move" };
+    return { role: "invalid", message: t.reasonMessage };
+  };
+
+  const editOutline = (role) => {
+    if (role === "source") return `0 0 0 2px ${T.gold}`;
+    if (role === "swap") return `0 0 0 2px ${T.success}`;
+    if (role === "move") return `0 0 0 2px ${T.info}`;
+    return "none";
+  };
+
   const renderCell = (entry, day, slot) => {
     const inactive = slot && day && !slotActiveOnWeekday(slot, day);
+    const highlight = resolveEditHighlight(entry, day, slot);
     if (inactive) {
       return (
         <div
@@ -125,25 +170,87 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
       pendingSwap.divisionId === entry.divisionId &&
       pendingSwap.dayOfWeek === entry.dayOfWeek &&
       Number(pendingSwap.slotNumber) === Number(entry.slotNumber);
+    const canDrag = isEditable && entry && entry.slotType !== "BREAK" && entry.slotType !== "LUNCH";
+    const dropHandlers = canDrag
+      ? {
+          draggable: true,
+          onDragStart: (e) => {
+            e.dataTransfer.setData("text/plain", targetLookupKey(entry.dayOfWeek, entry.slotNumber));
+            onCellClick?.(entry, { dragStart: true });
+          },
+          onDragOver: (e) => {
+            if (!editSource) return;
+            e.preventDefault();
+          },
+          onDrop: (e) => {
+            e.preventDefault();
+            onCellDrop?.(entry);
+          },
+        }
+      : {};
+    const highlightTitle =
+      highlight?.role === "invalid"
+        ? highlight.message
+        : highlight?.role === "swap"
+          ? "Valid swap target"
+          : highlight?.role === "move"
+            ? "Move lesson to this free period"
+            : isEditable
+              ? "Tap to select, then choose a highlighted cell"
+              : undefined;
+    const dimInvalid = editSource && highlight?.role === "invalid";
+    const cellShadow =
+      editOutline(highlight?.role) !== "none" ? editOutline(highlight?.role) : isPending ? `0 0 0 2px ${T.gold}` : "none";
     if (entry.isFreePeriod) {
+      const addAccent = addLessonAccent || "#8b5cf6";
+      const isAddTarget =
+        addTarget &&
+        addTarget.divisionId === entry.divisionId &&
+        addTarget.dayOfWeek === entry.dayOfWeek &&
+        Number(addTarget.slotNumber) === Number(entry.slotNumber);
+      const showAddUi = isEditable && !editSource;
       return (
         <div
           onClick={() => isEditable && onCellClick && onCellClick(entry)}
-          title={isEditable ? "Tap to swap with another period" : undefined}
+          title={showAddUi ? "Add a lesson on this free period" : highlightTitle}
+          {...dropHandlers}
           style={{
             height: cellH,
-            background: T.surfaceAlt,
+            background:
+              highlight?.role === "move"
+                ? T.info + "18"
+                : isAddTarget
+                  ? addAccent + "22"
+                  : T.surfaceAlt,
             borderRadius: 6,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            border: `1px dashed ${T.surfaceBorder}`,
+            gap: showAddUi ? 3 : 0,
+            border: `1px dashed ${
+              highlight?.role === "move" ? T.info : isAddTarget ? addAccent : T.surfaceBorder
+            }`,
             cursor: isEditable ? "pointer" : "default",
-            boxShadow: isPending ? `0 0 0 2px ${T.gold}` : "none",
+            boxShadow: isAddTarget ? `0 0 0 2px ${addAccent}` : cellShadow,
+            opacity: dimInvalid ? 0.45 : 1,
             transition: "all 0.15s",
           }}
         >
           <span style={{ fontSize: 11, color: T.textSoft }}>Free</span>
+          {showAddUi && (
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                color: addAccent,
+                letterSpacing: "0.02em",
+                textTransform: "uppercase",
+              }}
+            >
+              Add
+            </span>
+          )}
         </div>
       );
     }
@@ -158,7 +265,24 @@ export function TimetableGrid({ timetable, divisions, teachers, subjects, period
     return (
       <div
         onClick={() => isEditable && onCellClick && onCellClick(entry)}
-        style={{ height: cellH, borderRadius: 6, padding: `6px ${padX}px`, cursor: isEditable ? "pointer" : "default", background: color + "18", border: `1px solid ${color}35`, borderLeft: `3px solid ${color}`, boxShadow: isPending ? `0 0 0 2px ${T.gold}` : "none", transition: "all 0.15s", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}
+        title={highlightTitle}
+        {...dropHandlers}
+        style={{
+          height: cellH,
+          borderRadius: 6,
+          padding: `6px ${padX}px`,
+          cursor: isEditable ? "pointer" : "default",
+          background: color + "18",
+          border: `1px solid ${color}35`,
+          borderLeft: `3px solid ${color}`,
+          boxShadow: cellShadow,
+          opacity: dimInvalid ? 0.45 : 1,
+          transition: "all 0.15s",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          overflow: "hidden",
+        }}
       >
         <div style={{ minWidth: 0 }}>
           {showCt ? (

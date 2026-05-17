@@ -55,7 +55,12 @@ export function generateTimetableFlow({
       setGeneratingProgress(0);
       setTimetableStatus("FAILED");
       await onGenerationFailed?.();
-      notify(err.message || "Generation failed", "danger");
+      const issues = err?.preflight?.issues;
+      const detail =
+        Array.isArray(issues) && issues.length > 0
+          ? ` ${issues[0].message || issues[0].code || ""}`.trim()
+          : "";
+      notify((err.message || "Generation failed") + (detail ? ` — ${detail}` : ""), "danger");
     }
   })();
 }
@@ -94,11 +99,17 @@ export function applyUndoLastManualEdit(prev) {
     return { timetable: prev, changed: false, message: "Nothing to undo", level: "info" };
   }
   const last = edits[edits.length - 1];
-  if (last.type !== "SWAP" || !last.from || !last.to) {
+  if ((last.type !== "SWAP" && last.type !== "MOVE" && last.type !== "ADD") || !last.from || !last.to) {
     return { timetable: prev, changed: false, message: "Cannot undo this edit type", level: "warning" };
   }
   edits.pop();
   const newEntries = (prev.entries || []).map((e) => {
+    if (last.type === "ADD") {
+      if (cellMatchesSwapAnchor(e, last.to)) {
+        return entryAfterSwapPlacement(e, last.from.subjectId, last.from.teacherId);
+      }
+      return e;
+    }
     if (cellMatchesSwapAnchor(e, last.from)) return entryAfterSwapPlacement(e, last.from.subjectId, last.from.teacherId);
     if (cellMatchesSwapAnchor(e, last.to)) return entryAfterSwapPlacement(e, last.to.subjectId, last.to.teacherId);
     return e;
@@ -113,7 +124,7 @@ export function applyUndoLastManualEdit(prev) {
   return {
     timetable: { ...prev, entries: newEntries, manualEdits: edits, report: nextReport },
     changed: true,
-    message: "Last swap undone",
+    message: "Last edit undone",
     level: "success",
   };
 }

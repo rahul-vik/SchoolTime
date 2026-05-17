@@ -1,0 +1,70 @@
+{
+  "workingDays": ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
+  "standards": [{ "id": "st1", "name": "8", "sortOrder": 1 }],
+  "divisions": [{ "id": "div-a", "name": "A", "standardId": "st1", "mediumId": "m1" }],
+  "subjects": [
+    {
+      "id": "sub-math",
+      "name": "Math",
+      "code": "M",
+      "category": "CORE",
+      "weeklyPeriods": 5,
+      "maxPerDay": 1,
+      "priorityWeight": 10,
+      "mediumIds": ["m1"],
+      "standardIds": ["st1"]
+    },
+    {
+      "id": "sub-eng",
+      "name": "English",
+      "code": "E",
+      "category": "LANGUAGE",
+      "weeklyPeriods": 5,
+      "maxPerDay": 1,
+      "priorityWeight": 8,
+      "mediumIds": ["m1"],
+      "standardIds": ["st1"]
+    }
+  ],
+  "teachers": [
+    {
+      "id": "t-math",
+      "firstName": "M",
+      "lastName": "T",
+      "subjectIds": ["sub-math"],
+      "mediumIds": ["m1"],
+      "maxPerDay": 8,
+      "maxPerWeek": 40,
+      "freeMorningPeriods": 0,
+      "freeEveningPeriods": 0,
+      "assignedDivisionIds": ["div-a"]
+    },
+    {
+      "id": "t-eng",
+      "firstName": "E",
+      "lastName": "T",
+      "subjectIds": ["sub-eng"],
+      "mediumIds": ["m1"],
+      "maxPerDay": 8,
+      "maxPerWeek": 40,
+      "freeMorningPeriods": 0,
+      "freeEveningPeriods": 0,
+      "assignedDivisionIds": ["div-a"]
+    }
+  ],
+  "periodSlots": [
+    { "slotNumber": 1, "slotType": "LESSON", "label": "P1" },
+    { "slotNumber": 2, "slotType": "LESSON", "label": "P2" },
+    { "slotNumber": 3, "slotType": "LESSON", "label": "P3" },
+    { "slotNumber": 4, "slotType": "LESSON", "label": "P4" },
+    { "slotNumber": 5, "slotType": "LESSON", "label": "P5" }
+  ],
+  "schedulingRules": [],
+  "teacherSubjects": [],
+  "divisionSubjectTeacherLocks": [],
+  "freePeriodRules": [],
+  "fixedSlots": [],
+  "subjectAllocations": [],
+  "classTeacherPreferences": { "enabled": false, "schedulingMode": "STRICT" },
+  "legacyEngineOptions": { "restarts": 1, "localSearchIterations": 0 }
+}

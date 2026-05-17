@@ -6,15 +6,17 @@
  */
 
 export function getLegacyLocalSearchIterations(data) {
+  const divScale = Math.floor((data?.divisions || []).length / 4);
   const override = data?.legacyEngineOptions?.localSearchIterations;
   if (override !== undefined && override !== null) {
     return Math.max(0, Math.min(80, Number(override) || 0));
   }
   const env = Number(process.env.LEGACY_ENGINE_LOCAL_SEARCH_ITERATIONS);
+  let base = 24;
   if (Number.isFinite(env) && env >= 0) {
-    return Math.max(0, Math.min(80, Math.floor(env)));
+    base = Math.floor(env);
   }
-  return 24;
+  return Math.max(0, Math.min(80, base + divScale));
 }
 
 export function getLegacyLocalSearchCandidateLimit(data) {

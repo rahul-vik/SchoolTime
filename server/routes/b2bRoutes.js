@@ -1,6 +1,7 @@
 ﻿import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
+import { runTenantPreflightCheck, runTenantFeasibilityReport } from "../../shared/tenantPreflightCheck.js";
 import { runTimetableGenerationEngine } from "../timetableSolverRunner.js";
 import { divisionsForScheduling, scopeTenantForScheduling, subjectsForScheduling } from "../../shared/divisionScheduling.js";
 import { migrateTenantState } from "../services/tenantStateMigration.js";
@@ -54,6 +55,17 @@ export function createB2BRoutes(db) {
         error: "No teachers in scheduling scope. Resume paused teachers or assign teachers to active classes and subjects.",
       });
     }
+    const preflight = runTenantPreflightCheck(scoped);
+    const feasibility = runTenantFeasibilityReport(scoped);
+    if (!preflight.ok) {
+      return res.status(400).json({
+        error: "Timetable setup has blocking issues. Fix scheduling rules or period settings before generating.",
+        preflight: {
+          errorCount: preflight.errorCount,
+          issues: preflight.errors.slice(0, 25),
+        },
+      });
+    }
     const runId = randomUUID();
 
     try {
@@ -69,6 +81,23 @@ export function createB2BRoutes(db) {
         result.entries = autoFix.entries;
         result.report = {
           ...(result.report || {}),
+          preflight: {
+            ok: true,
+            issueCount: preflight.issueCount,
+            warningCount: preflight.warningCount,
+          },
+          feasibility: {
+            ok: feasibility.ok,
+            issueCount: feasibility.issueCount,
+            errorCount: feasibility.errorCount,
+            warningCount: feasibility.warningCount,
+            totalRequired: feasibility.totalRequired,
+            totalPlaceable: feasibility.totalPlaceable,
+            demandPeriods: feasibility.demandPeriods,
+            supplyPeriods: feasibility.supplyPeriods,
+            rows: feasibility.rows,
+            issues: feasibility.issues.slice(0, 40),
+          },
           validation: {
             ...summarizeFindings(finalFindings),
             checkedAt: validation.checkedAt,

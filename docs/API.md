@@ -17,6 +17,7 @@ Response includes:
 
 - `ok`, `env`, `uptimeSec`, `now`
 - **`release`** — `{ version, buildNumber, buildSha, releaseLabel }` for the **deployed web bundle** (from `dist/schooltime-release.json` when present, else `package.json` + optional `APP_BUILD_NUMBER` / `RENDER_GIT_COMMIT`). The browser compares this to its baked-in build (`__APP_VERSION__` / `__APP_BUILD_NUMBER__` from Vite) to show an “update available” strip in production.
+- **`timetableSolver`** — `{ envDefault, cpSatConfigured, recommendedUiDefault, legacyQualityMaxRecommended }`. **`cpSatConfigured`** is true when `CP_SAT_SOLVER_URL` is set. **`recommendedUiDefault`** is `hybrid` when the sidecar is configured or env mode is `hybrid` / `cp_sat`, else `legacy`. **`legacyQualityMaxRecommended`** is true when the CP-SAT sidecar is not configured and **`LEGACY_QUALITY_MAX`** is not `false` (auto-boost applies on legacy runs). When **`TIMETABLE_SOLVER`** is unset in env but **`CP_SAT_SOLVER_URL`** is set, the server effective default is **`hybrid`** (explicit `TIMETABLE_SOLVER=legacy` still forces legacy).
 
 ## Authentication
 
@@ -42,6 +43,9 @@ Response includes:
 - If the **browser closes the connection** while the JSON body is still uploading (common with debounced autosave, navigation away, or weak networks), the API may respond with **400** and message **`Request aborted`**; that is not a validation failure and is **not** written to platform error logs.
 - JSON body size limit is **2mb** (`express.json`); oversize payloads return a different parser error—trim large assets (e.g. school logo) if needed.
 - State payload may include `classTeacherPreferences`, `exportJobs` (latest 3 retained by client), and `lastGeneratedTimetable`
+- **`subjects[]`** may include **`allowTeamTeaching`** (boolean): when true, the legacy engine may assign up to **two** teachers per division+subject pair (team teaching).
+- **`divisionSubjectTeacherLocks[]`** — `{ divisionId, subjectId, teacherId, teamTeachingAllowed? }`. Pre-seeds the greedy engine teacher lock; **`teamTeachingAllowed: true`** allows a second teacher for that pair without enforcing single-teacher lock after first placement.
+- **`subjects[]`** may include **`requiresDoublePeriod`** (boolean): engine prefers adjacent double blocks when weekly count allows pairs.
 
 ### Period slots and scheduling rules
 
@@ -56,6 +60,9 @@ Response includes:
   - **`legacyEngineOptions`** (object, advanced): tunes greedy when legacy runs — `{ "restarts"?, "backtrackDepth"?, "maxBacktrackRounds"?, "localSearchIterations"?, "localSearchCandidates"? }`. Env defaults: `LEGACY_ENGINE_*` (see `docs/ARCHITECTURE.md`).
   Response `report.solver` includes **`timetableSolverSource`**: `request` | `env`. See `TIMETABLE_SOLVER` / `CP_SAT_SOLVER_URL` in `docs/ARCHITECTURE.md`.
 - `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
+- **`POST /timetable/valid-edit-targets`** — requires `canConfigureTimetable`. Body: `{ runId?, entries?, sourceState?, source: { divisionId, dayOfWeek, slotNumber }, scopeDivisionId? }`. Returns `{ runId, source, targets: [{ divisionId, dayOfWeek, slotNumber, valid, kind, reasonCode?, reasonMessage? }] }` where `kind` is `SWAP` | `MOVE_TO_FREE` | `INVALID`. Validation mirrors engine placement rules via `shared/timetablePlacementValidator.js`.
+- **`POST /timetable/valid-add-options`** — requires `canConfigureTimetable`. Body: `{ runId?, entries?, sourceState?, divisionId, dayOfWeek, slotNumber }`. For a **free** division cell, returns `{ runId, addable, invalidReason?, subjects: [{ subjectId, label, scheduled, required, remaining }], teachersBySubject: { [subjectId]: [{ teacherId, label }] }, cell, diagnostics?, repairPlans? }`. Subjects exclude `requiresDoublePeriod`, zero remaining weekly quota, and cells blocked by scheduling rules; teachers must pass engine-parity `evaluatePlacement` checks. When `addable` is false or no subjects qualify, **`diagnostics`** includes `teacherSlotBlockers` (e.g. `TEACHER_SLOT_TAKEN` with `blockingCell`) and per-subject failure reasons; **`repairPlans`** (max 3, depth 2) lists bounded MOVE/SWAP step sequences validated via `validateManualEdit` / `validateAddLesson` that would unblock at least one add. Apply repairs with **`POST /timetable/apply-edit`**, then retry add.
+- **`POST /timetable/apply-edit`** — requires `canConfigureTimetable`. Body: `{ runId?, entries?, sourceState?, operation: "SWAP"|"MOVE"|"ADD", source?, target, subjectId?, teacherId? }`. **`SWAP`/`MOVE`:** `source` + `target` cells. **`ADD`:** `target` free cell + `subjectId` + `teacherId`. Validates the full operation; on success updates `timetable_runs.entries_json`, `report_json` (manual edit audit), and `tenant_state.lastGeneratedTimetable` when the run matches. Returns `{ ok, runId, operation, kind, entries, validation, timetable }` or **400** with `{ error, reasons[] }`.
 - **`POST /timetable/generate` response** — body includes `timetable` with `entries`, `report`, `score`, `status`, `runId`, `generatedAt`, and **`sourceState`**: the validated tenant payload the engine used for that run (same snapshot persisted as `timetable_runs.state_json` and merged into `tenant_state` in the generate transaction).
 - **`GET /timetable/latest` response** — `{ run, timetable }` where `timetable` includes `entries`, `report`, `runId`, `generatedAt`, and **`sourceState`** parsed from the latest row’s `state_json` when present (older rows may omit it; clients fall back to live `GET /state` lists).
 - `GET /timetable/download?type=PDF|EXCEL&scope=ALL_DIVISIONS|ALL_TEACHERS|REPORTS_BUNDLE` — requires `canConfigureTimetable`; duplicate query keys use the first value; summary-report aliases such as `reports-bundle`, `SUMMARY`, or `SUMMARY_REPORTS` normalize to `REPORTS_BUNDLE`. Binary PDF/XLSX from `server/services/exportService.js`; visual layout details (CT placement, teacher medium code line, report bundle labeling) are documented in `README.md` → **Exports** and `docs/ARCHITECTURE.md` → **Export Pipeline**. Export uses the run’s stored state when available so the period grid matches `entries`.
@@ -76,6 +83,7 @@ Response includes:
 
 - Endpoints are mounted via `createB2BRoutes` and use API key middleware.
 - Ensure API key is active and passed as expected by middleware.
+- **`POST /b2b/timetable/generate`** — same tenant state body and optional **`timetableSolver`** / **`legacyEngineOptions`** as tenant generate. Runs **`runTenantPreflightCheck`** (blocking **400** on errors) and attaches **`report.preflight`** / **`report.feasibility`** on success (feasibility does not block). Post-run **`report.validation`** uses the same finding codes as tenant generate.
 
 ## Platform portal (creator / operator)
 
@@ -131,7 +139,9 @@ Unhandled errors that reach the Express error handler are persisted to `platform
   - `entries`
   - `score`
   - `status`
-  - `report` (`totalRequired`, `totalScheduled`, `unscheduled`, `divisionsMissingClassTeacher` — `{ divisionId, divisionName, standardId }[]` for classes with no teacher class-teacher assignment, `classTeacherRules`, `optimization` (legacy: restarts/backtrack/localSearch stats), **`objective`** (`totalScheduled`, `unscheduledShort`, `softViolations`, `score`), `rejections`, `durationMs`, **`solver`** — `{ requested, applied, timetableSolverSource, timeoutMs, workerUsed, fallbackReason?, fallbackDetail?, hybridStage? }` — `timetableSolverSource` is `request` when the client sent `timetableSolver` on generate, else `env`; worker routing from `TIMETABLE_SOLVER` / per-request override (`hybridStage` when `requested` is `hybrid`), optional **`experimental`** prototype metadata when the experimental path runs, optional **`cpsat`** fields when the CP-SAT sidecar responded)
+  - `report` — includes `preflight`, `feasibility`, `optimization` (gapUtilization, crossDivisionUnblock, periodSpread, etc.), **`objective.softViolations`**, `validation` summary, `solver`
+  - **`report.feasibility`** — demand/supply from `runTenantFeasibilityReport` (informational)
+  - **`report.validation`** — finding codes: `INCLUDE_ONLY_VIOLATION`, `CONTINUITY_SAME_SUBJECT_EXCEEDED`, `CONTINUITY_ANY_SUBJECT_EXCEEDED`, `TEACHER_CROSS_DIVISION_CONTINUITY`, `SOFT_RULE_VIOLATION`, teacher/subject caps (see tenant generate)
 
 ## Client Integration
 

@@ -106,6 +106,9 @@ export function buildTenantState(state) {
     exportJobs: state.exportJobs,
     lastGeneratedTimetable: state.lastGeneratedTimetable,
     teacherSubjects: state.teacherSubjects,
+    ...(Array.isArray(state.divisionSubjectTeacherLocks)
+      ? { divisionSubjectTeacherLocks: state.divisionSubjectTeacherLocks }
+      : {}),
     freePeriodRules: state.freePeriodRules,
     subjectAllocations: state.subjectAllocations,
   };
