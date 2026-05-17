@@ -24,6 +24,131 @@ import { findEntityById, isEntityIdInList, resolveReportLists, resolveTimetableV
 import { buildCompletionInsights, formatUnscheduledGapLabel } from "../shared/timetableCompletionHints";
 import { TimetableGeneratingPanel } from "./TimetableGeneratingPanel";
 import { timetableRunKey } from "./timetableRunKey";
+import {
+  applyAddLessonRequest,
+  applyManualEditRequest,
+  applyRepairPlanStep,
+  applyRepairPlanSteps,
+  applyUndoLastManualEdit,
+  buildEditTargetsMap,
+  loadValidAddOptions,
+  loadValidEditTargets,
+  mergeTimetableAfterEdit,
+} from "./manualEditActions.js";
+
+const ADD_LESSON_ACCENT = "#8b5cf6";
+
+function AddBlockedPanel({ T, addOptions, addRepairApplying, onApplyStep, onApplyAll }) {
+  const diagnostics = addOptions?.diagnostics;
+  const repairPlans = addOptions?.repairPlans || [];
+  const blockers = diagnostics?.teacherSlotBlockers || [];
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <p style={{ fontSize: 13, color: T.textMid, margin: "0 0 10px", lineHeight: 1.45 }}>
+        {addOptions?.invalidReason || "This period cannot accept a new lesson."}
+      </p>
+      {blockers.length > 0 && (
+        <div
+          style={{
+            fontSize: 12,
+            color: T.textSoft,
+            background: T.surfaceAlt,
+            border: `1px solid ${T.surfaceBorder}`,
+            borderRadius: 8,
+            padding: "8px 10px",
+            marginBottom: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ color: T.textMid, display: "block", marginBottom: 4 }}>Why add is blocked</strong>
+          {blockers.slice(0, 4).map((b) => (
+            <div key={`${b.teacherId}-${b.blockingCell?.divisionId}-${b.blockingCell?.slotNumber}`}>
+              {b.teacherLabel} is teaching {b.blockingLessonLabel} in {b.divisionLabel} at this time
+              {b.subjectLabel ? ` (for ${b.subjectLabel})` : ""}.
+            </div>
+          ))}
+        </div>
+      )}
+      {repairPlans.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <strong style={{ fontSize: 12, color: T.textMid }}>Repair suggestions</strong>
+          <p style={{ fontSize: 11, color: T.textSoft, margin: 0, lineHeight: 1.45 }}>
+            Apply a step to free the period, then add the lesson. Repairs use the same move/swap rules as manual edit.
+          </p>
+          {repairPlans.map((plan) => (
+            <div
+              key={plan.id}
+              style={{
+                border: `1px solid ${T.surfaceBorder}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                background: T.surfaceAlt,
+              }}
+            >
+              <div style={{ fontSize: 12, color: T.textMid, fontWeight: 700, marginBottom: 6 }}>{plan.summary}</div>
+              <ol style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 11, color: T.textSoft, lineHeight: 1.5 }}>
+                {plan.steps.map((step, idx) => (
+                  <li key={`${plan.id}-step-${idx}`}>{step.label}</li>
+                ))}
+                {plan.enablesAdd && (
+                  <li>
+                    Add {plan.enablesAdd.subjectLabel} ({plan.enablesAdd.teacherLabel})
+                  </li>
+                )}
+              </ol>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {plan.steps.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={addRepairApplying}
+                    onClick={() => onApplyStep(plan, 0)}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${ADD_LESSON_ACCENT}`,
+                      background: `${ADD_LESSON_ACCENT}18`,
+                      color: ADD_LESSON_ACCENT,
+                      cursor: addRepairApplying ? "wait" : "pointer",
+                    }}
+                  >
+                    {addRepairApplying ? "Applying…" : "Apply step 1"}
+                  </button>
+                )}
+                {plan.steps.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={addRepairApplying}
+                    onClick={() => onApplyAll(plan)}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${T.surfaceBorder}`,
+                      background: T.surface,
+                      color: T.textMid,
+                      cursor: addRepairApplying ? "wait" : "pointer",
+                    }}
+                  >
+                    Apply all steps
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 11, color: T.textSoft, margin: 0, lineHeight: 1.45 }}>
+          No automatic repair found. Try moving or swapping another lesson manually, then open Add again.
+        </p>
+      )}
+    </div>
+  );
+}
+
 import { TeacherEditorModal } from "../academics/TeacherEditorModal.jsx";
 import { getTeacherEffectiveCapacity } from "../../../shared/teacherCapacity.js";
 import { sortTeacherWorkloadRowsAsc } from "../../../shared/teacherWorkload.js";
@@ -76,6 +201,7 @@ export function GeneratePage({
   setClassTeacherPreferences,
   timetableSolver,
   setTimetableSolver,
+  legacyQualityMaxRecommended,
   ui,
 }) {
   const { T, css, Btn, ProgressBar, Modal, PillSelect } = ui;
@@ -171,6 +297,11 @@ export function GeneratePage({
             );
           })}
         </div>
+        {legacyQualityMaxRecommended ? (
+          <div style={{ fontSize: 11, color: T.textMid, lineHeight: 1.45, marginBottom: 10, padding: "8px 12px", background: T.brand + "12", borderRadius: 8, border: `1px solid ${T.brand}33` }}>
+            Legacy quality boost on (no CP-SAT sidecar)
+          </div>
+        ) : null}
         <div style={{ fontSize: 11, color: T.textSoft, lineHeight: 1.45, padding: "10px 12px", background: T.surfaceAlt, borderRadius: 8, border: `1px solid ${T.surfaceBorder}` }}>
           <strong style={{ color: T.textMid }}>{TIMETABLE_SOLVER_PILLS.find((x) => x.id === timetableSolver)?.label || "Hybrid (recommended)"}</strong>
           {" · "}
@@ -258,12 +389,50 @@ export function GeneratePage({
   );
 }
 
-export function TimetablePage({ timetable, timetableStatus, divisions, teachers, subjects, schedulingRules, periodSlots, workingDays, standards, mediums, viewMode, setViewMode, selectedDivisionId, setSelectedDivisionId, selectedTeacherId, setSelectedTeacherId, isEditMode, setIsEditMode, pendingSwap, setPendingSwap, onCellClick, onUndoManualEdit, notify, navigate, helpers, ui }) {
-  const { T, css, Btn, EmptyState } = ui;
+export function TimetablePage({
+  timetable,
+  timetableStatus,
+  divisions,
+  teachers,
+  subjects,
+  schedulingRules,
+  periodSlots,
+  workingDays,
+  standards,
+  mediums,
+  viewMode,
+  setViewMode,
+  selectedDivisionId,
+  setSelectedDivisionId,
+  selectedTeacherId,
+  setSelectedTeacherId,
+  isEditMode,
+  setIsEditMode,
+  setTimetable,
+  getTenantState,
+  fetchValidEditTargets,
+  fetchValidAddOptions,
+  applyTimetableEditApi,
+  notify,
+  navigate,
+  helpers,
+  ui,
+}) {
+  const { T, css, Btn, EmptyState, Modal } = ui;
   const { TimetableGrid } = helpers;
   const { isMobile, isDesktop } = useBreakpoint();
   const [expandedIssues, setExpandedIssues] = useState(() => new Set());
   const [optimizationHelpOpen, setOptimizationHelpOpen] = useState(false);
+  const [editSource, setEditSource] = useState(null);
+  const [editTargetsMap, setEditTargetsMap] = useState(() => new Map());
+  const [editTargetsLoading, setEditTargetsLoading] = useState(false);
+  const [addTarget, setAddTarget] = useState(null);
+  const [addOptions, setAddOptions] = useState(null);
+  const [addOptionsLoading, setAddOptionsLoading] = useState(false);
+  const [addSubjectId, setAddSubjectId] = useState("");
+  const [addTeacherId, setAddTeacherId] = useState("");
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addRepairApplying, setAddRepairApplying] = useState(false);
 
   const toggleIssueSection = (key) => {
     setExpandedIssues((prev) => {
@@ -283,22 +452,278 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
   const lastManualEditAt = timetable?.report?.lastManualEditAt;
 
   useEffect(() => {
-    if (!onUndoManualEdit || manualEditCount <= 0) return undefined;
+    if (manualEditCount <= 0 || viewMode !== "division") return undefined;
     const onKey = (e) => {
       if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== "z" || e.shiftKey) return;
       const el = e.target;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
       e.preventDefault();
-      onUndoManualEdit();
+      handleUndoManualEdit();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onUndoManualEdit, manualEditCount]);
+  }, [manualEditCount, viewMode]);
 
   useEffect(() => {
     setExpandedIssues(new Set());
     setOptimizationHelpOpen(false);
+    setEditSource(null);
+    setEditTargetsMap(new Map());
+    setAddTarget(null);
+    setAddOptions(null);
   }, [timetable?.runId, timetable?.generatedAt]);
+
+  const clearEditSelection = () => {
+    setEditSource(null);
+    setEditTargetsMap(new Map());
+  };
+
+  const closeAddLesson = () => {
+    setAddTarget(null);
+    setAddOptions(null);
+    setAddSubjectId("");
+    setAddTeacherId("");
+    setAddSubmitting(false);
+    setAddRepairApplying(false);
+  };
+
+  const refreshAddOptions = async (entry, nextTimetable = timetable) => {
+    const resp = await loadValidAddOptions({
+      timetable: nextTimetable,
+      targetEntry: entry,
+      getTenantState,
+      fetchValidAddOptionsApi: fetchValidAddOptions,
+    });
+    setAddOptions(resp);
+    if (resp.addable && (resp.subjects || []).length === 1) {
+      setAddSubjectId(resp.subjects[0].subjectId);
+    }
+    return resp;
+  };
+
+  useEffect(() => {
+    if (!isEditMode || viewMode !== "division") {
+      setEditSource(null);
+      setEditTargetsMap(new Map());
+      setAddTarget(null);
+      setAddOptions(null);
+      setAddSubjectId("");
+      setAddTeacherId("");
+      setAddSubmitting(false);
+    }
+  }, [isEditMode, viewMode]);
+
+  const openAddLesson = async (entry) => {
+    clearEditSelection();
+    setAddTarget(entry);
+    setAddOptionsLoading(true);
+    setAddSubjectId("");
+    setAddTeacherId("");
+    try {
+      const resp = await refreshAddOptions(entry);
+      if (!resp.addable) {
+        const hasRepair = (resp.repairPlans || []).length > 0;
+        notify(
+          hasRepair
+            ? "No direct add options — try a repair suggestion below"
+            : resp.invalidReason || "Cannot add a lesson here",
+          hasRepair ? "info" : "warning",
+        );
+      }
+    } catch (err) {
+      closeAddLesson();
+      notify(err.message || "Could not load add options", "danger");
+    } finally {
+      setAddOptionsLoading(false);
+    }
+  };
+
+  const applyRepairStep = async (plan, stepIndex) => {
+    if (!addTarget || !plan?.steps?.[stepIndex]) return;
+    setAddRepairApplying(true);
+    try {
+      const resp = await applyRepairPlanStep({
+        timetable,
+        plan,
+        stepIndex,
+        getTenantState,
+        applyTimetableEditApi,
+      });
+      const next = mergeTimetableAfterEdit(timetable, resp);
+      setTimetable(next);
+      const refreshed = await refreshAddOptions(addTarget, next);
+      notify(
+        refreshed.addable
+          ? "Repair applied — you can add the lesson now"
+          : plan.steps.length > stepIndex + 1
+            ? "Step applied — apply the next step or retry add"
+            : "Repair step applied",
+        refreshed.addable ? "success" : "info",
+      );
+    } catch (err) {
+      notify(err.message || "Could not apply repair step", "danger");
+    } finally {
+      setAddRepairApplying(false);
+    }
+  };
+
+  const applyRepairAll = async (plan) => {
+    if (!addTarget || !(plan?.steps || []).length) return;
+    const stepCount = plan.steps.length;
+    const ok = window.confirm(
+      `Apply all ${stepCount} repair step${stepCount === 1 ? "" : "s"}? You will still need to add the lesson afterward.`,
+    );
+    if (!ok) return;
+    setAddRepairApplying(true);
+    try {
+      const next = await applyRepairPlanSteps({
+        timetable,
+        plan,
+        getTenantState,
+        applyTimetableEditApi,
+        onStepApplied: (updated) => {
+          setTimetable(updated);
+        },
+      });
+      const refreshed = await refreshAddOptions(addTarget, next);
+      notify(
+        refreshed.addable
+          ? "Repairs applied — choose subject and teacher to add"
+          : "Repairs applied — check if add is available now",
+        refreshed.addable ? "success" : "info",
+      );
+    } catch (err) {
+      notify(err.message || "Could not apply repair plan", "danger");
+    } finally {
+      setAddRepairApplying(false);
+    }
+  };
+
+  const commitAddLesson = async () => {
+    if (!addTarget || !addSubjectId || !addTeacherId) {
+      notify("Choose a subject and teacher", "warning");
+      return;
+    }
+    setAddSubmitting(true);
+    try {
+      const resp = await applyAddLessonRequest({
+        timetable,
+        targetEntry: addTarget,
+        subjectId: addSubjectId,
+        teacherId: addTeacherId,
+        getTenantState,
+        applyTimetableEditApi,
+      });
+      setTimetable((prev) => mergeTimetableAfterEdit(prev, resp));
+      notify("Lesson added", "success");
+      closeAddLesson();
+    } catch (err) {
+      notify(err.message || "Could not add lesson", "danger");
+    } finally {
+      setAddSubmitting(false);
+    }
+  };
+
+  const beginEditSource = async (entry) => {
+    setEditSource(entry);
+    setEditTargetsLoading(true);
+    try {
+      const resp = await loadValidEditTargets({
+        timetable,
+        sourceEntry: entry,
+        scopeDivisionId: selectedDivisionId,
+        getTenantState,
+        fetchValidEditTargets,
+      });
+      setEditTargetsMap(buildEditTargetsMap(resp.targets, selectedDivisionId));
+    } catch (err) {
+      clearEditSelection();
+      notify(err.message || "Could not load valid targets", "danger");
+    } finally {
+      setEditTargetsLoading(false);
+    }
+  };
+
+  const commitEditToTarget = async (targetEntry) => {
+    if (!editSource) return;
+    const key = `${targetEntry.dayOfWeek}|${Number(targetEntry.slotNumber)}`;
+    const meta = editTargetsMap.get(key);
+    if (!meta?.valid) {
+      notify(meta?.reasonMessage || "Cannot place lesson here", "warning");
+      return;
+    }
+    try {
+      const resp = await applyManualEditRequest({
+        timetable,
+        sourceEntry: editSource,
+        targetEntry,
+        operation: meta.kind === "MOVE_TO_FREE" ? "MOVE" : "SWAP",
+        getTenantState,
+        applyTimetableEditApi,
+      });
+      setTimetable((prev) => mergeTimetableAfterEdit(prev, resp));
+      notify(meta.kind === "MOVE_TO_FREE" ? "Lesson moved" : "Lessons swapped", "success");
+    } catch (err) {
+      notify(err.message || "Edit failed", "danger");
+    } finally {
+      clearEditSelection();
+    }
+  };
+
+  const handleDivisionCellClick = async (entry, opts = {}) => {
+    if (!isEditMode || viewMode !== "division") return;
+    if (opts.addLesson) {
+      if (entry?.isFreePeriod) await openAddLesson(entry);
+      return;
+    }
+    if (entry?.isFreePeriod && !editSource && !opts.dragStart) {
+      await openAddLesson(entry);
+      return;
+    }
+    if (opts.dragStart) {
+      if (entry?.isFreePeriod) return;
+      if (!editSource || cellCoordKey(editSource) !== cellCoordKey(entry)) {
+        await beginEditSource(entry);
+      }
+      return;
+    }
+    if (!editSource) {
+      if (entry?.isFreePeriod) {
+        await openAddLesson(entry);
+        return;
+      }
+      await beginEditSource(entry);
+      notify("Choose a highlighted cell (green = swap, blue = move to free)", "info");
+      return;
+    }
+    if (cellCoordKey(editSource) === cellCoordKey(entry)) {
+      clearEditSelection();
+      return;
+    }
+    await commitEditToTarget(entry);
+  };
+
+  const handleDivisionCellDrop = (targetEntry) => {
+    commitEditToTarget(targetEntry);
+  };
+
+  const handleUndoManualEdit = () => {
+    setTimetable((prev) => {
+      const r = applyUndoLastManualEdit(prev);
+      if (!r.changed) {
+        notify(r.message, r.level);
+        return prev;
+      }
+      notify(r.message, r.level);
+      return r.timetable;
+    });
+    clearEditSelection();
+  };
+
+  function cellCoordKey(entry) {
+    if (!entry) return "";
+    return `${entry.divisionId}|${entry.dayOfWeek}|${Number(entry.slotNumber)}`;
+  }
 
   const gridRunKey = timetableRunKey(timetable);
   const liveLists = useMemo(
@@ -479,7 +904,23 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             {reportTeachers.map((t) => <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>)}
           </select>
         )}
-        <Btn onClick={() => { setIsEditMode((p) => !p); if (isEditMode) setPendingSwap(null); }} variant={isEditMode ? "primary" : "ghost"} size="sm" style={isMobile ? { alignSelf: "flex-start" } : undefined}>{isEditMode ? "Edit Mode On" : "Edit"}</Btn>
+        {viewMode === "division" ? (
+          <Btn
+            onClick={() => {
+              setIsEditMode((p) => !p);
+              if (isEditMode) clearEditSelection();
+            }}
+            variant={isEditMode ? "primary" : "ghost"}
+            size="sm"
+            style={isMobile ? { alignSelf: "flex-start" } : undefined}
+          >
+            {isEditMode ? "Edit Mode On" : "Edit"}
+          </Btn>
+        ) : (
+          <span style={{ fontSize: 11, color: T.textSoft, fontWeight: 600, padding: "6px 10px" }} title="Teacher timetable is read-only. Edit from Class view.">
+            Read-only
+          </span>
+        )}
         {manualEditCount > 0 && (
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span
@@ -500,8 +941,8 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
               <UiIcon name="check" size={12} stroke={T.info} />
               Manual edits: {manualEditCount}
             </span>
-            {onUndoManualEdit ? (
-              <Btn size="sm" variant="ghost" title="Undo last swap (Ctrl+Z)" onClick={() => onUndoManualEdit()}>
+            {viewMode === "division" ? (
+              <Btn size="sm" variant="ghost" title="Undo last edit (Ctrl+Z)" onClick={() => handleUndoManualEdit()}>
                 Undo last
               </Btn>
             ) : null}
@@ -509,9 +950,18 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
         )}
       </div>
 
-      {isEditMode && (
+      {isEditMode && viewMode === "division" && (
         <div style={{ padding: "10px 14px", background: T.info + "14", borderRadius: 8, marginBottom: 14, fontSize: 13, color: T.info, fontWeight: 500 }}>
-          {pendingSwap ? "Cell selected · tap another lesson or free period to swap." : "Tap one lesson or free period, then another to swap. Use Undo last or Ctrl+Z to reverse the last swap."}
+          {editTargetsLoading
+            ? "Checking valid targets…"
+            : editSource
+              ? "Green = swap · blue = move to free · hover grey cells for why they are blocked."
+              : "Tap a free period to add a lesson (purple), or tap/drag a lesson to swap or move. Undo last or Ctrl+Z reverses the last edit."}
+        </div>
+      )}
+      {viewMode === "teacher" && (
+        <div style={{ padding: "8px 12px", background: T.surfaceAlt, borderRadius: 8, marginBottom: 14, fontSize: 12, color: T.textMid, fontWeight: 500 }}>
+          Teacher view is read-only and follows class timetable edits automatically.
         </div>
       )}
 
@@ -631,7 +1081,14 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
             ))}
           </div>
         </div>
-        <TimetableGrid key={gridRunKey} timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={gridPeriodSlots} workingDays={gridWorkingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={onCellClick} isEditable={isEditMode} pendingSwap={pendingSwap} standards={standards} mediums={mediums || []} />
+        <TimetableGrid key={gridRunKey} timetable={timetable} divisions={divisions} teachers={teachers} subjects={subjects} periodSlots={gridPeriodSlots} workingDays={gridWorkingDays} viewMode={viewMode} selectedId={selectedId} onCellClick={viewMode === "division" ? handleDivisionCellClick : undefined}
+          onCellDrop={viewMode === "division" ? handleDivisionCellDrop : undefined}
+          isEditable={isEditMode && viewMode === "division"}
+          editSource={editSource}
+          editTargetsMap={editTargetsMap}
+          addLessonAccent={ADD_LESSON_ACCENT}
+          addTarget={addTarget}
+          standards={standards} mediums={mediums || []} />
         {viewMode === "teacher" && hasFreeConf && (
           <div style={{ marginTop: 10, padding: "7px 12px", background: T.info + "10", borderRadius: 6, fontSize: 11, color: T.textMid, textAlign: "center", lineHeight: 1.4 }}>
             Free periods:{" "}
@@ -639,6 +1096,63 @@ export function TimetablePage({ timetable, timetableStatus, divisions, teachers,
           </div>
         )}
       </div>
+      {addTarget && Modal && (
+        <Modal title="Add lesson on free period" onClose={closeAddLesson} width={460}>
+          {addOptionsLoading ? (
+            <p style={{ fontSize: 13, color: T.textMid, margin: 0 }}>Loading subjects…</p>
+          ) : !addOptions?.addable ? (
+            <AddBlockedPanel
+              T={T}
+              addOptions={addOptions}
+              addRepairApplying={addRepairApplying}
+              onApplyStep={applyRepairStep}
+              onApplyAll={applyRepairAll}
+            />
+          ) : (
+            <>
+              <p style={{ fontSize: 12, color: T.textSoft, margin: "0 0 12px", lineHeight: 1.45 }}>
+                {addTarget.dayOfWeek?.slice(0, 3)} · period {addTarget.slotNumber}
+              </p>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: T.textMid, marginBottom: 6 }}>Subject</label>
+              <select
+                value={addSubjectId}
+                onChange={(e) => {
+                  setAddSubjectId(e.target.value);
+                  setAddTeacherId("");
+                }}
+                style={{ ...css.input, width: "100%", marginBottom: 14 }}
+              >
+                <option value="">Select subject…</option>
+                {(addOptions.subjects || []).map((s) => (
+                  <option key={s.subjectId} value={s.subjectId}>{s.label}</option>
+                ))}
+              </select>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: T.textMid, marginBottom: 6 }}>Teacher</label>
+              <select
+                value={addTeacherId}
+                onChange={(e) => setAddTeacherId(e.target.value)}
+                disabled={!addSubjectId}
+                style={{ ...css.input, width: "100%", marginBottom: 16 }}
+              >
+                <option value="">Select teacher…</option>
+                {((addOptions.teachersBySubject || {})[addSubjectId] || []).map((t) => (
+                  <option key={t.teacherId} value={t.teacherId}>{t.label}</option>
+                ))}
+              </select>
+            </>
+          )}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={closeAddLesson} disabled={addSubmitting || addRepairApplying}>Cancel</Btn>
+            <Btn
+              onClick={commitAddLesson}
+              disabled={addSubmitting || addOptionsLoading || !addOptions?.addable || !addSubjectId || !addTeacherId}
+              style={{ background: ADD_LESSON_ACCENT, borderColor: ADD_LESSON_ACCENT }}
+            >
+              {addSubmitting ? "Adding…" : "Add lesson"}
+            </Btn>
+          </div>
+        </Modal>
+      )}
       {timetable.report?.optimization && (
         <div style={{ ...css.card, marginTop: 12, padding: "10px 16px" }}>
           <ExpandableHelpSection

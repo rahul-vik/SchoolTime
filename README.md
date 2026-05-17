@@ -39,7 +39,8 @@ See `LICENSE` for full text.
 - Scheduling setup: period slots (each slot can run on a subset of school days; new slots default to all working days), working days, subject placement preferences (exclude slots/days, **optional fixed lesson period on chosen weekdays for one or more divisions**; the preference editor keeps excludes and fixed placement consistent; fixed-period choices only list slots active on every selected day), class-teacher first-period weekday selection
 - Scheduling diagnostics with top rejection reasons and actionable tuning suggestions (rejection stats include **`NON_LESSON_SLOT`** when a placement would target a break/lunch row)
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
-- Division-subject teacher consistency lock: once a teacher is chosen for a subject in a division during generation, subsequent placements for that same division-subject stay with the same teacher
+- Division-subject teacher consistency lock: optional persisted **`divisionSubjectTeacherLocks`** pre-seed the engine; otherwise once a teacher is chosen for a subject in a division during generation, subsequent placements for that same division-subject stay with the same teacher (single-teacher behavior when multiple `teacherSubjects` rows exist without team-teaching)
+- Pre-generate **feasibility** report (`report.feasibility`): required weekly vs legally placeable cells per class–subject; blocks generate on ERROR-level infeasibility
 - New registrations start with **clean demo tenant data**: standards **1–10** with one section **A** each (English medium), core subjects plus **Computer Lab** and **PE**, one class teacher per division plus shared subject teachers, a Mon–Fri period grid, and sample scheduling rules (**PE** avoids first morning / last lesson; **Computer Lab** not on Monday)
 - After generate: **Edit** timetable to swap two lesson or free cells; **Undo last** (or **Ctrl+Z** / **⌘Z** when not typing in a field) reverses swaps one at a time from the edit history
 - **Timetable view alignment:** the Timetable grid uses **`sourceState.periodSlots`** and **`sourceState.workingDays`** from the generation run when present so columns match **`entries`** slot numbers (avoids lessons appearing under Break/Lunch headers after Periods are edited). Unscheduled badges and Dashboard completion hints resolve class names from the same run snapshot with stable id matching (`src/features/shared/idLookups.js`).
@@ -50,7 +51,7 @@ See `LICENSE` for full text.
   - Subject hours
   - Teacher workload
   - Division completion
-- Automated post-generation validation findings with controlled low-risk auto-fix and approval workflow for higher-risk findings (includes checks such as **`LESSON_ON_INACTIVE_PERIOD_SLOT`** when stored timetables contradict the period-day grid)
+- Automated post-generation validation findings with controlled low-risk auto-fix and approval workflow for higher-risk findings (includes **`LESSON_ON_INACTIVE_PERIOD_SLOT`**, **`INCLUDE_ONLY_VIOLATION`**, teacher daily/morning/evening caps, **`SUBJECT_PERIODS_SHORT`**, **`CLASS_FREE_WITH_TEACHER_HEADROOM`**)
 - Export bundle:
   - Visual PDF timetable pages
   - Visual Excel timetable sheets
@@ -117,7 +118,7 @@ Based on `.env.example`:
 - `RATE_LIMIT_MAX` - requests/minute/IP
 - `CORS_ORIGIN` - allowed frontend origin(s)
 - `DB_CLIENT` - current runtime DB engine (`sqlite` default)
-- `TIMETABLE_SOLVER` - `legacy` (default), `experimental` (worker + timeout; delegates to greedy for isolation tests), or `cp_sat` (CP-SAT sidecar when `CP_SAT_SOLVER_URL` is set; otherwise falls back to legacy with `report.solver.fallbackReason`)
+- `TIMETABLE_SOLVER` - `legacy`, `experimental` (worker + timeout; delegates to greedy for isolation tests), `cp_sat` (CP-SAT sidecar when `CP_SAT_SOLVER_URL` is set; otherwise falls back to legacy with `report.solver.fallbackReason`), or **`hybrid`** (try CP-SAT first, then legacy — recommended when the sidecar is running)
 - `LEGACY_ENGINE_RESTARTS` - optional override for greedy multi-restart count when legacy runs (default depends on `classTeacherPreferences.schedulingMode`: 4 STRICT, 5 BEST_FIT, 3 OPTIMAL)
 - `LEGACY_ENGINE_BACKTRACK_DEPTH` - optional; unpinned lessons undone per backtrack step when a subject cannot finish (default `4`)
 - `LEGACY_ENGINE_LOCAL_SEARCH_ITERATIONS` - optional; post-greedy local search passes (gap-fill, relocate, swap) using lexicographic objective (default `24`, `0` disables)
@@ -162,7 +163,7 @@ Based on `.env.example`:
 - `npm run check:release-governance` - enforce version + changelog rules for release/hotfix PRs
 - `npm run check:versioning` - strict local SemVer + branch/version contract validation
 - `npm run test:backend:validation` - rule-level backend unit tests for timetable validation + auto-fix safety
-- `npm run solver:cpsat` - start local CP-SAT JSON sidecar (requires Python + `pip install -r solver/cpsat/requirements.txt`)
+- `npm run solver:cpsat` - start local CP-SAT JSON sidecar on port **8790** (requires Python 3 + `pip install -r solver/cpsat/requirements.txt`). In another terminal, set `CP_SAT_SOLVER_URL=http://127.0.0.1:8790/solve` and `TIMETABLE_SOLVER=hybrid` in `.env`, restart the API, then use **Hybrid** on Create (the app reads `GET /api/health` → `timetableSolver.recommendedUiDefault`).
 - `npm run verify:push` - runs the same checks as CI (build, smoke, security audit, versioning; on `release/*` and `hotfix/*` branches also simulates release governance vs `origin/main`). Invoked automatically before each `git push` via Husky after `npm install`
 
 ### Pre-push verification (Husky)

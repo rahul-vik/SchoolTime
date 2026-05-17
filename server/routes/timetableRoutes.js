@@ -1,12 +1,20 @@
 ﻿import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getOrgCredits, logAudit, nowIso, schemas, writeCreditLedger } from "../services/common.js";
+import { runTenantPreflightCheck, runTenantFeasibilityReport } from "../../shared/tenantPreflightCheck.js";
 import { runTimetableGenerationEngine } from "../timetableSolverRunner.js";
 import { generateExportFile, normalizeExportScope } from "../services/exportService.js";
 import { divisionsForScheduling, scopeTenantForScheduling, subjectsForScheduling } from "../../shared/divisionScheduling.js";
 import { migrateTenantState } from "../services/tenantStateMigration.js";
 import { validateTimetableRun } from "../services/timetableValidationService.js";
 import { applyLowRiskAutoFixes } from "../services/timetableAutoFixService.js";
+import {
+  applyTimetableEdit,
+  appendManualEditAudit,
+  getValidAddOptions,
+  getValidEditTargets,
+  resolveTimetableEditPayload,
+} from "../services/timetableManualEditService.js";
 
 /** Express may give `string | string[]` for duplicate keys; take first stable value. */
 function firstQueryParam(value) {
@@ -70,6 +78,17 @@ export function createTimetableRoutes(db) {
         error: "No teachers in scheduling scope. Resume paused teachers or assign teachers to active classes and subjects.",
       });
     }
+    const preflight = runTenantPreflightCheck(scoped);
+    const feasibility = runTenantFeasibilityReport(scoped);
+    if (!preflight.ok) {
+      return res.status(400).json({
+        error: "Timetable setup has blocking issues. Fix scheduling rules or period settings before generating.",
+        preflight: {
+          errorCount: preflight.errorCount,
+          issues: preflight.errors.slice(0, 25),
+        },
+      });
+    }
     const runId = randomUUID();
     const createdAt = nowIso();
     try {
@@ -85,6 +104,23 @@ export function createTimetableRoutes(db) {
         result.entries = autoFix.entries;
         result.report = {
           ...(result.report || {}),
+          preflight: {
+            ok: true,
+            issueCount: preflight.issueCount,
+            warningCount: preflight.warningCount,
+          },
+          feasibility: {
+            ok: feasibility.ok,
+            issueCount: feasibility.issueCount,
+            errorCount: feasibility.errorCount,
+            warningCount: feasibility.warningCount,
+            totalRequired: feasibility.totalRequired,
+            totalPlaceable: feasibility.totalPlaceable,
+            demandPeriods: feasibility.demandPeriods,
+            supplyPeriods: feasibility.supplyPeriods,
+            rows: feasibility.rows,
+            issues: feasibility.issues.slice(0, 40),
+          },
           validation: {
             ...summarizeFindings(finalFindings),
             checkedAt: validation.checkedAt,
@@ -225,6 +261,184 @@ export function createTimetableRoutes(db) {
   // Canonical path (use in client). Legacy path kept for older frontends.
   router.get("/timetable/download", handleTimetableExportDownload);
   router.get("/timetable/exports/download", handleTimetableExportDownload);
+
+  async function loadEditContext(req) {
+    const runId = normalizeRunIdParam(req.body?.runId);
+    const run = runId
+      ? await db.get(
+          "SELECT id, entries_json, state_json FROM timetable_runs WHERE org_id = ? AND id = ? LIMIT 1",
+          req.auth.orgId,
+          runId,
+        )
+      : await db.get(
+          "SELECT id, entries_json, state_json FROM timetable_runs WHERE org_id = ? AND entries_json IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+          req.auth.orgId,
+        );
+    if (!run) return { error: "No generated timetable found", status: 404 };
+    const tenantStateRow = await db.get("SELECT state_json FROM tenant_state WHERE org_id = ?", req.auth.orgId);
+    const resolved = resolveTimetableEditPayload({ body: req.body, runRow: run, tenantStateRow });
+    if (resolved.error) return { error: resolved.error, status: 400 };
+    return { run, ...resolved };
+  }
+
+  router.post("/timetable/valid-add-options", async (req, res) => {
+    const ctx = await loadEditContext(req);
+    if (ctx.error) return res.status(ctx.status || 400).json({ error: ctx.error });
+    const divisionId = String(req.body?.divisionId || "").trim();
+    const dayOfWeek = String(req.body?.dayOfWeek || "").trim();
+    const slotNumber = Number(req.body?.slotNumber);
+    if (!divisionId || !dayOfWeek || !Number.isFinite(slotNumber)) {
+      return res.status(400).json({ error: "divisionId, dayOfWeek, and slotNumber are required" });
+    }
+    const result = getValidAddOptions({
+      entries: ctx.entries,
+      state: ctx.state,
+      divisionId,
+      dayOfWeek,
+      slotNumber,
+    });
+    if (result.error) return res.status(400).json({ error: result.error });
+    return res.json({
+      runId: ctx.runId || ctx.run.id,
+      addable: result.addable,
+      invalidReason: result.invalidReason,
+      subjects: result.subjects,
+      teachersBySubject: result.teachersBySubject,
+      cell: result.cell,
+      diagnostics: result.diagnostics ?? null,
+      repairPlans: result.repairPlans ?? [],
+    });
+  });
+
+  router.post("/timetable/valid-edit-targets", async (req, res) => {
+    const ctx = await loadEditContext(req);
+    if (ctx.error) return res.status(ctx.status || 400).json({ error: ctx.error });
+    const source = req.body?.source;
+    const scopeDivisionId = String(req.body?.scopeDivisionId || req.body?.divisionId || "").trim() || null;
+    const result = getValidEditTargets({
+      entries: ctx.entries,
+      state: ctx.state,
+      source,
+      scopeDivisionId,
+    });
+    if (result.error) return res.status(400).json({ error: result.error });
+    return res.json({
+      runId: ctx.runId || ctx.run.id,
+      source: result.source,
+      targets: result.targets,
+    });
+  });
+
+  router.post("/timetable/apply-edit", async (req, res) => {
+    const ctx = await loadEditContext(req);
+    if (ctx.error) return res.status(ctx.status || 400).json({ error: ctx.error });
+    const operation = req.body?.operation;
+    const source = req.body?.source;
+    const target = req.body?.target;
+    const result = applyTimetableEdit({
+      entries: ctx.entries,
+      state: ctx.state,
+      source,
+      target,
+      operation,
+      subjectId: req.body?.subjectId,
+      teacherId: req.body?.teacherId,
+    });
+    if (!result.ok) {
+      return res.status(400).json({
+        error: result.error || "Edit not allowed",
+        reasons: result.reasons || [],
+      });
+    }
+
+    try {
+      const output = await db.transaction(async (tx) => {
+        const report = ctx.run.report_json ? JSON.parse(ctx.run.report_json) : {};
+        const prevTimetable = {
+          entries: ctx.entries,
+          report,
+          runId: ctx.run.id,
+          manualEdits: [],
+        };
+        const { manualEdits, report: nextReport } = appendManualEditAudit(prevTimetable, {
+          source,
+          target,
+          operation: result.operation,
+          kind: result.kind,
+          entriesBefore: ctx.entries,
+          subjectId: req.body?.subjectId,
+          teacherId: req.body?.teacherId,
+        });
+        const nextReportFull = { ...nextReport, ...(report.validation ? { validation: report.validation } : {}) };
+        await tx.run(
+          "UPDATE timetable_runs SET entries_json = ?, report_json = ? WHERE id = ? AND org_id = ?",
+          JSON.stringify(result.entries),
+          JSON.stringify(nextReportFull),
+          ctx.run.id,
+          req.auth.orgId,
+        );
+
+        const tenantRow = await tx.get("SELECT state_json FROM tenant_state WHERE org_id = ?", req.auth.orgId);
+        let tenantState = null;
+        if (tenantRow?.state_json) {
+          tenantState = migrateTenantState(JSON.parse(tenantRow.state_json)).state;
+        }
+        if (tenantState) {
+          const lastGenerated = tenantState.lastGeneratedTimetable || {};
+          const sameRun = !lastGenerated.runId || lastGenerated.runId === ctx.run.id;
+          if (sameRun) {
+            tenantState.lastGeneratedTimetable = {
+              ...lastGenerated,
+              entries: result.entries,
+              report: nextReportFull,
+              manualEdits,
+              runId: ctx.run.id,
+            };
+            await tx.run(
+              "INSERT INTO tenant_state (org_id, state_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(org_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at",
+              req.auth.orgId,
+              JSON.stringify(tenantState),
+              nowIso(),
+            );
+          }
+        }
+
+        await logAudit(tx, req.auth.orgId, req.auth.userId, "TIMETABLE_MANUAL_EDIT", "timetable_run", ctx.run.id, {
+          operation: result.operation,
+          kind: result.kind,
+          source: source || null,
+          target,
+          subjectId: req.body?.subjectId || null,
+          teacherId: req.body?.teacherId || null,
+        });
+
+        return {
+          entries: result.entries,
+          manualEdits,
+          report: nextReportFull,
+          timetable: {
+            entries: result.entries,
+            manualEdits,
+            report: nextReportFull,
+            runId: ctx.run.id,
+          },
+        };
+      });
+
+      return res.json({
+        ok: true,
+        runId: ctx.run.id,
+        operation: result.operation,
+        kind: result.kind,
+        entries: output.entries,
+        validation: result.validation,
+        timetable: output.timetable,
+      });
+    } catch (err) {
+      console.error("[timetable/apply-edit]", err);
+      return res.status(500).json({ error: "Failed to apply timetable edit" });
+    }
+  });
 
   return router;
 }

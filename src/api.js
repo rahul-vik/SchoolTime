@@ -124,6 +124,15 @@ function forceLogoutToAuth() {
   }
 }
 
+/** 401 from B2B middleware when a tenant route is missing on the server — not a session problem. */
+function isMisroutedApiKey401(res, data) {
+  return res.status === 401 && typeof data?.error === "string" && /missing api key/i.test(data.error);
+}
+
+function misroutedTenantApiMessage() {
+  return "This feature is not available on the API server (missing route). Restart or redeploy the backend, then try again.";
+}
+
 async function rawRequest(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -174,6 +183,9 @@ async function request(path, options = {}) {
     await refreshSession().catch(() => false);
   }
   let { res, data } = await rawRequest(path, requestOptions);
+  if (isMisroutedApiKey401(res, data)) {
+    throw new Error(misroutedTenantApiMessage());
+  }
   if (res.status === 401 && !path.startsWith("/auth/")) {
     const refreshed = await refreshSession();
     if (refreshed) {
@@ -183,6 +195,9 @@ async function request(path, options = {}) {
       throw new Error("Session expired. Please sign in again.");
     }
   }
+  if (isMisroutedApiKey401(res, data)) {
+    throw new Error(misroutedTenantApiMessage());
+  }
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/auth/")) {
       if (!suppressAutoLogout) forceLogoutToAuth();
@@ -191,7 +206,10 @@ async function request(path, options = {}) {
     if (res.status === 403 && typeof data.error === "string" && data.error.includes("platform portal only")) {
       clearToken();
     }
-    throw new Error(data.error || "Request failed");
+    const err = new Error(data.error || "Request failed");
+    if (data.preflight) err.preflight = data.preflight;
+    if (data.details) err.details = data.details;
+    throw err;
   }
   return data;
 }
@@ -258,6 +276,30 @@ export function generateTimetable(state) {
 }
 export function getLatestTimetable() {
   return request("/timetable/latest", { suppressAutoLogout: true });
+}
+
+export function fetchValidEditTargets(body) {
+  return request("/timetable/valid-edit-targets", {
+    method: "POST",
+    body: JSON.stringify(body),
+    suppressAutoLogout: true,
+  });
+}
+
+export function fetchValidAddOptions(body) {
+  return request("/timetable/valid-add-options", {
+    method: "POST",
+    body: JSON.stringify(body),
+    suppressAutoLogout: true,
+  });
+}
+
+export function applyTimetableEdit(body) {
+  return request("/timetable/apply-edit", {
+    method: "POST",
+    body: JSON.stringify(body),
+    suppressAutoLogout: true,
+  });
 }
 export function getPurchasePackInfo() {
   return request("/license/purchase-pack-info", { suppressAutoLogout: true });

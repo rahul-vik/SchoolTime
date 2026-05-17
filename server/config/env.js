@@ -87,11 +87,21 @@ export function normalizeTimetableSolverMode(raw) {
  * Solver connection settings from env. `overrideMode` (from API/UI) replaces `TIMETABLE_SOLVER` for **mode only**
  * when it is a non-empty string (per-request generate).
  */
+function resolveEnvTimetableSolverMode() {
+  const raw = process.env.TIMETABLE_SOLVER;
+  if (raw !== undefined && raw !== null && String(raw).trim() !== "") {
+    return normalizeTimetableSolverMode(raw);
+  }
+  const cpSatUrl = String(process.env.CP_SAT_SOLVER_URL || "").trim();
+  if (cpSatUrl) return "hybrid";
+  return "legacy";
+}
+
 export function getTimetableSolverRuntime(overrideMode) {
   const mode =
     overrideMode !== undefined && overrideMode !== null && String(overrideMode).trim() !== ""
       ? normalizeTimetableSolverMode(overrideMode)
-      : normalizeTimetableSolverMode(process.env.TIMETABLE_SOLVER);
+      : resolveEnvTimetableSolverMode();
   const timeoutMs = Math.min(300_000, toPositiveInt(process.env.TIMETABLE_SOLVER_TIMEOUT_MS, 30_000));
   const cpSatUrl = String(process.env.CP_SAT_SOLVER_URL || "").trim();
   const cpSatSecret = String(process.env.CP_SAT_SOLVER_SECRET || "").trim();

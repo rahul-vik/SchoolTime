@@ -7,6 +7,9 @@ import {
   getLatestTimetable,
   getUsers,
   generateTimetable as apiGenerateTimetable,
+  fetchValidEditTargets,
+  fetchValidAddOptions,
+  applyTimetableEdit,
   getMe,
   hasStoredSession,
   loadState as apiLoadState,
@@ -26,9 +29,9 @@ import { SetupPage, StandardsPage } from "./features/setup/SetupPages";
 import { SubjectsPage, TeachersPage } from "./features/academics/AcademicPages";
 import { PeriodsPage, RulesPage } from "./features/scheduling/SchedulingPages";
 import { ExportsPage, GeneratePage, ReportsPage, TimetablePage } from "./features/timetable/TimetablePages";
-import { generateTimetableFlow, queueExportFlow, swapTimetableCells, applyUndoLastManualEdit } from "./features/timetable/appActions";
+import { generateTimetableFlow, queueExportFlow } from "./features/timetable/appActions";
 import { timetableRunKey } from "./features/timetable/timetableRunKey";
-import { BRAND_FONT, Btn, EmptyState, Field, Input, Modal, PillSelect, ProgressBar, Select, StatusBadge, T, Toast, UiIcon, css, useBreakpoint } from "./features/shared/uiPrimitives";
+import { BRAND_FONT, Btn, EmptyState, Field, Input, Modal, PillMultiSelect, PillSelect, ProgressBar, Select, StatusBadge, T, Toast, UiIcon, css, useBreakpoint } from "./features/shared/uiPrimitives";
 import { DivisionPill, TeacherDivisionMapper } from "./features/shared/assignmentComponents";
 import { TimetableGrid } from "./features/shared/TimetableGrid";
 import { getSlotMeta, parseDivisionInput } from "./features/shared/schedulingHelpers";
@@ -133,11 +136,12 @@ export default function App() {
   const [viewMode, setViewMode] = useState("division");
   const [selectedDivisionId, setSelectedDivisionId] = useState(SEED.divisions[0]?.id);
   const [selectedTeacherId, setSelectedTeacherId] = useState(SEED.teachers[0]?.id);
-  const [pendingSwap, setPendingSwap] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const timetableRef = useRef(null);
   const [generatingProgress, setGeneratingProgress] = useState(0);
   const [timetableSolver, setTimetableSolver] = useState("hybrid");
+  const [legacyQualityMaxRecommended, setLegacyQualityMaxRecommended] = useState(false);
+  const solverDefaultFromHealthRef = useRef(false);
   const [stateHydrated, setStateHydrated] = useState(false);
   const [settingsTab, setSettingsTab] = useState("usage");
   const permissions = user?.permissions || {};
@@ -197,22 +201,28 @@ export default function App() {
   }, [notify]);
 
   useEffect(() => {
-    if (!import.meta.env.PROD) return;
     const client = getClientReleaseSnapshot();
     let cancelled = false;
 
     const tick = async () => {
       try {
         const data = await getPublicHealth();
-        if (cancelled || !data?.release) return;
+        if (cancelled) return;
+        const rec = data?.timetableSolver?.recommendedUiDefault;
+        if (!solverDefaultFromHealthRef.current && (rec === "hybrid" || rec === "cp_sat" || rec === "legacy")) {
+          solverDefaultFromHealthRef.current = true;
+          setTimetableSolver(rec);
+        }
+        setLegacyQualityMaxRecommended(Boolean(data?.timetableSolver?.legacyQualityMaxRecommended));
+        if (!import.meta.env.PROD || !data?.release) return;
         setAppUpdateAvailable(serverReleaseIsNewer(data.release, client));
       } catch {
-        if (!cancelled) setAppUpdateAvailable(false);
+        if (!cancelled && import.meta.env.PROD) setAppUpdateAvailable(false);
       }
     };
 
     tick();
-    const interval = window.setInterval(tick, APP_UPDATE_POLL_MS);
+    const interval = window.setInterval(tick, import.meta.env.PROD ? APP_UPDATE_POLL_MS : 60_000);
     const onVis = () => {
       if (document.visibilityState === "visible") tick();
     };
@@ -382,7 +392,6 @@ export default function App() {
   }, []);
 
   const resetTimetableViewState = useCallback(() => {
-    setPendingSwap(null);
     setIsEditMode(false);
     setExportJobs([]);
   }, []);
@@ -399,6 +408,7 @@ export default function App() {
       teacherSubjects, freePeriodRules, subjectAllocations,
       timetableSolver,
     };
+    try {
     generateTimetableFlow({
       payload,
       divisions,
@@ -436,6 +446,9 @@ export default function App() {
         }
       },
     });
+    } catch (err) {
+      notify(err?.message || "Could not start timetable generation", "danger");
+    }
   }, [school, mediums, standards, divisions, subjects, teachers, periodSlots, workingDays, schedulingRules, classTeacherPreferences, teacherSubjects, freePeriodRules, subjectAllocations, timetableSolver, creditsRemaining, notify, navigate, fetchAndApplyAdminData, user, resetTimetableViewState]);
 
   const refreshCreditsFromServer = useCallback(async () => {
@@ -509,31 +522,6 @@ export default function App() {
       setPage("dashboard");
     }
   }, [canManageConfig, page]);
-
-  const handleCellClick = useCallback((entry) => {
-    swapTimetableCells({
-      entry,
-      isEditMode,
-      pendingSwap,
-      setPendingSwap,
-      setTimetable,
-      notify,
-    });
-  }, [isEditMode, pendingSwap, notify]);
-
-  const handleUndoManualEdit = useCallback(() => {
-    setPendingSwap(null);
-    const prev = timetableRef.current;
-    if (!prev) return;
-    const r = applyUndoLastManualEdit(prev);
-    if (!r.changed) {
-      notify(r.message, r.level);
-      return;
-    }
-    setTimetable(r.timetable);
-    timetableRef.current = r.timetable;
-    notify(r.message, r.level);
-  }, [notify]);
 
   const queueExport = useCallback((type, scope) => {
     queueExportFlow({
@@ -631,9 +619,9 @@ export default function App() {
       case "subjects":   return <SubjectsPage subjects={subjects} setSubjects={setSubjects} standards={standards} divisions={divisions} mediums={mediums} notify={notify} ui={{ T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field }} />;
       case "teachers":   return <TeachersPage teachers={teachers} setTeachers={setTeachers} subjects={subjects} mediums={mediums} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} timetable={timetable} timetableStatus={timetableStatus} notify={notify} helpers={{ TeacherDivisionMapper }} ui={{ T, css, Btn, EmptyState, Modal, Input, Select, Field, ProgressBar }} />;
       case "periods":    return <PeriodsPage periodSlots={periodSlots} setPeriodSlots={setPeriodSlots} workingDays={workingDays} notify={notify} ui={{ T, css, Btn, Modal, Input, Select, Field }} />;
-      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} subjects={subjects} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, PillSelect, Field }} />;
-      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} timetableSolver={timetableSolver} setTimetableSolver={setTimetableSolver} ui={{ T, css, Btn, ProgressBar, Modal, PillSelect }} />;
-      case "timetable":  return <TimetablePage key={`timetable-${activeTimetableRunKey}`} timetable={timetable} timetableStatus={timetableStatus} divisions={divisions} teachers={teachers} subjects={subjects} schedulingRules={schedulingRules} periodSlots={periodSlots} workingDays={workingDays} standards={standards} mediums={mediums} viewMode={viewMode} setViewMode={setViewMode} selectedDivisionId={selectedDivisionId} setSelectedDivisionId={setSelectedDivisionId} selectedTeacherId={selectedTeacherId} setSelectedTeacherId={setSelectedTeacherId} isEditMode={isEditMode} setIsEditMode={setIsEditMode} pendingSwap={pendingSwap} setPendingSwap={setPendingSwap} onCellClick={handleCellClick} onUndoManualEdit={handleUndoManualEdit} notify={notify} navigate={navigate} helpers={{ TimetableGrid }} ui={{ T, css, Btn, EmptyState }} />;
+      case "rules":      return <RulesPage schedulingRules={schedulingRules} setSchedulingRules={setSchedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} subjects={subjects} setSubjects={setSubjects} divisions={divisions} standards={standards} periodSlots={periodSlots} workingDays={workingDays} notify={notify} helpers={{ getSlotMeta }} ui={{ T, css, Btn, EmptyState, Modal, Input, PillSelect, PillMultiSelect, Field }} />;
+      case "generate":   return <GeneratePage timetableStatus={timetableStatus} generatingProgress={generatingProgress} onGenerate={generateTimetable} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} standards={standards} notify={notify} navigate={navigate} schedulingRules={schedulingRules} classTeacherPreferences={classTeacherPreferences} setClassTeacherPreferences={setClassTeacherPreferences} timetableSolver={timetableSolver} setTimetableSolver={setTimetableSolver} legacyQualityMaxRecommended={legacyQualityMaxRecommended} ui={{ T, css, Btn, ProgressBar, Modal, PillSelect }} />;
+      case "timetable":  return <TimetablePage key={`timetable-${activeTimetableRunKey}`} timetable={timetable} timetableStatus={timetableStatus} divisions={divisions} teachers={teachers} subjects={subjects} schedulingRules={schedulingRules} periodSlots={periodSlots} workingDays={workingDays} standards={standards} mediums={mediums} viewMode={viewMode} setViewMode={setViewMode} selectedDivisionId={selectedDivisionId} setSelectedDivisionId={setSelectedDivisionId} selectedTeacherId={selectedTeacherId} setSelectedTeacherId={setSelectedTeacherId} isEditMode={isEditMode} setIsEditMode={setIsEditMode} setTimetable={setTimetable} getTenantState={getTenantState} fetchValidEditTargets={fetchValidEditTargets} fetchValidAddOptions={fetchValidAddOptions} applyTimetableEditApi={applyTimetableEdit} notify={notify} navigate={navigate} helpers={{ TimetableGrid }} ui={{ T, css, Btn, EmptyState, Modal }} />;
       case "reports":    return <ReportsPage key={`reports-${activeTimetableRunKey}`} timetable={timetable} divisions={divisions} subjects={subjects} teachers={teachers} setTeachers={setTeachers} mediums={mediums} standards={standards} workingDays={workingDays} periodSlots={periodSlots} navigate={navigate} notify={notify} ui={{ T, css, Btn, EmptyState, ProgressBar, Modal, Input, Select, Field }} />;
       case "exports":    return <ExportsPage key={`exports-${activeTimetableRunKey}`} exportJobs={exportJobs} onExport={queueExport} onDownload={downloadExportNow} onRemoveExportJob={removeExportJob} timetable={timetable} notify={notify} navigate={navigate} helpers={{ StatusBadge }} ui={{ T, css, Btn, EmptyState }} />;
       default: return null;

@@ -33,6 +33,14 @@ function normalizeSubject(subject) {
     next.divisionLimits = [];
     changed = true;
   }
+  if (next.requiresDoublePeriod !== true && next.requiresDoublePeriod !== false) {
+    next.requiresDoublePeriod = false;
+    changed = true;
+  }
+  if (next.allowTeamTeaching !== true && next.allowTeamTeaching !== false) {
+    next.allowTeamTeaching = false;
+    changed = true;
+  }
   return { value: next, changed };
 }
 
@@ -232,6 +240,53 @@ export function migrateTenantState(inputState) {
   const prevCt = JSON.stringify(state.classTeacherPreferences ?? null);
   state.classTeacherPreferences = normalizeClassTeacherPreferences(state.classTeacherPreferences, state.teachers);
   if (JSON.stringify(state.classTeacherPreferences) !== prevCt) {
+    changed = true;
+  }
+
+  const divisionIds = new Set((state.divisions || []).map((d) => String(d.id)));
+  const subjectIds = new Set((state.subjects || []).map((s) => String(s.id)));
+  const teacherIds = new Set((state.teachers || []).map((t) => String(t.id)));
+
+  const lockByPair = new Map();
+  const rawLocks = Array.isArray(state.divisionSubjectTeacherLocks) ? state.divisionSubjectTeacherLocks : [];
+  for (const row of rawLocks) {
+    if (!row?.divisionId || !row?.subjectId || !row?.teacherId) continue;
+    if (!divisionIds.has(String(row.divisionId)) || !subjectIds.has(String(row.subjectId)) || !teacherIds.has(String(row.teacherId))) {
+      continue;
+    }
+    const prev = lockByPair.get(`${row.divisionId}:${row.subjectId}`);
+    const next = {
+      divisionId: String(row.divisionId),
+      subjectId: String(row.subjectId),
+      teacherId: String(row.teacherId),
+      ...(row.teamTeachingAllowed === true || prev?.teamTeachingAllowed === true ? { teamTeachingAllowed: true } : {}),
+    };
+    lockByPair.set(`${row.divisionId}:${row.subjectId}`, next);
+  }
+
+  const pairToTeachers = new Map();
+  for (const ts of state.teacherSubjects || []) {
+    if (!ts?.subjectId || !ts?.teacherId) continue;
+    const targetDivs = ts.divisionId ? [String(ts.divisionId)] : [...divisionIds];
+    for (const divId of targetDivs) {
+      if (!divisionIds.has(divId)) continue;
+      const k = `${divId}:${ts.subjectId}`;
+      if (!pairToTeachers.has(k)) pairToTeachers.set(k, new Set());
+      pairToTeachers.get(k).add(String(ts.teacherId));
+    }
+  }
+  for (const [k, set] of pairToTeachers) {
+    if (set.size !== 1 || lockByPair.has(k)) continue;
+    const [divisionId, subjectId] = k.split(":");
+    const teacherId = [...set][0];
+    if (!teacherIds.has(teacherId)) continue;
+    lockByPair.set(k, { divisionId, subjectId, teacherId });
+    changed = true;
+  }
+
+  const nextLocks = [...lockByPair.values()];
+  if (!Array.isArray(state.divisionSubjectTeacherLocks) || JSON.stringify(nextLocks) !== JSON.stringify(state.divisionSubjectTeacherLocks)) {
+    state.divisionSubjectTeacherLocks = nextLocks;
     changed = true;
   }
 

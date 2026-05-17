@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { getTimetableSolverRuntime } from "./config/env.js";
+import { applyLegacyQualityProfile, getLegacyQualityProfile } from "./legacyQualityProfile.js";
 import { buildSchedulingScopeReport, scopeTenantForScheduling } from "../shared/divisionScheduling.js";
 import { runTimetableEngine } from "./engine.js";
 import { estimateCpSatLessonDecisionVars } from "./services/cpsatSolveRequestBuilder.js";
@@ -80,6 +81,33 @@ function withLegacyEngineOptions(data, options) {
   return data;
 }
 
+function prepareLegacyEnginePayload(engineData, { requested, cpSatUrl }) {
+  const profile = getLegacyQualityProfile(process.env, {
+    cpSatConfigured: Boolean(cpSatUrl),
+    requestedMode: requested,
+    divisionCount: engineData.divisions?.length ?? 0,
+  });
+  if (!profile.active) {
+    return { engineData, legacyQualityMax: false };
+  }
+  return {
+    engineData: applyLegacyQualityProfile(engineData, profile),
+    legacyQualityMax: true,
+  };
+}
+
+function runLegacyEngine(engineData, schedulingScope, solverMeta) {
+  const { engineData: payload, legacyQualityMax } = prepareLegacyEnginePayload(engineData, {
+    requested: solverMeta.requested,
+    cpSatUrl: solverMeta.cpSatUrl,
+  });
+  const out = withSchedulingScopeReport(runTimetableEngine(payload), schedulingScope);
+  return mergeSolverReport(out, {
+    ...solverMeta,
+    ...(legacyQualityMax ? { legacyQualityMax: true } : {}),
+  });
+}
+
 export async function runTimetableGenerationEngine(data, options = {}) {
   const { engineData, schedulingScope } = prepareEnginePayload(data, options);
   const { mode: requested, timeoutMs, cpSatUrl, cpSatMaxDecisionVars } = getTimetableSolverRuntime(options.timetableSolver);
@@ -101,31 +129,32 @@ export async function runTimetableGenerationEngine(data, options = {}) {
 
   const hybridMeta = (patch) => (hybridRequested ? patch : {});
 
+  const legacyCtx = { requested, cpSatUrl };
+
   if (requested === "legacy") {
-    const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
-    return mergeSolverReport(out, { ...baseMeta, applied: "legacy" });
+    return runLegacyEngine(engineData, schedulingScope, { ...baseMeta, applied: "legacy", ...legacyCtx });
   }
 
   if (wantsCpSatPipeline) {
     if (!cpSatUrl) {
-      const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
-      return mergeSolverReport(out, {
+      return runLegacyEngine(engineData, schedulingScope, {
         ...baseMeta,
         applied: "legacy",
         fallbackReason: "cp_sat_url_missing",
         fallbackDetail: "Set CP_SAT_SOLVER_URL (e.g. http://127.0.0.1:8790/solve) to run the CP-SAT sidecar.",
         ...hybridMeta({ hybridStage: "legacy_preflight" }),
+        ...legacyCtx,
       });
     }
     const est = estimateCpSatLessonDecisionVars(engineData);
     if (est > cpSatMaxDecisionVars) {
-      const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
-      return mergeSolverReport(out, {
+      return runLegacyEngine(engineData, schedulingScope, {
         ...baseMeta,
         applied: "legacy",
         fallbackReason: "cp_sat_size_cap",
         fallbackDetail: String(est),
         ...hybridMeta({ hybridStage: "legacy_preflight" }),
+        ...legacyCtx,
       });
     }
   }
@@ -145,8 +174,7 @@ export async function runTimetableGenerationEngine(data, options = {}) {
   } catch (e) {
     const isTimeout = e?.message === "TIMETABLE_SOLVER_TIMEOUT" || e?.code === "TIMEOUT";
     const isCpSatValidation = e?.message === "CP_SAT_VALIDATION_FAILED" && e?.cpSatValidation;
-    const out = withSchedulingScopeReport(runTimetableEngine(engineData), schedulingScope);
-    return mergeSolverReport(out, {
+    return runLegacyEngine(engineData, schedulingScope, {
       ...baseMeta,
       applied: "legacy",
       fallbackReason: isTimeout ? "timeout" : isCpSatValidation ? "cp_sat_validation" : "error",
@@ -158,6 +186,7 @@ export async function runTimetableGenerationEngine(data, options = {}) {
           }
         : {}),
       ...hybridMeta(wantsCpSatPipeline ? { hybridStage: "legacy_fallback" } : {}),
+      ...legacyCtx,
     });
   }
 }

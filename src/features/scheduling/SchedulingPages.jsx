@@ -324,17 +324,125 @@ function applyRuleContradictionGuards(draft, meta) {
   return next;
 }
 
-export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPreferences, setClassTeacherPreferences, subjects, divisions, standards, periodSlots, workingDays, notify, helpers, ui }) {
-  const { T, css, Btn, EmptyState, Modal, Input, PillSelect, Field } = ui;
+const SUBJECT_CATEGORY_COLORS = {
+  LANGUAGE: "#7c3aed",
+  CORE: "#0369a1",
+  NON_CORE: "#0891b2",
+  PRACTICAL: "#059669",
+  EXTRA_CURRICULAR: "#d97706",
+};
+const SUBJECT_CATEGORY_PRIORITY = { CORE: 10, LANGUAGE: 8, NON_CORE: 6, PRACTICAL: 4, EXTRA_CURRICULAR: 3 };
+
+function normalizeSubjectIds(subjectIds, fallbackId) {
+  const raw = Array.isArray(subjectIds) ? subjectIds : subjectIds ? [subjectIds] : [];
+  const ids = [...new Set(raw.filter(Boolean).map(String))];
+  if (ids.length > 0) return ids;
+  if (fallbackId) return [String(fallbackId)];
+  return [];
+}
+
+/** Apply combined placement preference fields to one subject's scheduling rules. */
+function applyPlacementPreferenceForSubject(prevRules, subjectId, f, workingDays) {
+  let next = [...prevRules];
+  const sid = String(subjectId);
+  const stamp = Date.now();
+  const upsert = (ruleType, payload) => {
+    const idx = next.findIndex((r) => String(r.subjectId) === sid && r.ruleType === ruleType);
+    if (idx >= 0) next[idx] = { ...next[idx], ...payload, ruleType, subjectId: sid };
+    else next.push({ id: `r${stamp}-${ruleType}-${sid}`, subjectId: sid, ruleType, ...payload });
+  };
+  const remove = (ruleType) => {
+    next = next.filter((r) => !(String(r.subjectId) === sid && r.ruleType === ruleType));
+  };
+  if (f.enableExcludeSlot) {
+    upsert("EXCLUDE_SLOT", {
+      isActive: f.isActive,
+      note: f.note,
+      slotTargets: f.slotTargets,
+      slotPreset: undefined,
+      dayOfWeek: undefined,
+    });
+  } else remove("EXCLUDE_SLOT");
+  if (f.enableExcludeDay) {
+    upsert("EXCLUDE_DAY", {
+      isActive: f.isActive,
+      note: f.note,
+      dayOfWeekList: f.dayTargets,
+      dayOfWeek: undefined,
+      slotPreset: undefined,
+    });
+  } else remove("EXCLUDE_DAY");
+
+  const editingForThisSubject =
+    f.editingIncludeRuleId && String(f.editingIncludeSubjectId || f.subjectIds?.[0] || "") === sid;
+
+  if (!f.enableIncludeOnly) {
+    if (editingForThisSubject) next = next.filter((r) => r.id !== f.editingIncludeRuleId);
+  } else if (f.includeDivisionIds?.length > 0) {
+    const slotNum = Number(f.includeSlotNumber);
+    const daysSorted = sortWeekdaysInWorkingOrder(
+      (f.includeWeekdays || []).filter((d) => workingDays.includes(d)),
+      workingDays
+    );
+    const allowedCells = daysSorted.map((day) => ({ dayOfWeek: day, slotNumber: slotNum }));
+    const incPayload = {
+      isActive: f.isActive,
+      note: f.note,
+      divisionIds: [...f.includeDivisionIds],
+      divisionId: f.includeDivisionIds[0] || null,
+      includeMode: "CUSTOM",
+      includeWeekday: daysSorted[0] || "MONDAY",
+      allowedCells,
+    };
+    next = next.filter((r) => !(String(r.subjectId) === sid && r.ruleType === "INCLUDE_ONLY"));
+    const id = editingForThisSubject ? f.editingIncludeRuleId : `r${stamp}-INC-${sid}`;
+    next.push({ id, subjectId: sid, ruleType: "INCLUDE_ONLY", ...incPayload });
+  }
+
+  return next;
+}
+
+const defaultBulkSubjectPatch = () => ({
+  applyCategory: false,
+  category: "CORE",
+  applyMaxPerDay: false,
+  maxPerDay: 2,
+  applySchedulingPaused: false,
+  schedulingPaused: false,
+  applyRequiresDoublePeriod: false,
+  requiresDoublePeriod: false,
+  applyAllowTeamTeaching: false,
+  allowTeamTeaching: false,
+});
+
+export function RulesPage({
+  schedulingRules,
+  setSchedulingRules,
+  classTeacherPreferences,
+  setClassTeacherPreferences,
+  subjects,
+  setSubjects,
+  divisions,
+  standards,
+  periodSlots,
+  workingDays,
+  notify,
+  helpers,
+  ui,
+}) {
+  const { T, css, Btn, EmptyState, Modal, Input, PillSelect, PillMultiSelect, Field } = ui;
   const { getSlotMeta } = helpers;
   const { isMobile } = useBreakpoint();
   const [modal, setModal] = useState(null);
+  const [listSelectedSubjectIds, setListSelectedSubjectIds] = useState([]);
   const [form, setForm] = useState({
-    subjectId: "",
+    subjectIds: [],
     enableExcludeSlot: true,
     enableExcludeDay: false,
     enableIncludeOnly: false,
     editingIncludeRuleId: null,
+    editingIncludeSubjectId: null,
+    bulkSubjectPatch: defaultBulkSubjectPatch(),
     includeDivisionIds: [],
     includeWeekdays: [],
     includeSlotNumber: "",
@@ -399,9 +507,22 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     }
   };
 
-  const openCombinedPreferenceModal = (subjectId, focusRule) => {
-    const existingSlot = schedulingRules.find((r) => r.subjectId === subjectId && r.ruleType === "EXCLUDE_SLOT");
-    const existingDay = schedulingRules.find((r) => r.subjectId === subjectId && r.ruleType === "EXCLUDE_DAY");
+  const subjectPillOptions = useMemo(
+    () =>
+      subjects.map((s) => ({
+        id: s.id,
+        label: s.code || s.name,
+        hint: s.name,
+        accent: s.colorHex || T.brand,
+      })),
+    [subjects, T.brand]
+  );
+
+  const openCombinedPreferenceModal = (subjectIdOrIds, focusRule) => {
+    const subjectIds = normalizeSubjectIds(subjectIdOrIds, subjects[0]?.id);
+    const primaryId = subjectIds[0] || "";
+    const existingSlot = schedulingRules.find((r) => String(r.subjectId) === String(primaryId) && r.ruleType === "EXCLUDE_SLOT");
+    const existingDay = schedulingRules.find((r) => String(r.subjectId) === String(primaryId) && r.ruleType === "EXCLUDE_DAY");
     const includeFromFocus = focusRule?.ruleType === "INCLUDE_ONLY" ? focusRule : null;
     let includeDivisionIdsOpen = divisions?.[0]?.id ? [divisions[0].id] : [];
     let includeWeekdaysOpen = workingDays[0] ? [workingDays[0]] : ["MONDAY"];
@@ -432,11 +553,13 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     setForm(
       applyRuleContradictionGuards(
         {
-          subjectId: subjectId || subjects[0]?.id || "",
+          subjectIds,
           enableExcludeSlot: Boolean(existingSlot),
           enableExcludeDay: Boolean(existingDay),
           enableIncludeOnly: Boolean(includeFromFocus),
           editingIncludeRuleId: includeFromFocus?.id || null,
+          editingIncludeSubjectId: includeFromFocus ? String(includeFromFocus.subjectId || primaryId) : null,
+          bulkSubjectPatch: defaultBulkSubjectPatch(),
           includeDivisionIds: includeDivisionIdsOpen,
           includeWeekdays: includeWeekdaysOpen,
           includeSlotNumber: includeSlotOpen,
@@ -459,7 +582,11 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     setModal(existingSlot || existingDay || includeFromFocus ? "edit" : "add");
   };
   const addRule = () => {
-    if (!form.subjectId) return;
+    const targetSubjectIds = normalizeSubjectIds(form.subjectIds, subjects[0]?.id);
+    if (targetSubjectIds.length === 0) {
+      notify("Select at least one subject", "warning");
+      return;
+    }
     const contradiction = getSubjectPreferenceContradictionMessage(form, ruleMeta);
     if (contradiction) {
       notify(contradiction, "danger");
@@ -520,49 +647,62 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     }
     setSchedulingRules((prev) => {
       let next = [...prev];
-      const upsert = (ruleType, payload) => {
-        const idx = next.findIndex((r) => r.subjectId === f.subjectId && r.ruleType === ruleType);
-        if (idx >= 0) next[idx] = { ...next[idx], ...payload, ruleType, subjectId: f.subjectId };
-        else next.push({ id: `r${Date.now()}-${ruleType}`, subjectId: f.subjectId, ruleType, ...payload });
-      };
-      const remove = (ruleType) => {
-        next = next.filter((r) => !(r.subjectId === f.subjectId && r.ruleType === ruleType));
-      };
-      if (f.enableExcludeSlot) upsert("EXCLUDE_SLOT", { isActive: f.isActive, note: f.note, slotTargets: f.slotTargets, slotPreset: undefined, dayOfWeek: undefined });
-      else remove("EXCLUDE_SLOT");
-      if (f.enableExcludeDay) upsert("EXCLUDE_DAY", { isActive: f.isActive, note: f.note, dayOfWeekList: f.dayTargets, dayOfWeek: undefined, slotPreset: undefined });
-      else remove("EXCLUDE_DAY");
-
-      if (!f.enableIncludeOnly) {
-        if (f.editingIncludeRuleId) {
-          next = next.filter((r) => r.id !== f.editingIncludeRuleId);
-        }
-      } else if (f.includeDivisionIds?.length > 0) {
-        const slotNum = Number(f.includeSlotNumber);
-        const daysSorted = sortWeekdaysInWorkingOrder(
-          f.includeWeekdays.filter((d) => workingDays.includes(d)),
-          workingDays
-        );
-        const allowedCells = daysSorted.map((day) => ({ dayOfWeek: day, slotNumber: slotNum }));
-        const incPayload = {
-          isActive: f.isActive,
-          note: f.note,
-          divisionIds: [...f.includeDivisionIds],
-          divisionId: f.includeDivisionIds[0] || null,
-          includeMode: "CUSTOM",
-          includeWeekday: daysSorted[0] || "MONDAY",
-          allowedCells,
-        };
-        next = next.filter((r) => !(r.subjectId === f.subjectId && r.ruleType === "INCLUDE_ONLY"));
-        const id = f.editingIncludeRuleId || `r${Date.now()}-INC`;
-        next.push({ id, subjectId: f.subjectId, ruleType: "INCLUDE_ONLY", ...incPayload });
+      for (const subjectId of targetSubjectIds) {
+        next = applyPlacementPreferenceForSubject(next, subjectId, f, workingDays);
       }
-
       return next;
     });
-    notify(aligned ? "Preference updated. Excluded days/slots and fixed placement were aligned where they conflicted." : "Preference updated");
+
+    const patch = f.bulkSubjectPatch || defaultBulkSubjectPatch();
+    const hasBulkSubjectPatch =
+      patch.applyCategory ||
+      patch.applyMaxPerDay ||
+      patch.applySchedulingPaused ||
+      patch.applyRequiresDoublePeriod ||
+      patch.applyAllowTeamTeaching;
+    if (hasBulkSubjectPatch && typeof setSubjects === "function") {
+      const targetSet = new Set(targetSubjectIds.map(String));
+      setSubjects((prev) =>
+        prev.map((sub) => {
+          if (!targetSet.has(String(sub.id))) return sub;
+          const next = { ...sub };
+          if (patch.applyCategory) {
+            next.category = patch.category;
+            next.colorHex = SUBJECT_CATEGORY_COLORS[patch.category] || next.colorHex;
+            next.priorityWeight = SUBJECT_CATEGORY_PRIORITY[patch.category] ?? next.priorityWeight;
+          }
+          if (patch.applyMaxPerDay) next.maxPerDay = Math.max(1, Number(patch.maxPerDay) || 2);
+          if (patch.applySchedulingPaused) next.schedulingPaused = patch.schedulingPaused === true;
+          if (patch.applyRequiresDoublePeriod) next.requiresDoublePeriod = patch.requiresDoublePeriod === true;
+          if (patch.applyAllowTeamTeaching) next.allowTeamTeaching = patch.allowTeamTeaching === true;
+          return next;
+        })
+      );
+    }
+
+    const subjectCount = targetSubjectIds.length;
+    const placementMsg =
+      subjectCount > 1
+        ? `Placement preferences applied to ${subjectCount} subjects`
+        : aligned
+          ? "Preference updated. Excluded days/slots and fixed placement were aligned where they conflicted."
+          : "Preference updated";
+    const bulkMsg = hasBulkSubjectPatch && subjectCount > 1 ? " Shared subject settings updated." : hasBulkSubjectPatch ? " Subject settings updated." : "";
+    notify(placementMsg + bulkMsg);
     setModal(null);
+    setListSelectedSubjectIds([]);
   };
+
+  const toggleListSubject = (subjectId) => {
+    const key = String(subjectId);
+    setListSelectedSubjectIds((prev) => {
+      const set = new Set((prev || []).map(String));
+      if (set.has(key)) return prev.filter((id) => String(id) !== key);
+      return [...prev, subjectId];
+    });
+  };
+
+  const clearListSelection = () => setListSelectedSubjectIds([]);
   const quickAdd = () => {};
   const toggleRule = (id) => setSchedulingRules((p) => p.map((r) => r.id === id ? { ...r, isActive: !r.isActive } : r));
   const deleteRule = (id) => { setSchedulingRules((p) => p.filter((r) => r.id !== id)); notify("Rule removed"); };
@@ -595,7 +735,22 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
     <div style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0, marginBottom: 20 }}>
         <div style={{ minWidth: 0 }}><h2 style={{ margin: 0, fontSize: isMobile ? 17 : 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><UiIcon name="preferences" size={18} stroke={T.text} />Placement Preferences<span style={{ ...css.badge(T.gold), fontSize: 12 }}>{activeCount} active</span></h2><p style={{ margin: "4px 0 0", fontSize: 12, color: T.textSoft }}>Active preferences are read when you create a timetable. Inactive rows are ignored. Best fit / optimal modes may relax day and slot excludes (not fixed-only placement) to improve coverage.</p></div>
-        <Btn onClick={() => openCombinedPreferenceModal(subjects[0]?.id || "", null)} size="sm" fullWidth={isMobile}>+ Add Preference</Btn>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, width: isMobile ? "100%" : undefined, justifyContent: isMobile ? "stretch" : "flex-end" }}>
+          {listSelectedSubjectIds.length > 0 ? (
+            <>
+              <Btn onClick={() => openCombinedPreferenceModal(listSelectedSubjectIds, null)} size="sm" fullWidth={isMobile}>
+                Set preference ({listSelectedSubjectIds.length})
+              </Btn>
+              <Btn onClick={clearListSelection} variant="ghost" size="sm" fullWidth={isMobile}>
+                Clear
+              </Btn>
+            </>
+          ) : (
+            <Btn onClick={() => openCombinedPreferenceModal(subjects[0]?.id || "", null)} size="sm" fullWidth={isMobile}>
+              + Add Preference
+            </Btn>
+          )}
+        </div>
       </div>
 
       <div style={{ ...css.card, marginBottom: 18, background: T.brand + "08", border: `1px solid ${T.brand + "25"}` }}>
@@ -705,7 +860,22 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
               if (!sub) return null;
               return (
                 <div key={subjectId} style={css.card}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}><div style={{ width: 9, height: 9, borderRadius: "50%", background: sub.colorHex || T.CORE }} /><span style={{ fontWeight: 700, fontSize: 14 }}>{sub.name}</span><span style={css.badge(T[sub.category] || T.CORE)}>{sub.category.replace(/_/g, " ")}</span></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={listSelectedSubjectIds.some((id) => String(id) === String(subjectId))}
+                        onChange={() => toggleListSubject(subjectId)}
+                        style={{ width: 16, height: 16, cursor: "pointer" }}
+                      />
+                    </label>
+                    <div style={{ width: 9, height: 9, borderRadius: "50%", background: sub.colorHex || T.CORE }} />
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{sub.name}</span>
+                    <span style={css.badge(T[sub.category] || T.CORE)}>{sub.category.replace(/_/g, " ")}</span>
+                    <Btn onClick={() => openCombinedPreferenceModal(subjectId, null)} variant="ghost" size="sm" style={{ marginLeft: "auto" }}>
+                      Edit all
+                    </Btn>
+                  </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {rules.map((rule) => (
                       <div key={rule.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", background: rule.isActive ? (ruleColors[rule.ruleType] + "0d") : T.surfaceBorder + "40", borderRadius: 8, border: `1px solid ${rule.isActive ? ruleColors[rule.ruleType] + "35" : T.surfaceBorder}`, opacity: rule.isActive ? 1 : 0.6, flexWrap: "wrap" }}>
@@ -729,17 +899,28 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
         )}
 
       {modal && (
-        <Modal title={modal === "add" ? "Add Placement Preference" : "Edit Placement Preference"} onClose={() => setModal(null)} width={520}>
-          <PillSelect
-            label="Subject"
-            value={form.subjectId}
-            onChange={(v) => setForm((p) => ({ ...p, subjectId: v }))}
-            options={subjects.map((s) => ({
-              id: s.id,
-              label: s.code || s.name,
-              hint: s.name,
-              accent: s.colorHex || T.brand,
-            }))}
+        <Modal
+          title={
+            (form.subjectIds || []).length > 1
+              ? `Placement preference · ${(form.subjectIds || []).length} subjects`
+              : modal === "add"
+                ? "Add Placement Preference"
+                : "Edit Placement Preference"
+          }
+          onClose={() => setModal(null)}
+          width={520}
+        >
+          <PillMultiSelect
+            label="Subjects"
+            value={form.subjectIds || []}
+            onChange={(ids) => setForm((p) => ({ ...p, subjectIds: ids }))}
+            options={subjectPillOptions}
+            minSelected={1}
+            help={
+              (form.subjectIds || []).length > 1
+                ? "The same placement preference will be saved for every selected subject."
+                : "Select one or more subjects to manage together."
+            }
           />
           <Field label="">
             <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
@@ -1013,6 +1194,192 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
               </p>
             </>
           )}
+          {(form.subjectIds || []).length > 0 && typeof setSubjects === "function" ? (
+            <div style={{ marginBottom: 14, padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.surfaceBorder}`, background: T.surfaceAlt }}>
+              <h4 style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 700, color: T.textMid }}>
+                Shared subject settings (optional)
+              </h4>
+              <p style={{ fontSize: 11, color: T.textSoft, margin: "0 0 10px", lineHeight: 1.4 }}>
+                Tick a row below to apply that setting to all selected subjects when you save.
+              </p>
+              <Field label="">
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.bulkSubjectPatch?.applyCategory === true}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        bulkSubjectPatch: { ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()), applyCategory: e.target.checked },
+                      }))
+                    }
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 13, color: T.textMid, fontWeight: 600 }}>Set category</span>
+                </label>
+              </Field>
+              {form.bulkSubjectPatch?.applyCategory ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                  {["LANGUAGE", "CORE", "NON_CORE", "PRACTICAL", "EXTRA_CURRICULAR"].map((cat) => {
+                    const selected = form.bulkSubjectPatch?.category === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() =>
+                          setForm((p) => ({
+                            ...p,
+                            bulkSubjectPatch: { ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()), category: cat },
+                          }))
+                        }
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${selected ? SUBJECT_CATEGORY_COLORS[cat] : T.surfaceBorder}`,
+                          background: selected ? SUBJECT_CATEGORY_COLORS[cat] + "18" : T.surface,
+                          color: selected ? SUBJECT_CATEGORY_COLORS[cat] : T.textMid,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {cat.replace(/_/g, " ")}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <Field label="">
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.bulkSubjectPatch?.applyMaxPerDay === true}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        bulkSubjectPatch: { ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()), applyMaxPerDay: e.target.checked },
+                      }))
+                    }
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 13, color: T.textMid, fontWeight: 600 }}>Set default max periods per day</span>
+                </label>
+              </Field>
+              {form.bulkSubjectPatch?.applyMaxPerDay ? (
+                <Field label="">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={form.bulkSubjectPatch?.maxPerDay ?? 2}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        bulkSubjectPatch: {
+                          ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()),
+                          maxPerDay: Math.max(1, Number(e.target.value) || 2),
+                        },
+                      }))
+                    }
+                    style={css.input}
+                  />
+                </Field>
+              ) : null}
+              <Field label="">
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.bulkSubjectPatch?.applySchedulingPaused === true}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        bulkSubjectPatch: { ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()), applySchedulingPaused: e.target.checked },
+                      }))
+                    }
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 13, color: T.textMid, fontWeight: 600 }}>Scheduling pause</span>
+                </label>
+              </Field>
+              {form.bulkSubjectPatch?.applySchedulingPaused ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                  {[
+                    { paused: false, label: "Active for timetable" },
+                    { paused: true, label: "Paused for timetable" },
+                  ].map((opt) => {
+                    const selected = form.bulkSubjectPatch?.schedulingPaused === opt.paused;
+                    return (
+                      <button
+                        key={String(opt.paused)}
+                        type="button"
+                        onClick={() =>
+                          setForm((p) => ({
+                            ...p,
+                            bulkSubjectPatch: {
+                              ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()),
+                              schedulingPaused: opt.paused,
+                            },
+                          }))
+                        }
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${selected ? T.warning : T.surfaceBorder}`,
+                          background: selected ? T.warning + "12" : T.surface,
+                          color: selected ? T.warning : T.textMid,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {[
+                { key: "applyRequiresDoublePeriod", field: "requiresDoublePeriod", label: "Requires double period (when weekly count allows pairs)" },
+                { key: "applyAllowTeamTeaching", field: "allowTeamTeaching", label: "Allow team teaching for this subject" },
+              ].map(({ key, field, label }) => (
+                <Field key={key} label="">
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.bulkSubjectPatch?.[key] === true}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          bulkSubjectPatch: { ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()), [key]: e.target.checked },
+                        }))
+                      }
+                      style={{ width: 16, height: 16, cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: 13, color: T.textMid, fontWeight: 600 }}>{label}</span>
+                  </label>
+                  {form.bulkSubjectPatch?.[key] ? (
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 26, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={form.bulkSubjectPatch?.[field] === true}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            bulkSubjectPatch: {
+                              ...(p.bulkSubjectPatch || defaultBulkSubjectPatch()),
+                              [field]: e.target.checked,
+                            },
+                          }))
+                        }
+                        style={{ width: 16, height: 16, cursor: "pointer" }}
+                      />
+                      <span style={{ fontSize: 12, color: T.textSoft }}>Enabled</span>
+                    </label>
+                  ) : null}
+                </Field>
+              ))}
+            </div>
+          ) : null}
           <Input label="Note (optional)" value={form.note || ""} onChange={(v) => setForm((p) => ({ ...p, note: v }))} placeholder="e.g. PE should not be right after assembly" />
           <Field label=""><label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}><input type="checkbox" checked={form.isActive !== false} onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.checked }))} style={{ width: 18, height: 18, cursor: "pointer" }} /><span style={{ fontSize: 14, color: T.textMid, fontWeight: 500 }}>Preference is active</span></label></Field>
           {preferenceContradiction ? (
@@ -1020,7 +1387,7 @@ export function RulesPage({ schedulingRules, setSchedulingRules, classTeacherPre
           ) : null}
           <div style={{ display: "flex", gap: 10 }}>
             <Btn onClick={addRule} disabled={Boolean(preferenceContradiction)}>
-              Save Preference
+              {(form.subjectIds || []).length > 1 ? `Save for ${(form.subjectIds || []).length} subjects` : "Save Preference"}
             </Btn>
             <Btn onClick={() => setModal(null)} variant="ghost">
               Cancel

@@ -222,6 +222,70 @@ export function Select({ label, value, onChange, options, placeholder, error, di
   );
 }
 
+/** Multi-choice pill row — toggle chips; empty selection allowed unless minSelected is set. */
+export function PillMultiSelect({
+  label,
+  value = [],
+  onChange,
+  options,
+  disabled = false,
+  help,
+  minSelected = 0,
+}) {
+  const selectedSet = new Set((value || []).map(String));
+  const toggle = (id) => {
+    if (disabled) return;
+    const key = String(id);
+    const next = selectedSet.has(key)
+      ? (value || []).filter((x) => String(x) !== key)
+      : [...(value || []), id];
+    if (minSelected > 0 && next.length < minSelected) return;
+    onChange(next);
+  };
+
+  return (
+    <Field label={label} help={help}>
+      <div
+        role="group"
+        aria-label={label || undefined}
+        style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+      >
+        {options.map((opt) => {
+          const on = selectedSet.has(String(opt.id));
+          const accent = opt.accent || T.brand;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              title={opt.hint}
+              disabled={disabled}
+              onClick={() => toggle(opt.id)}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: on ? "none" : `1px solid ${T.surfaceBorder}`,
+                cursor: disabled ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: "inherit",
+                background: on ? accent : T.surfaceAlt,
+                color: on ? "#fff" : T.textMid,
+                opacity: disabled ? 0.65 : 1,
+                transition: "all 0.15s",
+                maxWidth: "100%",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
 /** Single-choice pill row — same visual language as Create timetable engine pills. */
 export function PillSelect({ label, value, onChange, options, disabled = false, help, hintBox = true }) {
   const active = options.find((o) => o.id === value) || options[0];

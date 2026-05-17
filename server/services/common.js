@@ -26,7 +26,16 @@ const subjectSchema = z.object({
       })
     )
     .optional(),
+  requiresDoublePeriod: z.boolean().optional(),
+  allowTeamTeaching: z.boolean().optional(),
   isActive: z.boolean().optional(),
+});
+
+const divisionSubjectTeacherLockSchema = z.object({
+  divisionId: z.string().min(1),
+  subjectId: z.string().min(1),
+  teacherId: z.string().min(1),
+  teamTeachingAllowed: z.boolean().optional(),
 });
 
 const classTeacherPreferencesSchema = z.object({
@@ -71,7 +80,10 @@ export const schemas = {
     classTeacherPreferences: classTeacherPreferencesSchema.optional(),
     exportJobs: z.array(z.any()).optional(),
     lastGeneratedTimetable: z.any().nullable().optional(),
-    teacherSubjects: z.array(z.any()).optional(), freePeriodRules: z.array(z.any()).optional(), subjectAllocations: z.array(z.any()).optional(),
+    teacherSubjects: z.array(z.any()).optional(),
+    divisionSubjectTeacherLocks: z.array(divisionSubjectTeacherLockSchema).optional(),
+    freePeriodRules: z.array(z.any()).optional(),
+    subjectAllocations: z.array(z.any()).optional(),
   }),
   creatorRegisterOrgSchema: z.object({
     orgName: z.string().min(2),

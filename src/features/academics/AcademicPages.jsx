@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { UiIcon, useBreakpoint } from "../shared/uiPrimitives";
 import { formatTeacherFreePeriodsShort } from "../shared/timetableDisplayHelpers";
 import {
@@ -21,6 +21,11 @@ import {
   hasTimetableForWorkload,
   sortTeachersByWorkloadAsc,
 } from "../../../shared/teacherWorkload.js";
+import {
+  removeTeacherForUndo,
+  restoreDeletedTeacher,
+  teacherUndoLabel,
+} from "../../../shared/academicDeleteUndo.js";
 
 export function SubjectsPage({ subjects, setSubjects, standards, divisions, mediums, notify, ui }) {
   const { T, css, Btn, ProgressBar, EmptyState, Modal, Input, Select, Field } = ui;
@@ -505,7 +510,46 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
   const [teacherSearch, setTeacherSearch] = useState("");
   const [teacherFilterStandardIds, setTeacherFilterStandardIds] = useState([]);
   const [teacherFilterSubjectIds, setTeacherFilterSubjectIds] = useState([]);
+  const [deletedTeacherUndo, setDeletedTeacherUndo] = useState(null);
   const blank = { firstName: "", lastName: "", employeeCode: "", email: "", maxPerDay: 0, maxPerWeek: 0, mediumIds: mediums.length > 0 ? [mediums[0].id] : [], subjectIds: [], primarySubjectId: "", freeMorningPeriods: 0, freeEveningPeriods: 0, maxContinuousSameSubjectPerDivision: 1, maxContinuousAnySubjectPerDivision: 1, assignedDivisionIds: [], classTeacherDivisionIds: [], primaryClassTeacherDivisionId: null, schedulingPaused: false };
+
+  const removeTeacher = useCallback((teacher) => {
+    setDeletedTeacherUndo(teacher);
+    setTeachers((prev) => removeTeacherForUndo(prev, teacher.id).teachers);
+    notify(`Removed ${teacherUndoLabel(teacher)} — Undo on this page or Ctrl+Z`, "info");
+  }, [setTeachers, notify]);
+
+  const undoRemoveTeacher = useCallback(() => {
+    const snapshot = deletedTeacherUndo;
+    if (!snapshot) {
+      notify("Nothing to undo", "info");
+      return;
+    }
+    const label = teacherUndoLabel(snapshot);
+    setTeachers((prev) => {
+      const { teachers: next, restored } = restoreDeletedTeacher(prev, snapshot);
+      if (!restored) {
+        notify("Could not restore — teacher may already exist", "warning");
+        return prev;
+      }
+      setDeletedTeacherUndo(null);
+      notify(`Restored ${label}`, "success");
+      return next;
+    });
+  }, [deletedTeacherUndo, setTeachers, notify]);
+
+  useEffect(() => {
+    if (!deletedTeacherUndo) return undefined;
+    const onKeyDown = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z" || e.shiftKey) return;
+      const tag = String(e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable) return;
+      e.preventDefault();
+      undoRemoveTeacher();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [deletedTeacherUndo, undoRemoveTeacher]);
 
   const teacherStandardFilterOptions = useMemo(
     () => (standards || []).map((std) => ({ id: std.id, label: `Std ${std.name}` })),
@@ -708,6 +752,35 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
         <Btn onClick={openAdd} size="sm" fullWidth={isMobile}>+ Add Teacher</Btn>
       </div>
 
+      {deletedTeacherUndo && (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            marginBottom: 14,
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: T.info + "14",
+            border: `1px solid ${T.info}40`,
+            fontSize: 13,
+            color: T.textMid,
+          }}
+        >
+          <span>
+            Removed <strong style={{ color: T.text }}>{teacherUndoLabel(deletedTeacherUndo)}</strong>
+            {deletedTeacherUndo.employeeCode ? ` (${deletedTeacherUndo.employeeCode})` : ""}
+          </span>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <Btn size="sm" variant="ghost" onClick={undoRemoveTeacher}>Undo</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => setDeletedTeacherUndo(null)} style={{ color: T.textSoft }}>Dismiss</Btn>
+          </div>
+        </div>
+      )}
+
       <ListSearchFilterBar
         search={teacherSearch}
         onSearchChange={setTeacherSearch}
@@ -775,7 +848,7 @@ export function TeachersPage({ teachers, setTeachers, subjects, mediums, divisio
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   <Btn onClick={() => openEdit(t)} variant="ghost" size="sm">Edit</Btn>
-                  <Btn onClick={() => { setTeachers((p) => p.filter((x) => x.id !== t.id)); notify("Teacher removed"); }} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
+                  <Btn onClick={() => removeTeacher(t)} variant="ghost" size="sm" style={{ color: T.danger }}><UiIcon name="close" size={14} stroke="currentColor" /></Btn>
                 </div>
               </div>
 
