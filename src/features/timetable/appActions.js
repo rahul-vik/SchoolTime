@@ -1,3 +1,4 @@
+import { withLiveTimetableReport } from "../../../shared/recomputeTimetableReport.js";
 import { divisionsMissingClassTeacher } from "../shared/classTeacherCoverage";
 
 export function generateTimetableFlow({
@@ -122,7 +123,7 @@ export function applyUndoLastManualEdit(prev) {
     nextReport.lastManualEditAt = edits[edits.length - 1].editedAt;
   }
   return {
-    timetable: { ...prev, entries: newEntries, manualEdits: edits, report: nextReport },
+    timetable: withLiveTimetableReport({ ...prev, entries: newEntries, manualEdits: edits, report: nextReport }),
     changed: true,
     message: "Last edit undone",
     level: "success",

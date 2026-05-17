@@ -15,6 +15,7 @@ import {
   getValidEditTargets,
   resolveTimetableEditPayload,
 } from "../services/timetableManualEditService.js";
+import { mergeLiveReportFromEntries } from "../../shared/recomputeTimetableReport.js";
 
 /** Express may give `string | string[]` for duplicate keys; take first stable value. */
 function firstQueryParam(value) {
@@ -188,9 +189,21 @@ export function createTimetableRoutes(db) {
       const report = row.report_json ? JSON.parse(row.report_json) : {};
       const entries = row.entries_json ? JSON.parse(row.entries_json) : [];
       const sourceState = row.state_json ? migrateTenantState(JSON.parse(row.state_json)).state : null;
+      const liveReport = sourceState ? mergeLiveReportFromEntries(sourceState, entries, report) : report;
+      const liveScore = liveReport.objective?.score ?? row.score;
+      const liveStatus =
+        liveScore > 85 ? "FEASIBLE" : liveScore > 60 ? "PARTIAL" : "INFEASIBLE";
       return res.json({
-        run: { id: row.id, status: row.status, score: row.score, createdAt: row.created_at },
-        timetable: { entries, score: row.score, status: row.status, report, runId: row.id, generatedAt: row.created_at, sourceState },
+        run: { id: row.id, status: liveStatus, score: liveScore, createdAt: row.created_at },
+        timetable: {
+          entries,
+          score: liveScore,
+          status: liveStatus,
+          report: liveReport,
+          runId: row.id,
+          generatedAt: row.created_at,
+          sourceState,
+        },
       });
     } catch {
       return res.status(500).json({ error: "Stored timetable data is invalid" });
@@ -369,11 +382,19 @@ export function createTimetableRoutes(db) {
           subjectId: req.body?.subjectId,
           teacherId: req.body?.teacherId,
         });
-        const nextReportFull = { ...nextReport, ...(report.validation ? { validation: report.validation } : {}) };
+        const nextReportFull = mergeLiveReportFromEntries(ctx.state, result.entries, {
+          ...nextReport,
+          ...(report.validation ? { validation: report.validation } : {}),
+        });
+        const liveScore = nextReportFull.objective?.score ?? ctx.run.score;
+        const liveStatus =
+          liveScore > 85 ? "FEASIBLE" : liveScore > 60 ? "PARTIAL" : "INFEASIBLE";
         await tx.run(
-          "UPDATE timetable_runs SET entries_json = ?, report_json = ? WHERE id = ? AND org_id = ?",
+          "UPDATE timetable_runs SET entries_json = ?, report_json = ?, score = ?, status = ? WHERE id = ? AND org_id = ?",
           JSON.stringify(result.entries),
           JSON.stringify(nextReportFull),
+          liveScore,
+          liveStatus,
           ctx.run.id,
           req.auth.orgId,
         );
@@ -391,6 +412,8 @@ export function createTimetableRoutes(db) {
               ...lastGenerated,
               entries: result.entries,
               report: nextReportFull,
+              score: liveScore,
+              status: liveStatus,
               manualEdits,
               runId: ctx.run.id,
             };
@@ -416,10 +439,14 @@ export function createTimetableRoutes(db) {
           entries: result.entries,
           manualEdits,
           report: nextReportFull,
+          score: liveScore,
+          status: liveStatus,
           timetable: {
             entries: result.entries,
             manualEdits,
             report: nextReportFull,
+            score: liveScore,
+            status: liveStatus,
             runId: ctx.run.id,
           },
         };

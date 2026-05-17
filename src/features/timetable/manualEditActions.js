@@ -1,3 +1,4 @@
+import { withLiveTimetableReport } from "../../../shared/recomputeTimetableReport.js";
 import { applyUndoLastManualEdit, entryAfterSwapPlacement } from "./appActions.js";
 
 export function cellCoordKey(entry) {
@@ -170,12 +171,14 @@ export function mergeTimetableAfterEdit(prev, apiResponse) {
     manualEditCount: manualEdits.length,
     lastManualEditAt: manualEdits[manualEdits.length - 1]?.editedAt,
   };
-  return {
+  return withLiveTimetableReport({
     ...prev,
     entries: nextEntries,
     manualEdits,
     report,
-  };
+    score: apiResponse?.timetable?.score ?? prev.score,
+    status: apiResponse?.timetable?.status ?? prev.status,
+  });
 }
 
 export { applyUndoLastManualEdit, entryAfterSwapPlacement };

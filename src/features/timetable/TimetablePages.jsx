@@ -10,6 +10,7 @@ import {
 } from "../shared/timetableDisplayHelpers";
 import { formatDateTimeIndian, formatTimeIndian } from "../shared/dateTimeFormat";
 import { reportSubjectHoursCategoryShort, reportSubjectHoursSubjectLabel } from "../../../shared/reportHoursLabels.js";
+import { isLessonPlacementEntry } from "../../../shared/recomputeTimetableReport.js";
 import { sortWorkingDaysCanonical } from "../../../shared/periodSlotDays.js";
 import { normalizeTenantSchoolOrdering, sortDivisionsByStandardOrder } from "../../../shared/schoolDisplayOrder.js";
 import { resolveDivisionsMissingClassTeacher, formatDivisionMissingLabel } from "../shared/classTeacherCoverage";
@@ -1412,7 +1413,14 @@ export function ReportsPage({
     reportStandards.forEach((std) => {
       const eligibleDivs = reportDivisions.filter((d) => d.standardId === std.id && subjectAppliesToDivision(sub, d));
       if (eligibleDivs.length === 0) return;
-      const totalGot = eligibleDivs.reduce((acc, div) => acc + timetable.entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length, 0);
+      const totalGot = eligibleDivs.reduce(
+        (acc, div) =>
+          acc
+          + timetable.entries.filter(
+            (e) => String(e.divisionId) === String(div.id) && String(e.subjectId) === String(sub.id) && isLessonPlacementEntry(e),
+          ).length,
+        0,
+      );
       const totalReq = eligibleDivs.reduce((acc, div) => acc + getDivisionRequiredWeekly(sub, div.id), 0);
       byStd[std.name] = Math.round(totalGot / Math.max(eligibleDivs.length, 1));
       reqByStd[std.name] = Math.round(totalReq / Math.max(eligibleDivs.length, 1));
@@ -1629,7 +1637,13 @@ export function ReportsPage({
           {reportDivisions.map((div) => {
             const std = reportStandards.find((s) => s.id === div.standardId);
             const divSubjects = reportSubjects.filter((s) => subjectAppliesToDivision(s, div));
-            const scheduled = divSubjects.map((sub) => ({ sub, required: getDivisionRequiredWeekly(sub, div.id), got: timetable.entries.filter((e) => e.divisionId === div.id && e.subjectId === sub.id).length }));
+            const scheduled = divSubjects.map((sub) => ({
+              sub,
+              required: getDivisionRequiredWeekly(sub, div.id),
+              got: timetable.entries.filter(
+                (e) => String(e.divisionId) === String(div.id) && String(e.subjectId) === String(sub.id) && isLessonPlacementEntry(e),
+              ).length,
+            }));
             const pct = Math.round(scheduled.reduce((a, s) => a + s.got, 0) / Math.max(scheduled.reduce((a, s) => a + s.required, 0), 1) * 100);
             const ctTeacher = findClassTeacherForDivision(div.id, reportTeachers);
             const ctSubject = classTeacherPrimarySubject(ctTeacher, reportSubjects);
