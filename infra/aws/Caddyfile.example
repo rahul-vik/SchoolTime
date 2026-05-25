@@ -1,0 +1,13 @@
+# Copy to EC2: /etc/caddy/Caddyfile
+# DNS A record (or DuckDNS) must point to your EC2 public / Elastic IP.
+# Open inbound 80 and 443 on the EC2 security group.
+
+# Free DuckDNS (no paid domain):
+schooltime-api.duckdns.org {
+    reverse_proxy 127.0.0.1:8787
+}
+
+# Paid domain example:
+# api.yourdomain.com {
+#     reverse_proxy 127.0.0.1:8787
+# }

@@ -1,0 +1,14 @@
+# AWS Lambda container image for SchoolTime CP-SAT.
+# Build from repo root:
+#   docker build -f solver/cpsat/Dockerfile.lambda -t schooltime-cpsat-lambda .
+# Push to ECR and deploy as Lambda (see docs/AWS_LAMBDA_CPSAT.md).
+
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY solver/cpsat/requirements.txt ${LAMBDA_TASK_ROOT}/requirements.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt -t ${LAMBDA_TASK_ROOT}
+
+COPY solver/cpsat/service.py ${LAMBDA_TASK_ROOT}/service.py
+COPY solver/cpsat/lambda_handler.py ${LAMBDA_TASK_ROOT}/lambda_handler.py
+
+CMD ["lambda_handler.handler"]

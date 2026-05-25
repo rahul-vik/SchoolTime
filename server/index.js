@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -158,7 +158,8 @@ app.use(async (err, req, res, next) => {
   res.status(status).json({ error: err?.message || "Server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[config] env=${NODE_ENV} port=${PORT} corsOrigins=${hasWildcardCors ? "wildcard" : CORS_ORIGINS.length}`);
-  console.log(`API server running on http://localhost:${PORT}`);
+const HOST = String(process.env.HOST || "0.0.0.0").trim() || "0.0.0.0";
+app.listen(PORT, HOST, () => {
+  console.log(`[config] env=${NODE_ENV} host=${HOST} port=${PORT} corsOrigins=${hasWildcardCors ? "wildcard" : CORS_ORIGINS.length}`);
+  console.log(`API server running on http://${HOST}:${PORT}`);
 });

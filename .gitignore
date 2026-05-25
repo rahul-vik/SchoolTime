@@ -9,11 +9,19 @@ SchoolTime-workspace.zip
 .env
 .env.local
 .env.*.local
+pem/
+*.pem
 
 # Database and runtime artifacts
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+
+# Local export/diagnostic output (npm run export:last-run, PDF exports)
+Results/
+
+# Agent/session temp scripts (never commit)
+scripts/tmp-*.mjs
 
 # Logs and OS files
 *.log

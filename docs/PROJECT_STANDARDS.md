@@ -63,6 +63,7 @@ Use it for onboarding, daily development, and release decisions.
 - Clear summary and reason for change
 - Build/runtime impact validated
 - Timetable generation checked if impacted
+- Manual edit / repair / live report recompute checked if timetable UI or `apply-edit` paths change
 - PDF/Excel export checked if impacted
 - API/docs/env updated when behavior changes
 - No secrets committed

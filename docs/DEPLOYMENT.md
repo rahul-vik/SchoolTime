@@ -1,5 +1,9 @@
 # Deployment Guide
 
+**Production (AWS + GitHub):** use **`docs/AWS_FREE_TIER_SETUP.md`** (EC2 + RDS + Caddy/DuckDNS) or **`docs/AWS_COMPLETE_SETUP.md`**. GitHub Pages hosts the SPA; **EC2 Docker** runs the API; **RDS PostgreSQL** holds data. **Render is not used.**
+
+This file covers build requirements, env vars, SMTP, SQLite dev upgrades, and shared operational notes.
+
 ## 1) Build Requirements
 
 - Node.js 18+ (20+ recommended)
@@ -20,13 +24,13 @@ Copy `.env.example` to `.env` and set at minimum:
 
 If multiple CORS origins are supported in your config parser, provide them in the expected format.
 
-If you are preparing Render Postgres, run Phase 1 migration first:
+If you are preparing Postgres (AWS RDS or any host), run migration first:
 
 - `docs/POSTGRES_MIGRATION.md`
 
-### CP-SAT on Render (optional second service)
+### CP-SAT sidecar (optional, AWS)
 
-The Python OR-Tools sidecar is **not** inside the Node process. On Render, deploy it as a **separate Web Service** (Docker) and point the API at it with `CP_SAT_SOLVER_URL`. Step-by-step: **`docs/RENDER_CP_SAT.md`**. Repo files: `solver/cpsat/Dockerfile`, `render.yaml` (Blueprint).
+The Python OR-Tools sidecar is **not** inside the Node process. On AWS, deploy it as **Lambda** (`docs/AWS_LAMBDA_CPSAT.md`) or a **second container** (`docs/AWS_CP_SAT.md`) and set `CP_SAT_SOLVER_URL` on the EC2 API. Repo: `solver/cpsat/Dockerfile`.
 
 ### Platform operator portal (`/creator`)
 
@@ -130,34 +134,13 @@ On startup, the API runs **`migrateSqliteSchema`** after `CREATE TABLE IF NOT EX
 
 **Before deploy:** back up `server/data/app.db` (and WAL/SHM files). After deploy, check logs for `[db] using sqlite` and smoke-test login, load state, generate, and export.
 
-Optional CP-SAT (`CP_SAT_SOLVER_URL`, Hybrid UI) is **not** required; default `TIMETABLE_SOLVER=legacy` keeps prior greedy behavior.
+Optional CP-SAT (`CP_SAT_SOLVER_URL`, Hybrid UI) is **not** required; default `TIMETABLE_SOLVER=legacy` keeps prior greedy behavior. See **`docs/AWS_LAMBDA_CPSAT.md`** or **`docs/AWS_CP_SAT.md`** (not Render — `docs/RENDER_CP_SAT.md` is deprecated).
 
-### CP-SAT sidecar on Render (second Web Service)
+### RDS + Docker API (EC2) notes
 
-Run the Python solver as its **own** Render Web Service (not inside the Node process). The repo includes `solver/cpsat/Dockerfile` and an optional `render.yaml` blueprint.
-
-1. **Create Web Service** `schooltime-cpsat`
-   - **Runtime:** Docker
-   - **Dockerfile path:** `solver/cpsat/Dockerfile`
-   - **Docker context:** repository root
-   - **Health check path:** `/health`
-   - **Plan:** use at least **512MB–1GB RAM** (OR-Tools is heavy)
-
-2. **Environment (sidecar service)**
-   - `HOST=0.0.0.0` (required on Render; local dev can use `127.0.0.1`)
-   - `CP_SAT_SOLVER_SECRET` — same random string as on the API service
-
-3. **Environment (API service `schooltime-api`)**
-   - `CP_SAT_SOLVER_URL=https://schooltime-cpsat.onrender.com/solve` (use your real Render URL, must end with `/solve`)
-   - On paid plans you can use the **Internal URL** from the dashboard instead (faster, private)
-   - `CP_SAT_SOLVER_SECRET` — must match the sidecar
-   - `TIMETABLE_SOLVER_TIMEOUT_MS=90000` (or higher) — first request after idle may be slow (cold start)
-
-4. **Deploy order:** deploy `schooltime-cpsat` first, confirm `https://…/health` returns `{"ok":true}`, then set `CP_SAT_SOLVER_URL` on the API and redeploy the API.
-
-5. **Security:** keep the sidecar URL + secret; do not expose the sidecar without `CP_SAT_SOLVER_SECRET` on the public internet.
-
-Existing users are unchanged until `CP_SAT_SOLVER_URL` is set; Hybrid in the UI then uses CP-SAT when the sidecar is healthy.
+- **`DATABASE_URL`:** omit `?sslmode=require` from the URL when using the Node `pg` pool in Docker; the server configures TLS for RDS. Confirm the database name in RDS (**`postgres`** vs `schooltime` on Easy Create).
+- **HTTPS:** GitHub Pages requires an **HTTPS** API (`Caddy` + domain or **DuckDNS** — `docs/AWS_FREE_TIER_SETUP.md` Part 5).
+- **GitHub variable:** `VITE_API_BASE_URL=https://<api-host>/api`
 
 ### Existing production customers (safe upgrades)
 

@@ -3,7 +3,7 @@
 This project supports both database engines:
 
 - `sqlite` (default local/dev mode)
-- `postgres` (Render/production mode)
+- `postgres` (AWS RDS / hosted production mode)
 
 Use `DB_CLIENT` to switch runtime engine.
 
@@ -16,7 +16,7 @@ Use `DB_CLIENT` to switch runtime engine.
 
 ## Prerequisites
 
-- A working Postgres database URL (Render external DB URL).
+- A working Postgres database URL (e.g. Amazon RDS). **EC2 Docker API:** use `postgresql://user:pass@host:5432/postgres` without `?sslmode=` (see `docs/AWS_FREE_TIER_SETUP.md`). **psql / migration scripts** may use `?sslmode=require` if your client supports it.
 - Existing SQLite DB at `server/data/app.db`.
 
 ## 1) Set environment (migration step)
@@ -41,10 +41,10 @@ This will:
 
 ## 3) Verify data
 
-Use Render psql (example):
+Connect with any Postgres client, for example:
 
 ```bash
-render psql <your-db-id>
+psql "$DATABASE_URL"
 ```
 
 Then run checks:
