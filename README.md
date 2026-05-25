@@ -36,15 +36,15 @@ See `LICENSE` for full text.
 - School setup: mediums, standards, divisions (**standards** and **divisions** are kept in ascending standard order system-wide; **working days** are always Mon→Sun order in grids, engine, exports, and saved tenant state)
 - Academic setup: subjects, teachers, teacher-division mapping, class-teacher assignment (single class teacher class)
 - Subject applicability controls: class-level scope with optional division include/exclude overrides; per-division max/day and weekly limits in the subject wizard include a **copy-down** control to apply the current row to all divisions listed below
-- Scheduling setup: period slots (each slot can run on a subset of school days; new slots default to all working days), working days, subject placement preferences (exclude slots/days, **optional fixed lesson period on chosen weekdays for one or more divisions**; the preference editor keeps excludes and fixed placement consistent; fixed-period choices only list slots active on every selected day), class-teacher first-period weekday selection
+- Scheduling setup: period slots (each slot can run on a subset of school days; new slots default to all working days), working days, subject placement preferences (**multi-select subjects and divisions** in one editor; exclude slots/days; **optional fixed lesson period on chosen weekdays** for the selected divisions; the preference editor keeps excludes and fixed placement consistent; fixed-period choices only list slots active on every selected day), class-teacher first-period weekday selection
 - Scheduling diagnostics with top rejection reasons and actionable tuning suggestions (rejection stats include **`NON_LESSON_SLOT`** when a placement would target a break/lunch row)
 - Teacher session-aware free-period enforcement (separate morning/evening capacity checks in strict mode)
 - Division-subject teacher consistency lock: optional persisted **`divisionSubjectTeacherLocks`** pre-seed the engine; otherwise once a teacher is chosen for a subject in a division during generation, subsequent placements for that same division-subject stay with the same teacher (single-teacher behavior when multiple `teacherSubjects` rows exist without team-teaching)
 - Pre-generate **feasibility** report (`report.feasibility`): required weekly vs legally placeable cells per class–subject; blocks generate on ERROR-level infeasibility
 - New registrations start with **clean demo tenant data**: standards **1–10** with one section **A** each (English medium), core subjects plus **Computer Lab** and **PE**, one class teacher per division plus shared subject teachers, a Mon–Fri period grid, and sample scheduling rules (**PE** avoids first morning / last lesson; **Computer Lab** not on Monday)
-- After generate: **Edit** timetable to swap two lesson or free cells; **Undo last** (or **Ctrl+Z** / **⌘Z** when not typing in a field) reverses swaps one at a time from the edit history
+- After generate (division view): **Edit** timetable — **swap** two cells, **move** a lesson to a free period, or **add** a lesson to a free cell (subject + teacher). Placement uses the same engine-parity checks as generation (`shared/timetablePlacementValidator.js`). When a cell cannot accept a lesson, the UI may suggest **repair steps** (bounded move/swap sequences from `POST /timetable/valid-add-options`). **Undo last** (or **Ctrl+Z** / **⌘Z** when not typing) reverses the most recent swap from edit history. Reports, completion score, and unscheduled lists **recompute from live `entries`** after each edit (no full regenerate required); see `shared/recomputeTimetableReport.js` and `docs/API.md`.
 - **Timetable view alignment:** the Timetable grid uses **`sourceState.periodSlots`** and **`sourceState.workingDays`** from the generation run when present so columns match **`entries`** slot numbers (avoids lessons appearing under Break/Lunch headers after Periods are edited). Unscheduled badges and Dashboard completion hints resolve class names from the same run snapshot with stable id matching (`src/features/shared/idLookups.js`).
-- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable). Placement is **greedy constraint-satisfying** (not a proven global optimum). The built-in (**legacy**) engine uses **multi-restart** search, **hardest-subject-first** ordering, **backtracking**, then **local search** (gap-fill / relocate / swap) under a lexicographic objective (max scheduled → min shortages → min soft rule breaks)—see `server/legacyEngineImprovements.js`, `server/legacyEngineLocalSearch.js`, and `docs/ARCHITECTURE.md`. On **Create**, a **pill selector** sends optional **`timetableSolver`** with each generate request (`hybrid` or `cp_sat`; hybrid is recommended) so you are not limited to server env alone; `report.solver.timetableSolverSource` records `request` vs `env`. Server env **`TIMETABLE_SOLVER`** still sets the default when using API without that field; **`experimental`** runs the same scheduling core inside a worker with timeout and **automatic fallback** to legacy on failure; **`cp_sat`** / **`hybrid`** add an OR-Tools sidecar path when `CP_SAT_SOLVER_URL` is set (see `docs/ARCHITECTURE.md`).
+- Timetable generation engine with completion score, unscheduled insights, and **flagged divisions with no class teacher** (shown after generate, on Dashboard and Timetable). Placement is **greedy constraint-satisfying** (not a proven global optimum). The built-in (**legacy**) engine uses **phased placement** (constrained → lab/practical → core → language → non-core → remaining, higher standard first), **multi-restart** search, **hardest-subject-first** ordering within each phase, **backtracking**, **lock repair**, post-placement optimizers, then **local search** (gap-fill / relocate / swap) under a lexicographic objective—see `shared/enginePlacementPhases.js`, `server/legacyEngineImprovements.js`, `server/legacyEngineLocalSearch.js`, and `docs/ARCHITECTURE.md`. On **Create**, a **pill selector** sends optional **`timetableSolver`** with each generate request (`hybrid` or `cp_sat`; hybrid is recommended) so you are not limited to server env alone; `report.solver.timetableSolverSource` records `request` vs `env`. Server env **`TIMETABLE_SOLVER`** still sets the default when using API without that field; **`experimental`** runs the same scheduling core inside a worker with timeout and **automatic fallback** to legacy on failure; **`cp_sat`** / **`hybrid`** add an OR-Tools sidecar path when `CP_SAT_SOLVER_URL` is set (see `docs/ARCHITECTURE.md`).
 - Left sidebar release footer (`V<version> (<build-number>)`), with `LOCAL · DEV` tags shown only in local development mode
 - Dashboard insights for below-100% completion
 - Timetable reports:
@@ -124,7 +124,7 @@ Based on `.env.example`:
 - `LEGACY_ENGINE_LOCAL_SEARCH_ITERATIONS` - optional; post-greedy local search passes (gap-fill, relocate, swap) using lexicographic objective (default `24`, `0` disables)
 - `LEGACY_ENGINE_LOCAL_SEARCH_CANDIDATES` - optional cap on move candidates per iteration (default `48`)
 - `TIMETABLE_SOLVER_TIMEOUT_MS` - wall-clock cap for the experimental / `cp_sat` worker before legacy fallback (default `30000`, max `300000`)
-- `CP_SAT_SOLVER_URL` - optional; e.g. `http://127.0.0.1:8790/solve` (Python sidecar in `solver/cpsat/service.py`). On Render, deploy the sidecar as a second Web Service — see **`docs/RENDER_CP_SAT.md`** and `render.yaml`. The sidecar model enforces the same **hard** placement rules as the greedy engine for teacher/division packing, `INCLUDE_ONLY`, inactive period weekdays, `maxPerDay`, teacher morning/evening/weekly caps, continuity, and cross-division continuity (see `docs/ARCHITECTURE.md`). Day/slot “soft” excludes can be relaxed when `classTeacherPreferences.schedulingMode` is `BEST_FIT` / `OPTIMAL` or when the request uses `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL` (see `planning/global-optimal-solver/JSON_CONTRACT.md`).
+- `CP_SAT_SOLVER_URL` - optional; e.g. `http://127.0.0.1:8790/solve` (Python sidecar in `solver/cpsat/service.py`). Production AWS: **Lambda** (`docs/AWS_LAMBDA_CPSAT.md`) or a **second container** (`docs/AWS_CP_SAT.md`). The sidecar model enforces the same **hard** placement rules as the greedy engine for teacher/division packing, `INCLUDE_ONLY`, inactive period weekdays, `maxPerDay`, teacher morning/evening/weekly caps, continuity, and cross-division continuity (see `docs/ARCHITECTURE.md`). Day/slot “soft” excludes can be relaxed when `classTeacherPreferences.schedulingMode` is `BEST_FIT` / `OPTIMAL` or when the request uses `MATCH_LEGACY_BEST_FIT_OR_OPTIMAL` (see `planning/global-optimal-solver/JSON_CONTRACT.md`).
 - `CP_SAT_SOLVER_SECRET` - optional shared secret; Node sends `Authorization: Bearer …` when set
 - `CP_SAT_MAX_DECISION_VARS` - optional rough guard before calling the sidecar (default `5000000`); above this, the runner uses legacy greedy with `fallbackReason` `cp_sat_size_cap`
 - `CP_SAT_FALLBACK_ON_VALIDATION` - when `true` (default), if the CP-SAT result passes the HTTP adapter but fails **post-solve** hard checks (`validateTimetableRun` ERROR severities), the runner **replaces** the result with legacy greedy and sets `report.solver.fallbackReason` to `cp_sat_validation` (codes in `report.solver.validationCodes`). Set to `false` to keep the CP-SAT grid and surface `report.cpsat.validationFailed` / `validationCodes` instead.
@@ -218,17 +218,24 @@ Based on `.env.example`:
 
 ## Deployment Notes
 
-- Set `NODE_ENV=production`
-- Use a secure `JWT_SECRET`
-- Restrict CORS to trusted domains
-- Persist `server/data/` if running in containers
-- Recommended reverse proxy: Nginx/Caddy with TLS
+**Production:** **GitHub Pages** (frontend) + **AWS EC2** (API in Docker) + **RDS PostgreSQL** + **Caddy HTTPS** (custom domain or free **DuckDNS**). **Render is not used.**
+
+- **Step-by-step:** **`docs/AWS_FREE_TIER_SETUP.md`** (EC2 Free Tier) or **`docs/AWS_COMPLETE_SETUP.md`**
+- Set `NODE_ENV=production`, `DB_CLIENT=postgres`, `DATABASE_URL` (RDS; often database **`postgres`** on Easy Create — no `?sslmode=` in URL for Docker)
+- Use a secure `JWT_SECRET`; set `HOST=0.0.0.0` in containers
+- `CORS_ORIGIN` = GitHub Pages origin (e.g. `https://rahul-vik.github.io`); Actions variable **`VITE_API_BASE_URL`** = `https://<api-host>/api` (e.g. DuckDNS)
+- Root **`Dockerfile`** builds the API image; optional CP-SAT: **`docs/AWS_LAMBDA_CPSAT.md`**
+- Local/dev SQLite: persist `server/data/`; production uses Postgres only
 
 ## Documentation Index
 
 - `docs/ARCHITECTURE.md`
 - `docs/API.md`
+- `docs/AWS_DEPLOYMENT.md` (production: GitHub Pages + AWS EC2/RDS)
+- `docs/AWS_FREE_TIER_SETUP.md` (EC2 + RDS + Caddy/DuckDNS — primary deploy guide)
 - `docs/DEPLOYMENT.md`
+- `docs/AWS_LAMBDA_CPSAT.md` (CP-SAT on Lambda, generate-only)
+- `docs/AWS_CP_SAT.md`
 - `docs/BRANCH_POLICY.md`
 - `docs/VERSIONING.md`
 - `docs/PRODUCTION_READINESS.md`

@@ -1,0 +1,52 @@
+---
+description: Production hosting on AWS + GitHub Pages (not Render)
+globs:
+  - docs/AWS*.md
+  - docs/DEPLOYMENT.md
+  - infra/aws/**
+  - .github/workflows/deploy-pages.yml
+  - Dockerfile
+  - server/db.js
+  - .env.example
+alwaysApply: false
+---
+
+# Production hosting (AWS + GitHub)
+
+SchoolTime production does **not** use Render. Do not add Render URLs, `render.yaml` deploy steps, or `onrender.com` examples to new docs or env templates.
+
+## Canonical stack
+
+| Layer | Service |
+|-------|---------|
+| SPA | **GitHub Pages** — `deploy-pages.yml` on `main`; repo variable **`VITE_API_BASE_URL`** = `https://<api-host>/api` |
+| API | **EC2** — Docker image from root **`Dockerfile`**; bind **`HOST=0.0.0.0`**, **`PORT=8787`** |
+| DB | **RDS PostgreSQL** — `DB_CLIENT=postgres` |
+| HTTPS | **Caddy** on EC2 → `reverse_proxy 127.0.0.1:8787` |
+
+No custom domain: use **DuckDNS** (e.g. `schooltime-api.duckdns.org`) — see `docs/AWS_FREE_TIER_SETUP.md` Part 5.
+
+## EC2 `.env` (Docker + RDS)
+
+- `NODE_ENV=production`
+- `DATABASE_URL` — **no** `?sslmode=require` in the URL when using the Node `pg` pool on Docker (pg v8+ treats it as strict TLS). Use host path only, e.g. `postgresql://USER:PASS@endpoint:5432/postgres`. RDS Easy Create often creates DB **`postgres`**, not `schooltime` — check RDS **Configuration → DB name**.
+- `CORS_ORIGIN` — exact GitHub Pages origin (e.g. `https://rahul-vik.github.io`, no trailing slash)
+- `APP_BASE_URL` — full SPA path (e.g. `https://rahul-vik.github.io/SchoolTime`)
+- API container: `-p 127.0.0.1:8787:8787` (public HTTPS via Caddy only)
+
+`server/db.js` strips SSL query params from `DATABASE_URL` and sets `ssl: { rejectUnauthorized: false }` for RDS hosts when TLS is required.
+
+## GitHub Pages
+
+- Variable: `VITE_API_BASE_URL=https://<api-host>/api` (HTTPS, must end with `/api`)
+- `CORS_ORIGIN` on API must match the browser origin of the Pages site
+
+## Optional CP-SAT
+
+- **Lambda:** `docs/AWS_LAMBDA_CPSAT.md` — set `CP_SAT_SOLVER_URL` on EC2; Lambda does not use RDS
+- **Sidecar container:** `docs/AWS_CP_SAT.md`
+- Default production: legacy engine when `CP_SAT_SOLVER_URL` is empty
+
+## Docs to keep aligned
+
+`README.md`, `AGENTS.md`, `docs/AWS_FREE_TIER_SETUP.md`, `docs/AWS_COMPLETE_SETUP.md`, `docs/AWS_DEPLOYMENT.md`, `docs/DEPLOYMENT.md`, `infra/aws/*`

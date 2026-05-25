@@ -176,14 +176,40 @@ async function initSqlite() {
   }
 }
 
+/** pg v8+ treats sslmode=require in the URL as verify-full; Pool `ssl` must own TLS for RDS. */
+function stripPostgresSslQueryParams(conn) {
+  const raw = String(conn || "").trim();
+  if (!raw || !raw.includes("?")) return raw;
+  const q = raw.indexOf("?");
+  const base = raw.slice(0, q);
+  const kept = raw
+    .slice(q + 1)
+    .split("&")
+    .filter((part) => part && !/^(sslmode|uselibpqcompat|sslrootcert|sslcert|sslkey)=/i.test(part));
+  return kept.length ? `${base}?${kept.join("&")}` : base;
+}
+
+function postgresHostFromUrl(conn) {
+  const m = String(conn || "").match(/@([^/?:]+)/);
+  return m ? m[1] : "";
+}
+
+function postgresNeedsTls(conn) {
+  if (process.env.PG_SSL === "true" || process.env.PGSSLMODE === "require") return true;
+  if (process.env.PG_SSL === "false" || process.env.PGSSLMODE === "disable") return false;
+  const host = postgresHostFromUrl(conn);
+  return ENV.isProduction || /\.rds\.amazonaws\.com$/i.test(host);
+}
+
 async function initPostgres() {
-  const conn = process.env.DATABASE_URL;
+  const conn = stripPostgresSslQueryParams(process.env.DATABASE_URL);
   if (!conn) throw new Error("DB_CLIENT=postgres but DATABASE_URL is not set.");
   const appName = (process.env.PGAPPNAME || process.env.PG_APPLICATION_NAME || "schooltime-api").trim();
+  const useTls = postgresNeedsTls(conn);
   pgPool = new Pool({
     connectionString: conn,
     application_name: appName,
-    ssl: ENV.isProduction ? { rejectUnauthorized: false } : undefined,
+    ssl: useTls ? { rejectUnauthorized: false } : undefined,
   });
   const schemaPath = path.resolve("server", "db", "postgres-schema.sql");
   const schemaSql = fs.readFileSync(schemaPath, "utf8");

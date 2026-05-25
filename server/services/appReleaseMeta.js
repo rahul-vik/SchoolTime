@@ -25,7 +25,7 @@ export function getAppReleaseMeta() {
       const v = String(pkg.version || "0.0.0").trim() || "0.0.0";
       const bn = String(process.env.APP_BUILD_NUMBER || "0").trim() || "0";
       const sha =
-        String(process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "unknown")
+        String(process.env.GITHUB_SHA || process.env.RENDER_GIT_COMMIT || "unknown")
           .trim()
           .slice(0, 12) || "unknown";
       cached = {

@@ -1,0 +1,51 @@
+{
+  "family": "schooltime-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "schooltime-api",
+      "image": "<account-id>.dkr.ecr.<region>.amazonaws.com/schooltime-api:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8787,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "8787" },
+        { "name": "HOST", "value": "0.0.0.0" },
+        { "name": "DB_CLIENT", "value": "postgres" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:<region>:<account>:secret:schooltime/database-url"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:<region>:<account>:secret:schooltime/jwt-secret"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8787/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/schooltime-api",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "api"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# EC2 + external RDS (Free Tier). Usage on the server:
+#   cp infra/aws/docker-compose.ec2-rds.yml docker-compose.yml
+#   cp .env .env   # fill DATABASE_URL, JWT_SECRET, CORS_ORIGIN, etc.
+#   docker compose up -d --build
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: schooltime-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8787
+      DB_CLIENT: postgres

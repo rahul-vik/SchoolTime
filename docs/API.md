@@ -57,7 +57,7 @@ Response includes:
 
 - `POST /timetable/generate` — requires `canConfigureTimetable`; body is the tenant state object **plus optional** fields stripped before `migrateTenantState` / Zod validation:
   - **`timetableSolver`** (string): `legacy` (default greedy), `experimental`, `cp_sat`, or `hybrid`. Overrides server env `TIMETABLE_SOLVER` for **that request only** (timeouts, `CP_SAT_SOLVER_URL`, and caps still come from env).
-  - **`legacyEngineOptions`** (object, advanced): tunes greedy when legacy runs — `{ "restarts"?, "backtrackDepth"?, "maxBacktrackRounds"?, "localSearchIterations"?, "localSearchCandidates"? }`. Env defaults: `LEGACY_ENGINE_*` (see `docs/ARCHITECTURE.md`).
+  - **`legacyEngineOptions`** (object, advanced): tunes greedy when legacy runs — `{ "restarts"?, "backtrackDepth"?, "maxBacktrackRounds"?, "lockRepairRounds"?, "localSearchIterations"?, "localSearchCandidates"? }`. Env defaults: `LEGACY_ENGINE_*` (see `docs/ARCHITECTURE.md`).
   Response `report.solver` includes **`timetableSolverSource`**: `request` | `env`. See `TIMETABLE_SOLVER` / `CP_SAT_SOLVER_URL` in `docs/ARCHITECTURE.md`.
 - `GET /timetable/latest` — requires auth; returns latest generated timetable snapshot for current org/user context
 - **`POST /timetable/valid-edit-targets`** — requires `canConfigureTimetable`. Body: `{ runId?, entries?, sourceState?, source: { divisionId, dayOfWeek, slotNumber }, scopeDivisionId? }`. Returns `{ runId, source, targets: [{ divisionId, dayOfWeek, slotNumber, valid, kind, reasonCode?, reasonMessage? }] }` where `kind` is `SWAP` | `MOVE_TO_FREE` | `INVALID`. Validation mirrors engine placement rules via `shared/timetablePlacementValidator.js`.

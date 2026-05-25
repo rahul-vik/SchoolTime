@@ -1,4 +1,4 @@
-﻿function resolveApiBase(value) {
+function resolveApiBase(value) {
   const fallback = "http://localhost:8787/api";
   const raw = String(value || fallback).trim();
   if (!raw) return fallback;
@@ -12,7 +12,7 @@
     // School app APIs are tenant-auth routes under /api. If env accidentally points to /api/b2b,
     // user-auth calls (like purchase requests) can hit API-key middleware and fail.
     if (cleanPath === "/api/b2b") parsed.pathname = "/api";
-    // Render/GitHub Pages setup often provides only origin; backend routes live under /api.
+    // GitHub Pages / production env often provides only origin; backend routes live under /api.
     if (!cleanPath || cleanPath === "/") parsed.pathname = "/api";
     return `${parsed.origin}${parsed.pathname}`;
   } catch {

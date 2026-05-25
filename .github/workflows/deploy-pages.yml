@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: pages
@@ -16,8 +17,6 @@ concurrency:
 
 jobs:
   build:
-    environment:
-      name: github-pages
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,10 +34,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Do not pass an empty VITE_API_BASE_URL — that blocks .env.production and the app falls back to localhost:8787.
+      - name: Resolve VITE_API_BASE_URL
+        id: vite_api
+        run: |
+          API="$(gh api "repos/${GITHUB_REPOSITORY}/actions/variables/VITE_API_BASE_URL" --jq .value 2>/dev/null || true)"
+          API="$(echo "$API" | tr -d '\r' | xargs)"
+          if [ -z "$API" ]; then
+            API="$(grep -E '^VITE_API_BASE_URL=' .env.production | head -1 | cut -d= -f2- | tr -d '\r' | xargs)"
+          fi
+          if [ -z "$API" ]; then
+            echo "::error::Set repository variable VITE_API_BASE_URL (Actions → Variables) or .env.production"
+            exit 1
+          fi
+          case "$API" in
+            */api) ;;
+            *) API="${API%/}/api" ;;
+          esac
+          echo "Using API base: $API"
+          echo "base_url=$API" >> "$GITHUB_OUTPUT"
+
       - name: Build frontend for GitHub Pages
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ steps.vite_api.outputs.base_url }}
         run: npm run build -- --base "/${{ github.event.repository.name }}/"
+
+      - name: Verify build does not target localhost
+        run: |
+          if grep -R "localhost:8787" dist/assets/*.js 2>/dev/null; then
+            echo "::error::Built bundle still references localhost:8787 — fix VITE_API_BASE_URL and rebuild"
+            exit 1
+          fi
 
       - name: Add SPA fallback for deep links
         run: cp dist/index.html dist/404.html

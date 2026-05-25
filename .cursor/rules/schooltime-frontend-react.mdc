@@ -16,6 +16,8 @@ alwaysApply: false
 - Preserve existing navigation and page IDs used by `navigate(...)`.
 - For timetable diagnostics/shortage insights, show class context (standard + division + subject) instead of subject-only summaries.
 - **Generated timetable UI:** resolve **`report.unscheduled`** and grid columns against **`timetable.sourceState`** when present (`pickTimetableSnapshotLists`, `periodGridForTimetableView` in `TimetablePages.jsx`; **`findEntityById`** in `src/features/shared/idLookups.js` for string/number id parity). Pass snapshot **`periodSlots`** / **`workingDays`** into **`TimetableGrid`** so Break/Lunch headers align with **`entries`** slot numbers; Dashboard completion bullets use the same snapshot lists.
+- **Manual edit mode (division view):** swap/move/add via `manualEditActions.js` + API helpers; show repair steps from `valid-add-options` when add is blocked; apply `withLiveTimetableReport` after client-side undo/optimistic updates so score/unscheduled match `entries`. Teacher view stays read-only.
+- **Placement preferences UI:** `PillMultiSelect` for subjects and divisions in `SchedulingPages.jsx`; saving applies the same rule to all selected subjects/divisions—keep exclude vs fixed-placement guards consistent.
 - Prefer actionable quick links from diagnostics cards (`navigate("teachers"|"subjects"|"rules"|"periods")`) when recommending fixes.
 - Keep sidebar release footer format as `V<version> (<build-number>)`; show `LOCAL · DEV` tags only in local dev mode.
 
