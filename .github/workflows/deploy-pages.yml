@@ -59,12 +59,14 @@ jobs:
           VITE_API_BASE_URL: ${{ steps.vite_api.outputs.base_url }}
         run: npm run build -- --base "/${{ github.event.repository.name }}/"
 
-      - name: Verify build does not target localhost
+      - name: Verify production API host is in bundle
         run: |
-          if grep -R "localhost:8787" dist/assets/*.js 2>/dev/null; then
-            echo "::error::Built bundle still references localhost:8787 — fix VITE_API_BASE_URL and rebuild"
+          HOST="$(echo "${{ steps.vite_api.outputs.base_url }}" | sed -E 's|https?://([^/]+).*|\1|')"
+          if ! grep -q "$HOST" dist/assets/*.js; then
+            echo "::error::Built bundle missing API host $HOST — check VITE_API_BASE_URL"
             exit 1
           fi
+          echo "Found API host in bundle: $HOST"
 
       - name: Add SPA fallback for deep links
         run: cp dist/index.html dist/404.html
